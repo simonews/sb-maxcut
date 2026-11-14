@@ -53,10 +53,13 @@ cmake --preset cuda-strict && cmake --build --preset cuda-strict && ctest --pres
 cmake --preset cuda        && cmake --build --preset cuda        && ctest --preset cuda
 ```
 
-The script installs `cuda-toolkit[...]==13.4.3` into a virtual environment under
-`~/.local/share/sbmc/cuda-13.4.3/`, creates a library shim (versioned and unversioned names of
-the toolkit's shared libraries, which CMake needs to find them), checks nvcc, tileiras,
-compute-sanitizer, cuobjdump and a minimal Tile compilation, and writes `CMakeUserPresets.json`.
+The script installs `cuda-toolkit[...]==13.4.3`, nvdisasm included, into a virtual environment
+under `~/.local/share/sbmc/cuda-13.4.3/`. It pins `nvidia-nvjitlink`, which the metapackage only
+requires as a minimum version, to the version of nvcc (13.4.92 for 13.4.3), also when it reruns
+on an existing environment. It creates a library shim (versioned and unversioned names of the
+toolkit's shared libraries, which CMake needs to find them), checks nvcc, tileiras,
+compute-sanitizer, cuobjdump, nvdisasm, the nvjitlink pin, a minimal Tile compilation and its
+disassembly, and writes `CMakeUserPresets.json`.
 That file holds the machine-specific paths, is ignored by git and defines the visible presets
 `cuda` and `cuda-strict` on top of the hidden ones of `CMakePresets.json`; rerun the script
 after moving the toolkit. IDEs that support CMake presets (CLion included) read both files.
@@ -75,6 +78,29 @@ reports it as skipped. The GPU smoke tests, built in `build/<preset>/tests/smoke
 - `fma_probe_tile_fmad_on` / `fma_probe_tile_fmad_off`: whether FMA contraction happens in Tile
   code and whether `--fmad=false` prevents it.
 
+### Reading the SASS of an executable
+
+`cuobjdump -sass` prints the machine code (SASS) of every kernel of an executable: the SIMT
+kernels and, in a separate section, the CUDA Tile kernels, each under a `Function : <name>`
+line. The toolkit root comes from `CMakeUserPresets.json`; cuobjdump uses the nvdisasm installed
+next to it, so no PATH change is needed. From the repository root:
+
+```bash
+TK=$(sed -n 's/^[[:space:]]*"toolkit-root":[[:space:]]*"\(.*\)",\{0,1\}[[:space:]]*$/\1/p' CMakeUserPresets.json)
+"$TK/bin/cuobjdump" -sass build/cuda/tests/smoke/fma_probe_tile_fmad_on
+```
+
+For example, to count the FFMA, FMUL and FADD instructions of each kernel of an FMA probe:
+
+```bash
+"$TK/bin/cuobjdump" -sass build/cuda/tests/smoke/fma_probe_tile_fmad_on |
+  awk '/Function :/ { fn = $NF; seen[fn] = 1 }
+       fn != "" && /[[:space:]]FFMA[[:space:].]/ { ffma[fn]++ }
+       fn != "" && /[[:space:]]FMUL[[:space:].]/ { fmul[fn]++ }
+       fn != "" && /[[:space:]]FADD[[:space:].]/ { fadd[fn]++ }
+       END { for (f in seen) printf "%s FFMA=%d FMUL=%d FADD=%d\n", f, ffma[f], fmul[f], fadd[f] }'
+```
+
 ## Tools
 
 - `scripts/sync_from_zip.sh <sb-maxcut_FNN_RN.zip>`: applies a delivery zip to a clean working
@@ -82,7 +108,11 @@ reports it as skipped. The GPU smoke tests, built in `build/<preset>/tests/smoke
   over 5 MiB), requires the same `.sync-exclude` as the repository and its consistency with
   `.gitignore`, shows a dry run and asks for confirmation. Exit codes: 0 applied, 1 failed
   checks, 2 different `.sync-exclude`, 3 cancelled. Paths in `.sync-exclude` (build trees, IDE
-  folders, `CMakeUserPresets.json`, `results/`, ...) are never copied nor deleted.
+  folders, `CMakeUserPresets.json`, `results/`, ...) are never copied nor deleted; this covers
+  the local files that git ignores and that `.sync-exclude` lists (`.cache/`, `__pycache__/`,
+  `*.nsys-rep`, `*.ncu-rep`), and `.git` also when it is a file (git worktrees). When a delivery
+  changes `.sync-exclude`, the script stops with exit code 2 and shows the diff: copy the new
+  `.sync-exclude` by hand, commit it, then run the script again.
 - `scripts/env_report.sh [--preset cuda]`: writes `results/env/env_<host>_<timestamp>.txt`
   (git state, OS and WSL, CPU, memory, tool and toolkit versions, GPU, `smoke_simt` output).
 - `scripts/setup_cuda_pypi.sh`: see above.

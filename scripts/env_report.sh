@@ -165,21 +165,31 @@ done
 section "cuda_toolkit"
 presets_file="${repo_root}/CMakeUserPresets.json"
 toolkit_root=""
+toolkit_venv=""
 if [[ -f "${presets_file}" ]]; then
   kv "presets_file" "${presets_file}"
   toolkit_root="$(sed -n 's/^[[:space:]]*"toolkit-root":[[:space:]]*"\(.*\)",\{0,1\}[[:space:]]*$/\1/p' \
+    "${presets_file}" | head -n 1)"
+  toolkit_venv="$(sed -n 's/^[[:space:]]*"venv":[[:space:]]*"\(.*\)",\{0,1\}[[:space:]]*$/\1/p' \
     "${presets_file}" | head -n 1)"
 else
   kv "presets_file" "${NA} (run scripts/setup_cuda_pypi.sh)"
 fi
 kv "toolkit_root" "${toolkit_root:-${NA}}"
-for tool in nvcc tileiras compute-sanitizer cuobjdump; do
+for tool in nvcc tileiras compute-sanitizer cuobjdump nvdisasm; do
   if [[ -n "${toolkit_root}" ]]; then
     kv "${tool}" "$(version_line "${toolkit_root}/bin/${tool}")"
   else
     kv "${tool}" "${NA}"
   fi
 done
+# Python packages of the toolkit's virtual environment whose name starts with cuda or nvidia.
+python_packages=""
+if [[ -n "${toolkit_venv}" && -x "${toolkit_venv}/bin/python" ]]; then
+  python_packages="$("${toolkit_venv}/bin/python" -m pip list --format=freeze \
+    --disable-pip-version-check 2>/dev/null | grep -iE '^(cuda|nvidia)' || true)"
+fi
+kv_block "python_packages" "${python_packages:-${NA}}"
 
 section "gpu"
 kv_block "nvidia_smi_query" "$(run_or_na nvidia-smi \

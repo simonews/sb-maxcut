@@ -5,11 +5,12 @@
 # Usage: scripts/setup_cuda_pypi.sh [--version 13.4.3] [--prefix DIR] [--no-presets]
 #
 # Idempotent: a second run reuses the virtual environment, re-checks the installation,
-# recreates the library shim and regenerates CMakeUserPresets.json.
+# recreates the library shim and regenerates CMakeUserPresets.json. nvidia-nvjitlink is pinned
+# to the version of nvidia-cuda-nvcc, also in an environment that has another version.
 set -euo pipefail
 
 readonly DEFAULT_VERSION="13.4.3"
-readonly EXTRAS="nvcc,tileiras,cudart,cublas,cusparse,curand,cccl,sanitizer,cuobjdump"
+readonly EXTRAS="nvcc,tileiras,cudart,cublas,cusparse,curand,cccl,sanitizer,cuobjdump,nvdisasm"
 readonly GENERATOR_ID="scripts/setup_cuda_pypi.sh"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -43,6 +44,13 @@ Options:
   --no-presets     do not write CMakeUserPresets.json
   -h, --help       show this help
 EOF
+}
+
+# Prints the installed version of a Python distribution of the virtual environment; fails if the
+# distribution is not installed. Needs venv_python.
+package_version() {
+  "${venv_python}" -c 'import importlib.metadata as m, sys; print(m.version(sys.argv[1]))' "$1" \
+    2>/dev/null
 }
 
 # Escapes a string for use inside a JSON string literal.
@@ -138,6 +146,26 @@ echo "==> Installing ${requirement}"
 "${venv_python}" -m pip install --disable-pip-version-check --no-input "${requirement}" ||
   die "pip install failed for ${requirement}"
 
+# The metapackage requires nvidia-nvjitlink only as ">=<nvcc version>,<next major>", so pip picks
+# the newest release. It is pinned to the version of the nvidia-cuda-nvcc package installed by
+# the metapackage: a second pip install resolves the pin together with the metapackage (every
+# requirement stays consistent) and moves an existing environment to the pinned version.
+nvcc_package_version="$(package_version nvidia-cuda-nvcc)" ||
+  die "nvidia-cuda-nvcc is not installed in ${venv_dir}: cannot pin nvidia-nvjitlink"
+nvjitlink_pin="nvidia-nvjitlink==${nvcc_package_version}"
+echo "==> Pinning ${nvjitlink_pin} (the version of nvidia-cuda-nvcc)"
+work_dir="$(mktemp -d)"
+if ! "${venv_python}" -m pip install --disable-pip-version-check --no-input "${requirement}" \
+  "${nvjitlink_pin}" 2>&1 | tee "${work_dir}/pip-pin.log"; then
+  if grep -qF "No matching distribution found" "${work_dir}/pip-pin.log"; then
+    die "${nvjitlink_pin} is not available on PyPI: nvidia-nvjitlink cannot be pinned to the" \
+      "nvcc version ${nvcc_package_version}"
+  fi
+  die "pip install failed for ${requirement} with ${nvjitlink_pin}"
+fi
+rm -rf -- "${work_dir}"
+work_dir=""
+
 # ---------------------------------------------------------------------------------------------
 # 3. Toolkit root, asked to the virtual environment's interpreter
 # ---------------------------------------------------------------------------------------------
@@ -159,8 +187,8 @@ PY
 [[ -n "${toolkit_root}" ]] ||
   die "nvidia/cu${major} not found in the site-packages of ${venv_dir}: unexpected package layout"
 
-for required in bin/nvcc bin/tileiras bin/compute-sanitizer bin/cuobjdump include/cuda_runtime.h \
-  include/cuda_tile.h lib; do
+for required in bin/nvcc bin/tileiras bin/compute-sanitizer bin/cuobjdump bin/nvdisasm \
+  include/cuda_runtime.h include/cuda_tile.h lib; do
   [[ -e "${toolkit_root}/${required}" ]] ||
     die "unexpected toolkit layout: ${toolkit_root}/${required} is missing"
 done
@@ -197,9 +225,6 @@ done < <(printf '%s\n' "${libraries[@]}" | awk '{ print length($0) "\t" $0 }' | 
 echo "==> Checking the installation"
 nvcc="${toolkit_root}/bin/nvcc"
 
-nvcc_package_version="$(
-  "${venv_python}" -c 'import importlib.metadata as m; print(m.version("nvidia-cuda-nvcc"))'
-)" || die "cannot read the version of the nvidia-cuda-nvcc package"
 if [[ ! "${nvcc_package_version}" =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]]; then
   die "unexpected nvidia-cuda-nvcc package version '${nvcc_package_version}'"
 fi
@@ -214,14 +239,25 @@ if ! grep -qF -- "${expected_release}," <<<"${nvcc_version_output}" ||
 fi
 echo "    nvcc: ${expected_release}, ${expected_build} (ok)"
 
-for tool in tileiras compute-sanitizer cuobjdump; do
+nvdisasm_version_line=""
+for tool in tileiras compute-sanitizer cuobjdump nvdisasm; do
   if ! tool_output="$("${toolkit_root}/bin/${tool}" --version 2>&1)"; then
     printf '%s\n' "${tool_output}" >&2
     die "${tool} --version failed"
   fi
   tool_version_line="$(grep -iE 'version|release|V[0-9]+\.[0-9]+' <<<"${tool_output}" | tail -n 1)"
   echo "    ${tool}: ${tool_version_line:-responds} (ok)"
+  if [[ "${tool}" == "nvdisasm" ]]; then
+    nvdisasm_version_line="${tool_version_line:-responds}"
+  fi
 done
+
+nvjitlink_version="$(package_version nvidia-nvjitlink)" ||
+  die "nvidia-nvjitlink is not installed in ${venv_dir}"
+if [[ "${nvjitlink_version}" != "${nvcc_package_version}" ]]; then
+  die "nvidia-nvjitlink ${nvjitlink_version} differs from nvidia-cuda-nvcc ${nvcc_package_version}"
+fi
+echo "    nvidia-nvjitlink: ${nvjitlink_version}, same as nvidia-cuda-nvcc (ok)"
 
 work_dir="$(mktemp -d)"
 cat >"${work_dir}/tile_probe.cu" <<'CU'
@@ -234,9 +270,17 @@ if ! compile_output="$("${nvcc}" -enable-tile -std=c++20 -arch=sm_89 -c \
   printf '%s\n' "${compile_output}" >&2
   die "nvcc cannot compile a minimal Tile kernel for sm_89 (is tileiras reachable from nvcc?)"
 fi
+echo "    nvcc -enable-tile -std=c++20 -arch=sm_89: minimal __tile_global__ kernel compiled (ok)"
+
+# cuobjdump runs the nvdisasm found next to it in the toolkit's bin folder (no PATH needed).
+if ! sass_output="$("${toolkit_root}/bin/cuobjdump" -sass "${work_dir}/tile_probe.o" 2>&1)" ||
+  ! grep -qE 'Function : .*sbmc_setup_tile_probe' <<<"${sass_output}"; then
+  printf '%s\n' "${sass_output}" >&2
+  die "cuobjdump -sass cannot disassemble the Tile kernel of the probe (nvdisasm not found?)"
+fi
 rm -rf -- "${work_dir}"
 work_dir=""
-echo "    nvcc -enable-tile -std=c++20 -arch=sm_89: minimal __tile_global__ kernel compiled (ok)"
+echo "    cuobjdump -sass: Tile kernel of the minimal probe disassembled (ok)"
 
 # ---------------------------------------------------------------------------------------------
 # 6. CMakeUserPresets.json
@@ -334,6 +378,8 @@ cat <<EOF
 ==> CUDA toolkit ready
     requested version : ${version} (${requirement})
     nvcc              : ${expected_release}, ${expected_build}
+    nvdisasm          : ${nvdisasm_version_line}
+    nvidia-nvjitlink  : ${nvjitlink_version} (pinned, same as nvidia-cuda-nvcc ${nvcc_package_version})
     virtual env       : ${venv_dir}
     toolkit root      : ${toolkit_root}
     library shim      : ${shim_dir} (${shim_count} versioned libraries)

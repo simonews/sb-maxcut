@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Automated test of scripts/sync_from_zip.sh, run in temporary git repositories that use the
-# project's own .sync-exclude and .gitignore.
+# Automated test of scripts/sync_from_zip.sh, run in temporary git repositories (one of them a
+# linked worktree) that use the project's own .sync-exclude and .gitignore.
 #
 # Usage: tests/scripts/test_sync_from_zip.sh [path/to/sync_from_zip.sh]
 # Exit codes: 0 every scenario gave the expected result; 1 at least one scenario failed;
@@ -113,10 +113,15 @@ tree_fingerprint() {
 
 # --- Scenarios ------------------------------------------------------------------------------
 
-# (a) Valid zip: one tracked file removed, one modified; excluded paths untouched.
+# (a) Valid zip: one tracked file removed, one modified; excluded paths untouched, including
+# local files that git ignores (.cache/, __pycache__/, a profiler report in the root).
 scenario_a() {
   local base="${work_dir}/a" status extra=0
   make_repo "${base}/repo"
+  mkdir -p -- "${base}/repo/.cache" "${base}/repo/__pycache__"
+  printf 'clangd index\n' >"${base}/repo/.cache/idx"
+  printf 'bytecode\n' >"${base}/repo/__pycache__/m.pyc"
+  printf 'profile\n' >"${base}/repo/report.nsys-rep"
   make_delivery_tree "${base}/stage" "${base}/repo"
   make_zip "${base}/delivery.zip" "${base}/stage" sb-maxcut
   status="$(run_sync "${base}/repo" "${base}/delivery.zip" y)"
@@ -126,8 +131,11 @@ scenario_a() {
   [[ "$(cat "${base}/repo/results/y")" == "user results" ]] || extra=1
   [[ "$(cat "${base}/repo/build/x")" == "build artifact" ]] || extra=1
   [[ "$(cat "${base}/repo/CMakeUserPresets.json")" == '{ "local": true }' ]] || extra=1
-  check "(a) valid zip applied, excluded paths intact" 0 "${status}" "${base}/repo.log" \
-    "Summary: 0 new, 1 modified, 1 deleted file(s)." "${extra}"
+  [[ "$(cat "${base}/repo/.cache/idx")" == "clangd index" ]] || extra=1
+  [[ "$(cat "${base}/repo/__pycache__/m.pyc")" == "bytecode" ]] || extra=1
+  [[ "$(cat "${base}/repo/report.nsys-rep")" == "profile" ]] || extra=1
+  check "(a) valid zip applied, excluded and ignored local paths intact" 0 "${status}" \
+    "${base}/repo.log" "Summary: 0 new, 1 modified, 1 deleted file(s)." "${extra}"
 }
 
 # (b) Working tree with uncommitted changes: a modified tracked file, then an untracked file.
@@ -224,6 +232,32 @@ scenario_h() {
     "not ignored by git"
 }
 
+# (i) Sync in a linked worktree (git worktree add), where .git is a file: the file survives, the
+# worktree is updated and still recognised by git, and the main repository is untouched.
+scenario_i() {
+  local base="${work_dir}/i" status extra=0 git_file_before main_before main_after
+  local worktree_status
+  make_repo "${base}/repo"
+  git -C "${base}/repo" worktree add -q "${base}/worktree"
+  git_file_before="$(cat "${base}/worktree/.git")"
+  main_before="$(tree_fingerprint "${base}/repo")"
+  make_delivery_tree "${base}/stage" "${base}/worktree"
+  make_zip "${base}/delivery.zip" "${base}/stage" sb-maxcut
+  status="$(run_sync "${base}/worktree" "${base}/delivery.zip" y)"
+  [[ -f "${base}/worktree/.git" ]] || extra=1
+  [[ "$(cat "${base}/worktree/.git")" == "${git_file_before}" ]] || extra=1
+  [[ ! -e "${base}/worktree/src/remove.txt" ]] || extra=1
+  [[ "$(cat "${base}/worktree/src/modify.txt")" == "modify v2" ]] || extra=1
+  worktree_status="$(git -C "${base}/worktree" status --porcelain 2>/dev/null || echo broken)"
+  grep -qx ' M src/modify.txt' <<<"${worktree_status}" || extra=1
+  grep -qx ' D src/remove.txt' <<<"${worktree_status}" || extra=1
+  main_after="$(tree_fingerprint "${base}/repo")"
+  [[ "${main_before}" == "${main_after}" ]] || extra=1
+  [[ -z "$(git -C "${base}/repo" status --porcelain)" ]] || extra=1
+  check "(i) sync in a git worktree, .git file intact" 0 "${status}" "${base}/worktree.log" \
+    "Summary: 0 new, 1 modified, 1 deleted file(s)." "${extra}"
+}
+
 scenario_a
 scenario_b
 scenario_c
@@ -232,10 +266,11 @@ scenario_e
 scenario_f
 scenario_g
 scenario_h
+scenario_i
 
 echo
 if ((${#failures[@]} > 0)); then
   echo "test_sync_from_zip: ${#failures[@]} failed, ${passes} passed. Failed: ${failures[*]}"
   exit 1
 fi
-echo "test_sync_from_zip: all ${passes} checks passed (scenarios a-h)"
+echo "test_sync_from_zip: all ${passes} checks passed (scenarios a-i)"
