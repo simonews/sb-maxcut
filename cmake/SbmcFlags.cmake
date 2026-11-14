@@ -36,3 +36,21 @@ else()
     "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-ffp-contract=fast;--fmad=true>"
   )
 endif()
+
+# RPATH for the executables that load CUDA libraries, exposed as the INTERFACE target
+# sbmc_cuda_rpath (alias sbmc::cuda_rpath).
+#
+# The linker records the folders of the shared libraries (for the CUDA libraries, the lib-shim of
+# the project's toolkit, which CMake records by itself) either as RUNPATH, the default of the
+# toolchain, or as RPATH. With RUNPATH the dynamic loader searches the folders of LD_LIBRARY_PATH
+# first: on Kaggle that variable lists /usr/local/cuda/lib64, the system toolkit (CUDA 13.0), and
+# the executables would load its runtime and cuBLAS. With RPATH the recorded folders come before
+# LD_LIBRARY_PATH, so the lib-shim of the project's toolkit wins. The target adds only the linker
+# option that selects RPATH; it changes no compile option.
+#
+# Rule: every executable that loads CUDA libraries links sbmc::cuda_rpath, directly or through a
+# library that propagates it. The test test_cuda_rpath (tests/scripts/check_rpath.sh) checks the
+# executables of the build.
+add_library(sbmc_cuda_rpath INTERFACE)
+add_library(sbmc::cuda_rpath ALIAS sbmc_cuda_rpath)
+target_link_options(sbmc_cuda_rpath INTERFACE "LINKER:--disable-new-dtags")

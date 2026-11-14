@@ -2,10 +2,12 @@
 // every visible device.
 //
 // Answers the question "do SIMT code and cuBLAS run on this machine with the PyPI toolkit?".
-// Built for every architecture of the preset. Output: "key: value" lines; for every device its
-// check lines and "device<i>_verdict: PASS|FAIL"; then the totals over all devices and
-// "SIMT_VERDICT: PASS|FAIL", PASS only when every device passes (SKIP when no device is usable).
-// Exit codes: 0, 1, 77.
+// Built for every architecture of the preset. Output: "key: value" lines. First the CUDA runtime
+// and cuBLAS loaded at run time are compared with the headers of the build (CUDA_RUNTIME_MATCH,
+// CUBLAS_MATCH): a mismatch prints "SIMT_VERDICT: FAIL" and exits with 1, GPU or not. Then, for
+// every device, its check lines and "device<i>_verdict: PASS|FAIL"; then the totals over all
+// devices and "SIMT_VERDICT: PASS|FAIL", PASS only when every device passes (SKIP when no device
+// is usable). Exit codes: 0, 1, 77.
 #include <cublasLt.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -270,6 +272,29 @@ int main() {
   SMOKE_CUBLAS_CHECK(cublasGetProperty(PATCH_LEVEL, &cublas_patch));
   std::printf("cublas_version: %d.%d.%d\n", cublas_major, cublas_minor, cublas_patch);
   std::printf("cublaslt_version: %zu\n", cublasLtGetVersion());
+
+  // Loaded libraries against the headers of the build: a different CUDA runtime or cuBLAS means
+  // that the dynamic loader found other copies (for example through LD_LIBRARY_PATH). These
+  // checks need no GPU, so they come before the device check. The driver is not compared: it may
+  // differ legitimately (minor version compatibility). cublasLt.h has no version macro of its own,
+  // so cuBLASLt is only reported (cublaslt_version).
+  const bool runtime_match = runtime_status == cudaSuccess && runtime_version == CUDART_VERSION;
+  print_version("cuda_runtime_compiled", cudaSuccess, CUDART_VERSION);
+  print_version("cuda_runtime_loaded", runtime_status, runtime_version);
+  std::printf("CUDA_RUNTIME_MATCH: %s\n", pass_fail(runtime_match));
+  const bool cublas_match = cublas_major == CUBLAS_VER_MAJOR && cublas_minor == CUBLAS_VER_MINOR &&
+                            cublas_patch == CUBLAS_VER_PATCH;
+  std::printf("cublas_compiled: %d.%d.%d\n", CUBLAS_VER_MAJOR, CUBLAS_VER_MINOR, CUBLAS_VER_PATCH);
+  std::printf("cublas_loaded: %d.%d.%d\n", cublas_major, cublas_minor, cublas_patch);
+  std::printf("CUBLAS_MATCH: %s\n", pass_fail(cublas_match));
+  if (!runtime_match || !cublas_match) {
+    std::fflush(stdout);
+    std::fprintf(stderr,
+                 "smoke_simt: the CUDA runtime or cuBLAS loaded at run time differs from the "
+                 "headers of the build; check the RPATH of the executable and LD_LIBRARY_PATH\n");
+    std::printf("SIMT_VERDICT: FAIL\n");
+    return sbmc::smoke::kExitFail;
+  }
 
   const int device_count = sbmc::smoke::require_cuda_devices();
   std::printf("device_count: %d\n", device_count);

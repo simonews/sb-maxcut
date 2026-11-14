@@ -3,6 +3,38 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F02-R2] - 2026-11-14
+
+Phase 02, corrections after the review of F02-R1: CUDA libraries always from the project's
+toolkit, whatever `LD_LIBRARY_PATH` says.
+
+### Added
+
+- `cmake/SbmcFlags.cmake`: INTERFACE target `sbmc_cuda_rpath` (alias `sbmc::cuda_rpath`) with
+  the linker option `--disable-new-dtags`, so that executables record the lib-shim as RPATH,
+  searched before `LD_LIBRARY_PATH`, instead of RUNPATH; rule: every executable that loads CUDA
+  libraries links it.
+- `tests/scripts/check_rpath.sh` and the test `test_cuda_rpath` (label `tools`, CUDA builds
+  only): every CUDA executable has an RPATH folder with `libcudart.so.13` and no RUNPATH; exit
+  code 77 without readelf.
+- `tests/smoke/smoke_simt.cu`: compiled and loaded versions of the CUDA runtime and cuBLAS
+  (`cuda_runtime_compiled`, `cuda_runtime_loaded`, `cublas_compiled`, `cublas_loaded`) with
+  `CUDA_RUNTIME_MATCH` and `CUBLAS_MATCH`; a mismatch prints `SIMT_VERDICT: FAIL` and exits
+  with 1, also without a GPU.
+- `scripts/kaggle_run.sh`: RPATH and RUNPATH of `smoke_simt` and its compiled and loaded
+  versions in `summary.txt`.
+
+### Changed
+
+- `tests/CMakeLists.txt`: `smoke_simt`, `smoke_tile`, `fma_probe_tile_fmad_on` and
+  `fma_probe_tile_fmad_off` link `sbmc::cuda_rpath`.
+- `README.md`: why CUDA executables use RPATH, the `sbmc::cuda_rpath` rule and
+  `test_cuda_rpath`; `smoke_simt` and `summary.txt` descriptions.
+
+### Removed
+
+- Nothing.
+
 ## [F02-R1] - 2026-11-14
 
 Phase 02: builds and tests on Kaggle's two Tesla T4 with the PyPI toolkit 13.4.3.

@@ -79,13 +79,27 @@ for sm_75 (Kaggle T4) and sm_89 (RTX 4050 Laptop); CUDA Tile targets only for sm
 `-enable-tile -std=c++20`. The `t4` presets (hidden bases `t4-base` and `t4-strict-base`)
 compile CUDA code for sm_75 only and have no Tile targets: they are the Kaggle builds.
 
+CUDA executables find the toolkit's libraries through RPATH, not RUNPATH. The linker writes
+RUNPATH by default, and the dynamic loader searches the folders of `LD_LIBRARY_PATH` before
+RUNPATH: on Kaggle that variable lists `/usr/local/cuda/lib64`, the system toolkit (CUDA 13.0),
+whose runtime and cuBLAS would replace those of the project's toolkit. RPATH comes before
+`LD_LIBRARY_PATH`, so the library shim recorded at link time wins. The INTERFACE target
+`sbmc::cuda_rpath` (`cmake/SbmcFlags.cmake`) adds only the linker option `--disable-new-dtags`.
+Rule: every executable that loads CUDA libraries links `sbmc::cuda_rpath`, directly or through a
+library that propagates it. The test `test_cuda_rpath` (label `tools`, CUDA builds only) runs
+`tests/scripts/check_rpath.sh` on the CUDA executables of the build: each one needs an RPATH
+folder with `libcudart.so.13` and no RUNPATH. As a second guard, `smoke_simt` fails when the CUDA
+runtime or cuBLAS it loads differ from the headers it was compiled with.
+
 Test labels: `cpu`, `tools`, `gpu`, `tile`, `probe` (for example `ctest --preset cuda -L tile`).
 A test that cannot run on the current machine (no GPU, missing tool) exits with 77 and CTest
 reports it as skipped. The GPU smoke tests, built in `build/<preset>/tests/smoke/`, are:
 
-- `smoke_simt`: device report, P2P matrix (`cudaDeviceCanAccessPeer`, two devices or more),
-  then on every visible device vector addition, exact cuBLAS SGEMM and cuBLASLt handle, with a
-  `device<i>_verdict` line per device; `SIMT_VERDICT: PASS` only when every device passes;
+- `smoke_simt`: loaded CUDA runtime and cuBLAS against the headers of the build
+  (`CUDA_RUNTIME_MATCH`, `CUBLAS_MATCH`; a mismatch fails with exit code 1, GPU or not), device
+  report, P2P matrix (`cudaDeviceCanAccessPeer`, two devices or more), then on every visible
+  device vector addition, exact cuBLAS SGEMM and cuBLASLt handle, with a `device<i>_verdict` line
+  per device; `SIMT_VERDICT: PASS` only when every device passes;
 - `smoke_tile`: CUDA Tile vector addition and INT8 `ct::mma` product checked against int64;
 - `fma_probe_tile_fmad_on` / `fma_probe_tile_fmad_off`: whether FMA contraction happens in Tile
   code and whether `--fmad=false` prevents it.
@@ -140,7 +154,8 @@ downloaded. The folder holds:
 
 - `summary.txt`, also printed at the end of the cell: commit, nvcc and nvidia-nvjitlink
   versions, outcome of configure, build and ctest for each preset with the names of the passed,
-  failed and skipped tests, verdict lines of `smoke_simt`, P2P matrix, environment report;
+  failed and skipped tests, RPATH and RUNPATH of `smoke_simt`, its compiled and loaded runtime
+  and cuBLAS versions and its verdict lines, P2P matrix, environment report;
 - the log of every step: `1_context.log`, `2_setup.log`, `3_<preset>_configure.log`,
   `3_<preset>_build.log`, `3_<preset>_ctest.log`, `5_env_report.log`;
 - the output of `smoke_simt` (`4_smoke_simt.txt`) and the environment report

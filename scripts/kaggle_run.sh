@@ -151,6 +151,14 @@ presets_field() {
   printf '%s' "${value%%$'\n'*}"
 }
 
+# Prints the value of a dynamic-section entry ("RPATH" or "RUNPATH") of readelf -d output, with
+# several entries joined by ':'; prints nothing when there is no such entry.
+dynamic_entry() {
+  local values
+  values="$(sed -n "s/^.*($1)[[:space:]]*Library [a-z]*: \[\(.*\)\][[:space:]]*\$/\1/p" <<<"$2")"
+  printf '%s' "${values//$'\n'/:}"
+}
+
 # Prints "<status> <name>" for every test of a ctest log; status is passed, failed or skipped.
 ctest_results() {
   awk '
@@ -380,11 +388,28 @@ if [[ -n "${venv}" && -x "${venv}/bin/python" ]]; then
     nvjitlink_version="${NA}"
 fi
 
-smoke_versions="$(grep -E '^(cuda_runtime_version|cuda_driver_version|cublas_version|cublaslt_version|device_count|device[0-9]+_name|device[0-9]+_compute_capability): ' \
+smoke_versions="$(grep -E '^(cuda_runtime_version|cuda_driver_version|cublas_version|cublaslt_version|cuda_runtime_compiled|cuda_runtime_loaded|cublas_compiled|cublas_loaded|device_count|device[0-9]+_name|device[0-9]+_compute_capability): ' \
   "${smoke_file}" || true)"
 smoke_verdicts="$(grep -E '^(device[0-9]+_verdict|[A-Z][A-Z0-9_]*|skip_reason): ' "${smoke_file}" ||
   true)"
 smoke_p2p="$(grep -E '^p2p_access_[0-9]+_to_[0-9]+: ' "${smoke_file}" || true)"
+# RPATH and RUNPATH of smoke_simt: the CUDA libraries must come from the RPATH (the lib-shim).
+smoke_rpath="${NA} (binary missing)"
+smoke_runpath="${NA} (binary missing)"
+if [[ -f "${SMOKE_BIN}" ]]; then
+  if ! command -v readelf >/dev/null 2>&1; then
+    smoke_rpath="${NA} (readelf not found)"
+    smoke_runpath="${smoke_rpath}"
+  elif dynamic_output="$(readelf -d "${SMOKE_BIN}" 2>&1)"; then
+    smoke_rpath="$(dynamic_entry RPATH "${dynamic_output}")"
+    smoke_runpath="$(dynamic_entry RUNPATH "${dynamic_output}")"
+    smoke_rpath="${smoke_rpath:-none}"
+    smoke_runpath="${smoke_runpath:-none}"
+  else
+    smoke_rpath="${NA} (readelf -d failed)"
+    smoke_runpath="${smoke_rpath}"
+  fi
+fi
 smoke_libraries=""
 if [[ -x "${SMOKE_BIN}" ]] && ldd_output="$(ldd "${SMOKE_BIN}" 2>&1)"; then
   smoke_libraries="$(grep -E 'lib(cudart|cublas|cublasLt|nvJitLink|cuda)\.so' <<<"${ldd_output}" |
@@ -450,6 +475,8 @@ summary="${run_dir}/summary.txt"
   echo
   echo "[smoke_simt]"
   echo "binary: ${SMOKE_BIN}"
+  echo "rpath (readelf -d): ${smoke_rpath}"
+  echo "runpath (readelf -d): ${smoke_runpath}"
   echo "result: ${smoke_outcome}"
   echo "output: 4_smoke_simt.txt"
   echo "versions:"
