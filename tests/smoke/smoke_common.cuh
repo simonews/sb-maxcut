@@ -24,8 +24,24 @@ inline constexpr int kExitSkip = 77;
 // Key of the verdict line printed by fail_and_exit() and skip_and_exit(), e.g. "SIMT_VERDICT".
 inline const char* g_verdict_key = "VERDICT";
 
+// Key of the verdict of the part being checked, e.g. "device1_verdict", or nullptr outside such
+// a part. When a check fails inside the part, its verdict is printed as FAIL before the final one.
+inline const char* g_part_verdict_key = nullptr;
+
 inline void set_verdict_key(const char* key) noexcept {
   g_verdict_key = key;
+}
+
+inline void set_part_verdict_key(const char* key) noexcept {
+  g_part_verdict_key = key;
+}
+
+// Prints the FAIL verdict of the current part, if any, then the final FAIL verdict.
+inline void print_fail_verdicts() {
+  if (g_part_verdict_key != nullptr) {
+    std::printf("%s: FAIL\n", g_part_verdict_key);
+  }
+  std::printf("%s: FAIL\n", g_verdict_key);
 }
 
 [[noreturn]] inline void fail_and_exit(const char* library, int code, const char* name,
@@ -34,7 +50,7 @@ inline void set_verdict_key(const char* key) noexcept {
   std::fflush(stdout);
   std::fprintf(stderr, "%s:%d: %s error %d (%s: %s) in '%s'\n", file, line, library, code, name,
                message, expr);
-  std::printf("%s: FAIL\n", g_verdict_key);
+  print_fail_verdicts();
   std::fflush(stdout);
   std::exit(kExitFail);
 }
@@ -130,7 +146,7 @@ class DeviceBuffer {
     if (host.size() != count_) {
       std::fprintf(stderr, "DeviceBuffer::upload: size mismatch (%zu vs %zu)\n", host.size(),
                    count_);
-      std::printf("%s: FAIL\n", g_verdict_key);
+      print_fail_verdicts();
       std::exit(kExitFail);
     }
     SMOKE_CUDA_CHECK(cudaMemcpy(ptr_, host.data(), bytes(), cudaMemcpyHostToDevice));
@@ -140,7 +156,7 @@ class DeviceBuffer {
     if (host.size() != count_) {
       std::fprintf(stderr, "DeviceBuffer::download: size mismatch (%zu vs %zu)\n", host.size(),
                    count_);
-      std::printf("%s: FAIL\n", g_verdict_key);
+      print_fail_verdicts();
       std::exit(kExitFail);
     }
     SMOKE_CUDA_CHECK(cudaMemcpy(host.data(), ptr_, bytes(), cudaMemcpyDeviceToHost));

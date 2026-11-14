@@ -2,11 +2,22 @@
 # Installs a pinned CUDA toolkit from PyPI into a private virtual environment (no sudo) and
 # generates CMakeUserPresets.json with the machine-specific toolkit paths.
 #
-# Usage: scripts/setup_cuda_pypi.sh [--version 13.4.3] [--prefix DIR] [--no-presets]
+# Usage: scripts/setup_cuda_pypi.sh [--version 13.4.3] [--prefix DIR] [--presets laptop|t4]
+#                                   [--no-presets]
+#
+# --presets selects the presets written to CMakeUserPresets.json: laptop (default) writes cuda
+# and cuda-strict (RTX 4050 Laptop, sm_75 + sm_89, Tile on); t4 writes t4 and t4-strict (Kaggle
+# Tesla T4, sm_75 only, Tile off).
 #
 # Idempotent: a second run reuses the virtual environment, re-checks the installation,
 # recreates the library shim and regenerates CMakeUserPresets.json. nvidia-nvjitlink is pinned
 # to the version of nvidia-cuda-nvcc, also in an environment that has another version.
+#
+# Virtual environment: an existing one whose pip works is reused; otherwise "python3 -m venv"
+# creates it. Where that fails because the Python has no ensurepip (Kaggle's image), or where an
+# existing one has no working pip, the fallback recreates it with "python3 -m venv --without-pip"
+# and installs pip into it with the system pip ("python3 -m pip --python ...", pip >= 22.3).
+# The summary reports which way was taken ("venv bootstrap").
 set -euo pipefail
 
 readonly DEFAULT_VERSION="13.4.3"
@@ -31,18 +42,21 @@ die() {
 
 usage() {
   cat <<EOF
-Usage: scripts/setup_cuda_pypi.sh [--version X.Y.Z] [--prefix DIR] [--no-presets]
+Usage: scripts/setup_cuda_pypi.sh [--version X.Y.Z] [--prefix DIR] [--presets laptop|t4]
+                                  [--no-presets]
 
 Installs "cuda-toolkit[${EXTRAS}]==<version>"
 from PyPI into a virtual environment under DIR, creates a library shim for CMake and writes
-the 'cuda' and 'cuda-strict' presets to CMakeUserPresets.json in the repository root.
+the presets of the selected machine to CMakeUserPresets.json in the repository root.
 
 Options:
-  --version X.Y.Z  toolkit version (default: ${DEFAULT_VERSION}); only CUDA 13.x is supported
-  --prefix DIR     installation prefix
-                   (default: \${XDG_DATA_HOME:-\$HOME/.local/share}/sbmc/cuda-<version>)
-  --no-presets     do not write CMakeUserPresets.json
-  -h, --help       show this help
+  --version X.Y.Z    toolkit version (default: ${DEFAULT_VERSION}); only CUDA 13.x is supported
+  --prefix DIR       installation prefix
+                     (default: \${XDG_DATA_HOME:-\$HOME/.local/share}/sbmc/cuda-<version>)
+  --presets laptop   write the 'cuda' and 'cuda-strict' presets (default)
+  --presets t4       write the 't4' and 't4-strict' presets (Kaggle T4, sm_75, no Tile)
+  --no-presets       do not write CMakeUserPresets.json (cannot be combined with --presets)
+  -h, --help         show this help
 EOF
 }
 
@@ -51,6 +65,21 @@ EOF
 package_version() {
   "${venv_python}" -c 'import importlib.metadata as m, sys; print(m.version(sys.argv[1]))' "$1" \
     2>/dev/null
+}
+
+# Succeeds when the virtual environment has an interpreter that runs "-m pip --version". Needs
+# venv_python.
+venv_pip_works() {
+  [[ -x "${venv_python}" ]] && "${venv_python}" -m pip --version >/dev/null 2>&1
+}
+
+# Removes the virtual environment, but only the path computed by this script: <prefix>/venv,
+# with a prefix that is neither empty nor /.
+remove_venv() {
+  if [[ -z "${prefix}" || "${prefix}" == "/" || "${venv_dir}" != "${prefix}/venv" ]]; then
+    die "refusing to remove '${venv_dir}': not <prefix>/venv with a valid prefix"
+  fi
+  rm -rf -- "${venv_dir}"
 }
 
 # Escapes a string for use inside a JSON string literal.
@@ -67,6 +96,8 @@ json_escape() {
 version="${DEFAULT_VERSION}"
 prefix=""
 write_presets=1
+presets_set="laptop"
+presets_option=0
 
 while (($# > 0)); do
   case "$1" in
@@ -88,6 +119,17 @@ while (($# > 0)); do
       prefix="${1#*=}"
       shift
       ;;
+    --presets)
+      (($# >= 2)) || die "--presets needs a value (laptop or t4)"
+      presets_set="$2"
+      presets_option=1
+      shift 2
+      ;;
+    --presets=*)
+      presets_set="${1#*=}"
+      presets_option=1
+      shift
+      ;;
     --no-presets)
       write_presets=0
       shift
@@ -103,6 +145,13 @@ while (($# > 0)); do
   esac
 done
 
+if ((presets_option && !write_presets)); then
+  die "--presets and --no-presets cannot be combined: choose one of them"
+fi
+if [[ "${presets_set}" != "laptop" && "${presets_set}" != "t4" ]]; then
+  die "invalid value '${presets_set}' for --presets: expected laptop or t4"
+fi
+
 if [[ ! "${version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
   die "invalid version '${version}': expected MAJOR.MINOR.PATCH, for example ${DEFAULT_VERSION}"
 fi
@@ -110,9 +159,8 @@ major="${BASH_REMATCH[1]}"
 minor="${BASH_REMATCH[2]}"
 
 if [[ "${major}" == "12" ]]; then
-  die "CUDA ${version} is not supported by this script yet: the CUDA 12 PyPI packages use a" \
-    "different layout and do not ship nvcc. The cuda12 presets need a CUDA 12 toolkit" \
-    "installed by other means (planned for phase 02)."
+  die "CUDA ${version}: CUDA 12 is not supported by the project (decision of phase 02);" \
+    "use CUDA 13.x, for example the default ${DEFAULT_VERSION}"
 fi
 if [[ "${major}" != "13" ]]; then
   die "CUDA ${version} is not supported by this script: only CUDA 13.x is handled"
@@ -134,13 +182,60 @@ venv_python="${venv_dir}/bin/python"
 requirement="cuda-toolkit[${EXTRAS}]==${version}"
 
 echo "==> Prefix: ${prefix}"
-if [[ ! -x "${venv_python}" ]]; then
+# venv_bootstrap: existing (reused), ensurepip (python3 -m venv) or "system pip <version>".
+venv_bootstrap=""
+venv_created_now=0
+if venv_pip_works; then
+  venv_bootstrap="existing"
+elif [[ ! -e "${venv_dir}" ]]; then
   echo "==> Creating the virtual environment ${venv_dir}"
-  python3 -m venv "${venv_dir}" ||
-    die "python3 -m venv failed (on Ubuntu: sudo apt install python3-venv), then remove ${venv_dir} and retry"
+  venv_created_now=1
+  if python3 -m venv "${venv_dir}" && venv_pip_works; then
+    venv_bootstrap="ensurepip"
+  else
+    echo "==> python3 -m venv could not install pip into ${venv_dir} (ensurepip missing?)"
+  fi
+else
+  echo "==> The virtual environment ${venv_dir} exists, but pip does not work in it"
 fi
-"${venv_python}" -m pip --version >/dev/null 2>&1 ||
-  die "pip is not available in ${venv_dir}: remove that directory and rerun the script"
+
+if [[ -z "${venv_bootstrap}" ]]; then
+  # Fallback: needs a system pip >= 22.3, the first release with --python. It is checked before
+  # anything is removed or installed.
+  echo "==> Fallback: virtual environment without pip, then pip from the system pip"
+  system_pip_status=0
+  system_pip_output="$(python3 -m pip --version 2>&1)" || system_pip_status=$?
+  if ((system_pip_status == 0)) &&
+    [[ "${system_pip_output}" =~ ^pip\ ([0-9]+)\.([0-9]+)([.0-9a-zA-Z]*) ]] &&
+    ((BASH_REMATCH[1] > 22 || (BASH_REMATCH[1] == 22 && BASH_REMATCH[2] >= 3))); then
+    system_pip_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+  else
+    # Nothing installed: the incomplete environment created by this run is removed, an older one
+    # is left as it was.
+    hint=""
+    if ((venv_created_now)); then
+      remove_venv
+    else
+      hint=" With python3-venv installed, removing ${venv_dir} lets the next run create it again."
+    fi
+    found="${system_pip_output%%$'\n'*}"
+    if ((system_pip_status != 0)); then
+      found="${found:+${found} }(exit status ${system_pip_status})"
+    fi
+    die "no working pip for the virtual environment ${venv_dir}: the fallback needs a system pip" \
+      ">= 22.3 (the first with --python), but 'python3 -m pip --version' gives:" \
+      "${found:-no output}. Install the python3-venv package (on Ubuntu: sudo apt install" \
+      "python3-venv) or a pip >= 22.3 for python3, then rerun.${hint}"
+  fi
+  remove_venv
+  python3 -m venv --without-pip "${venv_dir}" ||
+    die "python3 -m venv --without-pip ${venv_dir} failed"
+  echo "==> Installing pip into ${venv_dir} with the system pip ${system_pip_version}"
+  python3 -m pip --python "${venv_python}" install --disable-pip-version-check --no-input pip ||
+    die "the system pip could not install pip into ${venv_dir}"
+  venv_pip_works || die "pip does not work in ${venv_dir} after the fallback installation"
+  venv_bootstrap="system pip ${system_pip_version}"
+fi
 
 echo "==> Installing ${requirement}"
 "${venv_python}" -m pip install --disable-pip-version-check --no-input "${requirement}" ||
@@ -285,6 +380,29 @@ echo "    cuobjdump -sass: Tile kernel of the minimal probe disassembled (ok)"
 # ---------------------------------------------------------------------------------------------
 # 6. CMakeUserPresets.json
 # ---------------------------------------------------------------------------------------------
+# laptop: the same file as before phase 02 (8 build jobs, the WSL VM has 7 GB of RAM).
+# t4: one build job per CPU of the machine running the script, and the set recorded in vendor.
+# With --no-presets the set is laptop, so the "Next steps" below stay as before phase 02.
+case "${presets_set}" in
+  laptop)
+    preset_name="cuda"
+    preset_strict_name="cuda-strict"
+    display_name="CUDA ${version} (PyPI)"
+    build_jobs=8
+    vendor_presets_line=""
+    ;;
+  t4)
+    preset_name="t4"
+    preset_strict_name="t4-strict"
+    display_name="CUDA ${version} (PyPI), Tesla T4 (sm_75, no Tile)"
+    build_jobs="$(nproc 2>/dev/null || echo 1)"
+    [[ "${build_jobs}" =~ ^[1-9][0-9]*$ ]] || build_jobs=1
+    vendor_presets_line=$'\n'"      \"presets\": \"${presets_set}\","
+    ;;
+esac
+# Spaces that align the two "Next steps" lines (preset names of different length).
+printf -v name_pad '%*s' $((${#preset_strict_name} - ${#preset_name})) ''
+
 presets_file="${repo_root}/CMakeUserPresets.json"
 presets_status="not written (--no-presets)"
 if ((write_presets)); then
@@ -304,7 +422,7 @@ if ((write_presets)); then
   "version": 6,
   "vendor": {
     "sbmc": {
-      "generated-by": "${GENERATOR_ID}",
+      "generated-by": "${GENERATOR_ID}",${vendor_presets_line}
       "note": "Machine-specific file, ignored by git. Regenerate it with ${GENERATOR_ID}.",
       "cuda-version": "${version}",
       "toolkit-root": "${j_root}",
@@ -314,9 +432,9 @@ if ((write_presets)); then
   },
   "configurePresets": [
     {
-      "name": "cuda",
-      "displayName": "CUDA ${version} (PyPI)",
-      "inherits": "cuda-base",
+      "name": "${preset_name}",
+      "displayName": "${display_name}",
+      "inherits": "${preset_name}-base",
       "cacheVariables": {
         "CMAKE_CUDA_COMPILER": "${j_nvcc}",
         "CUDAToolkit_ROOT": "${j_root}",
@@ -324,9 +442,9 @@ if ((write_presets)); then
       }
     },
     {
-      "name": "cuda-strict",
-      "displayName": "CUDA ${version} (PyPI), no FMA contraction",
-      "inherits": "cuda-strict-base",
+      "name": "${preset_strict_name}",
+      "displayName": "${display_name}, no FMA contraction",
+      "inherits": "${preset_strict_name}-base",
       "cacheVariables": {
         "CMAKE_CUDA_COMPILER": "${j_nvcc}",
         "CUDAToolkit_ROOT": "${j_root}",
@@ -336,27 +454,27 @@ if ((write_presets)); then
   ],
   "buildPresets": [
     {
-      "name": "cuda",
-      "configurePreset": "cuda",
-      "jobs": 8
+      "name": "${preset_name}",
+      "configurePreset": "${preset_name}",
+      "jobs": ${build_jobs}
     },
     {
-      "name": "cuda-strict",
-      "configurePreset": "cuda-strict",
-      "jobs": 8
+      "name": "${preset_strict_name}",
+      "configurePreset": "${preset_strict_name}",
+      "jobs": ${build_jobs}
     }
   ],
   "testPresets": [
     {
-      "name": "cuda",
-      "configurePreset": "cuda",
+      "name": "${preset_name}",
+      "configurePreset": "${preset_name}",
       "output": {
         "outputOnFailure": true
       }
     },
     {
-      "name": "cuda-strict",
-      "configurePreset": "cuda-strict",
+      "name": "${preset_strict_name}",
+      "configurePreset": "${preset_strict_name}",
       "output": {
         "outputOnFailure": true
       }
@@ -367,7 +485,8 @@ EOF
   mv -f -- "${work_dir}/CMakeUserPresets.json" "${presets_file}"
   rm -rf -- "${work_dir}"
   work_dir=""
-  presets_status="${presets_file} (configure/build/test presets: cuda, cuda-strict)"
+  presets_status="${presets_file}"$'\n'"                        (--presets ${presets_set}:"
+  presets_status+=" configure/build/test presets ${preset_name}, ${preset_strict_name})"
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -381,11 +500,12 @@ cat <<EOF
     nvdisasm          : ${nvdisasm_version_line}
     nvidia-nvjitlink  : ${nvjitlink_version} (pinned, same as nvidia-cuda-nvcc ${nvcc_package_version})
     virtual env       : ${venv_dir}
+    venv bootstrap    : ${venv_bootstrap}
     toolkit root      : ${toolkit_root}
     library shim      : ${shim_dir} (${shim_count} versioned libraries)
     presets           : ${presets_status}
 
 Next steps (from ${repo_root}):
-    cmake --preset cuda-strict && cmake --build --preset cuda-strict && ctest --preset cuda-strict
-    cmake --preset cuda        && cmake --build --preset cuda        && ctest --preset cuda
+    cmake --preset ${preset_strict_name} && cmake --build --preset ${preset_strict_name} && ctest --preset ${preset_strict_name}
+    cmake --preset ${preset_name}${name_pad} && cmake --build --preset ${preset_name}${name_pad} && ctest --preset ${preset_name}
 EOF

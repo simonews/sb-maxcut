@@ -1,8 +1,13 @@
-// SIMT smoke test: device report, vector addition, cuBLAS SGEMM and a cuBLASLt handle.
+// SIMT smoke test: device report, then vector addition, cuBLAS SGEMM and a cuBLASLt handle on
+// every visible device.
 //
 // Answers the question "do SIMT code and cuBLAS run on this machine with the PyPI toolkit?".
-// Built for every architecture of the preset. Output: "key: value" lines, then
-// "SIMT_VERDICT: PASS|FAIL" (SKIP when no device is usable). Exit codes: 0, 1, 77.
+// Built for every architecture of the preset. Output: "key: value" lines. First the CUDA runtime
+// and cuBLAS loaded at run time are compared with the headers of the build (CUDA_RUNTIME_MATCH,
+// CUBLAS_MATCH): a mismatch prints "SIMT_VERDICT: FAIL" and exits with 1, GPU or not. Then, for
+// every device, its check lines and "device<i>_verdict: PASS|FAIL"; then the totals over all
+// devices and "SIMT_VERDICT: PASS|FAIL", PASS only when every device passes (SKIP when no device
+// is usable). Exit codes: 0, 1, 77.
 #include <cublasLt.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -88,22 +93,75 @@ void print_device(int device) {
   }
 }
 
-bool run_vector_add(std::mt19937& rng) {
+const char* pass_fail(bool passed) {
+  return passed ? "PASS" : "FAIL";
+}
+
+// Inputs and exact expected results: generated once on the host, checked on every device.
+struct VectorAddCase {
+  std::vector<float> a;
+  std::vector<float> b;
+  std::vector<float> expected;
+};
+
+// C = A * B with small integers: every partial sum is an integer below 2^24 in magnitude, hence
+// exact in FP32 whatever the summation order, and the result must match an int64 reference.
+struct SgemmCase {
+  std::vector<float> a;                // column-major, m x k, lda = m
+  std::vector<float> b;                // column-major, k x n, ldb = k
+  std::vector<std::int64_t> expected;  // column-major, m x n
+};
+
+VectorAddCase make_vector_add_case(std::mt19937& rng) {
   std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-  std::vector<float> a(kVectorSize);
-  std::vector<float> b(kVectorSize);
-  std::vector<float> expected(kVectorSize);
+  VectorAddCase test_case;
+  test_case.a.resize(kVectorSize);
+  test_case.b.resize(kVectorSize);
+  test_case.expected.resize(kVectorSize);
   for (std::size_t i = 0; i < kVectorSize; ++i) {
-    a[i] = dist(rng);
-    b[i] = dist(rng);
-    expected[i] = a[i] + b[i];
+    test_case.a[i] = dist(rng);
+    test_case.b[i] = dist(rng);
+    test_case.expected[i] = test_case.a[i] + test_case.b[i];
+  }
+  return test_case;
+}
+
+SgemmCase make_sgemm_case(std::mt19937& rng) {
+  constexpr int m = kGemmSize;
+  constexpr int n = kGemmSize;
+  constexpr int k = kGemmSize;
+  std::uniform_int_distribution<int> dist(-kGemmMaxAbsValue, kGemmMaxAbsValue);
+  SgemmCase test_case;
+  test_case.a.resize(static_cast<std::size_t>(m) * k);
+  test_case.b.resize(static_cast<std::size_t>(k) * n);
+  for (auto& value : test_case.a) {
+    value = static_cast<float>(dist(rng));
+  }
+  for (auto& value : test_case.b) {
+    value = static_cast<float>(dist(rng));
   }
 
+  test_case.expected.assign(static_cast<std::size_t>(m) * n, 0);
+  for (int j = 0; j < n; ++j) {
+    for (int p = 0; p < k; ++p) {
+      const auto b_pj = static_cast<std::int64_t>(test_case.b[p + static_cast<std::size_t>(j) * k]);
+      for (int i = 0; i < m; ++i) {
+        test_case.expected[i + static_cast<std::size_t>(j) * m] +=
+            static_cast<std::int64_t>(test_case.a[i + static_cast<std::size_t>(p) * m]) * b_pj;
+      }
+    }
+  }
+  return test_case;
+}
+
+// Vector addition on the current device; returns the number of sums that differ, bit for bit,
+// from the host ones.
+std::size_t run_vector_add(const VectorAddCase& test_case) {
   DeviceBuffer<float> d_a(kVectorSize);
   DeviceBuffer<float> d_b(kVectorSize);
   DeviceBuffer<float> d_c(kVectorSize);
-  d_a.upload(a);
-  d_b.upload(b);
+  d_a.upload(test_case.a);
+  d_b.upload(test_case.b);
 
   constexpr unsigned kThreads = 256;
   const auto blocks = static_cast<unsigned>((kVectorSize + kThreads - 1) / kThreads);
@@ -114,67 +172,84 @@ bool run_vector_add(std::mt19937& rng) {
   d_c.download(c);
   std::size_t mismatches = 0;
   for (std::size_t i = 0; i < kVectorSize; ++i) {
-    if (std::bit_cast<std::uint32_t>(c[i]) != std::bit_cast<std::uint32_t>(expected[i])) {
+    if (std::bit_cast<std::uint32_t>(c[i]) != std::bit_cast<std::uint32_t>(test_case.expected[i])) {
       ++mismatches;
     }
   }
-  std::printf("simt_vector_add_n: %zu\n", kVectorSize);
-  std::printf("simt_vector_add_mismatches: %zu\n", mismatches);
-  std::printf("SIMT_VECTOR_ADD: %s\n", mismatches == 0 ? "PASS" : "FAIL");
-  return mismatches == 0;
+  return mismatches;
 }
 
-// C = A * B with small integers: every partial sum is an integer below 2^24 in magnitude, hence
-// exact in FP32 whatever the summation order, and the result must match an int64 reference.
-bool run_sgemm(cublasHandle_t handle, std::mt19937& rng) {
+// cuBLAS SGEMM on the device of the handle; returns the number of entries that differ from the
+// int64 reference.
+std::size_t run_sgemm(cublasHandle_t handle, const SgemmCase& test_case) {
   constexpr int m = kGemmSize;
   constexpr int n = kGemmSize;
   constexpr int k = kGemmSize;
-  std::uniform_int_distribution<int> dist(-kGemmMaxAbsValue, kGemmMaxAbsValue);
-  std::vector<float> a(static_cast<std::size_t>(m) * k);  // column-major, lda = m
-  std::vector<float> b(static_cast<std::size_t>(k) * n);  // column-major, ldb = k
-  for (auto& value : a) {
-    value = static_cast<float>(dist(rng));
-  }
-  for (auto& value : b) {
-    value = static_cast<float>(dist(rng));
-  }
-
-  std::vector<std::int64_t> expected(static_cast<std::size_t>(m) * n, 0);
-  for (int j = 0; j < n; ++j) {
-    for (int p = 0; p < k; ++p) {
-      const auto b_pj = static_cast<std::int64_t>(b[p + static_cast<std::size_t>(j) * k]);
-      for (int i = 0; i < m; ++i) {
-        expected[i + static_cast<std::size_t>(j) * m] +=
-            static_cast<std::int64_t>(a[i + static_cast<std::size_t>(p) * m]) * b_pj;
-      }
-    }
-  }
-
-  DeviceBuffer<float> d_a(a.size());
-  DeviceBuffer<float> d_b(b.size());
-  DeviceBuffer<float> d_c(expected.size());
-  d_a.upload(a);
-  d_b.upload(b);
+  DeviceBuffer<float> d_a(test_case.a.size());
+  DeviceBuffer<float> d_b(test_case.b.size());
+  DeviceBuffer<float> d_c(test_case.expected.size());
+  d_a.upload(test_case.a);
+  d_b.upload(test_case.b);
   const float alpha = 1.0f;
   const float beta = 0.0f;
   SMOKE_CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_a.data(), m,
                                  d_b.data(), k, &beta, d_c.data(), m));
   SMOKE_CUDA_CHECK(cudaDeviceSynchronize());
 
-  std::vector<float> c(expected.size());
+  std::vector<float> c(test_case.expected.size());
   d_c.download(c);
   std::size_t mismatches = 0;
   for (std::size_t i = 0; i < c.size(); ++i) {
-    if (c[i] != static_cast<float>(expected[i]) || static_cast<std::int64_t>(c[i]) != expected[i]) {
+    if (c[i] != static_cast<float>(test_case.expected[i]) ||
+        static_cast<std::int64_t>(c[i]) != test_case.expected[i]) {
       ++mismatches;
     }
   }
-  std::printf("cublas_sgemm_shape: %dx%dx%d, values in [-%d, %d]\n", m, n, k, kGemmMaxAbsValue,
-              kGemmMaxAbsValue);
-  std::printf("cublas_sgemm_mismatches: %zu\n", mismatches);
-  std::printf("CUBLAS_SGEMM: %s\n", mismatches == 0 ? "PASS" : "FAIL");
-  return mismatches == 0;
+  return mismatches;
+}
+
+struct DeviceResult {
+  std::size_t vector_add_mismatches = 0;
+  std::size_t sgemm_mismatches = 0;
+
+  [[nodiscard]] bool passed() const noexcept {
+    return vector_add_mismatches == 0 && sgemm_mismatches == 0;
+  }
+};
+
+// Runs the three checks on one device and prints its lines, ending with "device<i>_verdict".
+// Buffers and handles are released before returning, while the device is still current. A failed
+// CUDA or cuBLAS call prints "device<i>_verdict: FAIL", then "SIMT_VERDICT: FAIL", and exits 1.
+DeviceResult check_device(int device, const VectorAddCase& vector_add, const SgemmCase& sgemm) {
+  char verdict_key[32];
+  std::snprintf(verdict_key, sizeof(verdict_key), "device%d_verdict", device);
+  sbmc::smoke::set_part_verdict_key(verdict_key);
+  SMOKE_CUDA_CHECK(cudaSetDevice(device));
+
+  DeviceResult result;
+  result.vector_add_mismatches = run_vector_add(vector_add);
+  std::printf("device%d_simt_vector_add_mismatches: %zu\n", device, result.vector_add_mismatches);
+  std::printf("device%d_simt_vector_add: %s\n", device,
+              pass_fail(result.vector_add_mismatches == 0));
+
+  {
+    cublasHandle_t raw_cublas = nullptr;
+    SMOKE_CUBLAS_CHECK(cublasCreate(&raw_cublas));
+    const CublasHandle cublas(raw_cublas);
+    result.sgemm_mismatches = run_sgemm(cublas.get(), sgemm);
+  }
+  std::printf("device%d_cublas_sgemm_mismatches: %zu\n", device, result.sgemm_mismatches);
+  std::printf("device%d_cublas_sgemm: %s\n", device, pass_fail(result.sgemm_mismatches == 0));
+
+  cublasLtHandle_t raw_lt = nullptr;
+  SMOKE_CUBLAS_CHECK(cublasLtCreate(&raw_lt));
+  CublasLtHandle lt(raw_lt);
+  SMOKE_CUBLAS_CHECK(cublasLtDestroy(lt.release()));
+  std::printf("device%d_cublaslt_handle: PASS\n", device);
+
+  std::printf("device%d_verdict: %s\n", device, pass_fail(result.passed()));
+  sbmc::smoke::set_part_verdict_key(nullptr);
+  return result;
 }
 
 }  // namespace
@@ -198,6 +273,29 @@ int main() {
   std::printf("cublas_version: %d.%d.%d\n", cublas_major, cublas_minor, cublas_patch);
   std::printf("cublaslt_version: %zu\n", cublasLtGetVersion());
 
+  // Loaded libraries against the headers of the build: a different CUDA runtime or cuBLAS means
+  // that the dynamic loader found other copies (for example through LD_LIBRARY_PATH). These
+  // checks need no GPU, so they come before the device check. The driver is not compared: it may
+  // differ legitimately (minor version compatibility). cublasLt.h has no version macro of its own,
+  // so cuBLASLt is only reported (cublaslt_version).
+  const bool runtime_match = runtime_status == cudaSuccess && runtime_version == CUDART_VERSION;
+  print_version("cuda_runtime_compiled", cudaSuccess, CUDART_VERSION);
+  print_version("cuda_runtime_loaded", runtime_status, runtime_version);
+  std::printf("CUDA_RUNTIME_MATCH: %s\n", pass_fail(runtime_match));
+  const bool cublas_match = cublas_major == CUBLAS_VER_MAJOR && cublas_minor == CUBLAS_VER_MINOR &&
+                            cublas_patch == CUBLAS_VER_PATCH;
+  std::printf("cublas_compiled: %d.%d.%d\n", CUBLAS_VER_MAJOR, CUBLAS_VER_MINOR, CUBLAS_VER_PATCH);
+  std::printf("cublas_loaded: %d.%d.%d\n", cublas_major, cublas_minor, cublas_patch);
+  std::printf("CUBLAS_MATCH: %s\n", pass_fail(cublas_match));
+  if (!runtime_match || !cublas_match) {
+    std::fflush(stdout);
+    std::fprintf(stderr,
+                 "smoke_simt: the CUDA runtime or cuBLAS loaded at run time differs from the "
+                 "headers of the build; check the RPATH of the executable and LD_LIBRARY_PATH\n");
+    std::printf("SIMT_VERDICT: FAIL\n");
+    return sbmc::smoke::kExitFail;
+  }
+
   const int device_count = sbmc::smoke::require_cuda_devices();
   std::printf("device_count: %d\n", device_count);
   for (int device = 0; device < device_count; ++device) {
@@ -217,22 +315,30 @@ int main() {
     }
   }
 
-  SMOKE_CUDA_CHECK(cudaSetDevice(0));
+  // Same inputs on every device (one generator, same draw order as the single-device version).
   std::mt19937 rng(kSeed);
-  const bool vector_add_ok = run_vector_add(rng);
+  const VectorAddCase vector_add = make_vector_add_case(rng);
+  const SgemmCase sgemm = make_sgemm_case(rng);
+  std::printf("simt_vector_add_n: %zu\n", kVectorSize);
+  std::printf("cublas_sgemm_shape: %dx%dx%d, values in [-%d, %d]\n", kGemmSize, kGemmSize,
+              kGemmSize, kGemmMaxAbsValue, kGemmMaxAbsValue);
 
-  cublasHandle_t raw_cublas = nullptr;
-  SMOKE_CUBLAS_CHECK(cublasCreate(&raw_cublas));
-  const CublasHandle cublas(raw_cublas);
-  const bool sgemm_ok = run_sgemm(cublas.get(), rng);
+  std::size_t vector_add_mismatches = 0;
+  std::size_t sgemm_mismatches = 0;
+  bool all_passed = true;
+  for (int device = 0; device < device_count; ++device) {
+    const DeviceResult result = check_device(device, vector_add, sgemm);
+    vector_add_mismatches += result.vector_add_mismatches;
+    sgemm_mismatches += result.sgemm_mismatches;
+    all_passed = all_passed && result.passed();
+  }
 
-  cublasLtHandle_t raw_lt = nullptr;
-  SMOKE_CUBLAS_CHECK(cublasLtCreate(&raw_lt));
-  CublasLtHandle lt(raw_lt);
-  SMOKE_CUBLAS_CHECK(cublasLtDestroy(lt.release()));
+  // Totals over all devices, under the names of the single-device version.
+  std::printf("simt_vector_add_mismatches: %zu\n", vector_add_mismatches);
+  std::printf("SIMT_VECTOR_ADD: %s\n", pass_fail(vector_add_mismatches == 0));
+  std::printf("cublas_sgemm_mismatches: %zu\n", sgemm_mismatches);
+  std::printf("CUBLAS_SGEMM: %s\n", pass_fail(sgemm_mismatches == 0));
   std::printf("CUBLASLT_HANDLE: PASS\n");
-
-  const bool ok = vector_add_ok && sgemm_ok;
-  std::printf("SIMT_VERDICT: %s\n", ok ? "PASS" : "FAIL");
-  return ok ? sbmc::smoke::kExitPass : sbmc::smoke::kExitFail;
+  std::printf("SIMT_VERDICT: %s\n", pass_fail(all_passed));
+  return all_passed ? sbmc::smoke::kExitPass : sbmc::smoke::kExitFail;
 }

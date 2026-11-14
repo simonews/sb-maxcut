@@ -19,14 +19,18 @@ set_tests_properties(test_sync_from_zip PROPERTIES LABELS "tools" SKIP_RETURN_CO
 
 # --- GPU smoke tests ------------------------------------------------------------------------
 # Executables in <build>/tests/smoke/, next to their sources' layout (scripts/env_report.sh runs
-# <build>/tests/smoke/smoke_simt).
+# <build>/tests/smoke/smoke_simt). Every one of them loads CUDA libraries, so it links
+# sbmc::cuda_rpath (cmake/SbmcFlags.cmake) and is listed in _sbmc_cuda_executables, the files
+# checked by test_cuda_rpath.
 if(SBMC_ENABLE_CUDA)
   add_executable(smoke_simt smoke/smoke_simt.cu)
   set_target_properties(smoke_simt PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                               "${CMAKE_CURRENT_BINARY_DIR}/smoke")
-  target_link_libraries(smoke_simt PRIVATE sbmc::flags CUDA::cudart CUDA::cublas CUDA::cublasLt)
+  target_link_libraries(smoke_simt PRIVATE sbmc::flags sbmc::cuda_rpath CUDA::cudart CUDA::cublas
+                                           CUDA::cublasLt)
   add_test(NAME smoke_simt COMMAND smoke_simt)
   set_tests_properties(smoke_simt PROPERTIES LABELS "gpu" SKIP_RETURN_CODE 77)
+  set(_sbmc_cuda_executables "$<TARGET_FILE:smoke_simt>")
 
   if(SBMC_ENABLE_TILE)
     # Tile targets: sm_89 only, whatever CMAKE_CUDA_ARCHITECTURES says.
@@ -36,12 +40,14 @@ if(SBMC_ENABLE_CUDA)
     set_target_properties(smoke_tile PROPERTIES CUDA_ARCHITECTURES 89 RUNTIME_OUTPUT_DIRECTORY
                                                 "${CMAKE_CURRENT_BINARY_DIR}/smoke")
     target_compile_options(smoke_tile PRIVATE "${_sbmc_tile_options}")
-    target_link_libraries(smoke_tile PRIVATE sbmc::flags CUDA::cudart)
+    target_link_libraries(smoke_tile PRIVATE sbmc::flags sbmc::cuda_rpath CUDA::cudart)
     add_test(NAME smoke_tile COMMAND smoke_tile)
     set_tests_properties(smoke_tile PROPERTIES LABELS "gpu;tile" SKIP_RETURN_CODE 77)
+    list(APPEND _sbmc_cuda_executables "$<TARGET_FILE:smoke_tile>")
 
     # FMA probes: one source, two builds. They do not link sbmc::flags: --fmad is set here, and
-    # the host reference is never contracted (-ffp-contract=off in both builds).
+    # the host reference is never contracted (-ffp-contract=off in both builds). They link
+    # sbmc::cuda_rpath, a linker option that leaves the compilation unchanged.
     foreach(_sbmc_variant IN ITEMS on off)
       if(_sbmc_variant STREQUAL "on")
         set(_sbmc_fmad "--fmad=true")
@@ -58,9 +64,17 @@ if(SBMC_ENABLE_CUDA)
         "${_sbmc_tile_options}"
         "$<$<COMPILE_LANGUAGE:CUDA>:${_sbmc_fmad};-Xcompiler=-ffp-contract=off>")
       target_compile_definitions(${_sbmc_probe} PRIVATE "SBMC_PROBE_FMAD_ON=${_sbmc_fmad_on}")
-      target_link_libraries(${_sbmc_probe} PRIVATE CUDA::cudart)
+      target_link_libraries(${_sbmc_probe} PRIVATE sbmc::cuda_rpath CUDA::cudart)
       add_test(NAME ${_sbmc_probe} COMMAND ${_sbmc_probe})
       set_tests_properties(${_sbmc_probe} PROPERTIES LABELS "gpu;tile;probe" SKIP_RETURN_CODE 77)
+      list(APPEND _sbmc_cuda_executables "$<TARGET_FILE:${_sbmc_probe}>")
     endforeach()
   endif()
+
+  # Every CUDA executable of the build must find the CUDA libraries through RPATH (a folder with
+  # libcudart.so.13) and have no RUNPATH. Skipped (77) when readelf is missing.
+  add_test(NAME test_cuda_rpath
+           COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_rpath.sh"
+                   ${_sbmc_cuda_executables})
+  set_tests_properties(test_cuda_rpath PROPERTIES LABELS "tools" SKIP_RETURN_CODE 77)
 endif()

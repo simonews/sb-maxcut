@@ -3,6 +3,103 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F02-R3] - 2026-11-14
+
+Phase 02, correction after the first run on Kaggle: the image's Python has no ensurepip, so
+`python3 -m venv` could not create the toolkit's virtual environment.
+
+### Added
+
+- `scripts/setup_cuda_pypi.sh`: fallback for the virtual environment. When `python3 -m venv`
+  fails, or an existing environment has no working pip, the incomplete environment is removed
+  (only `<prefix>/venv`), recreated with `python3 -m venv --without-pip` and given pip by the
+  system pip (`python3 -m pip --python <venv>/bin/python install pip`, pip >= 22.3, checked
+  before anything is installed). The summary gains the line "venv bootstrap" (`existing`,
+  `ensurepip` or `system pip <version>`).
+- `scripts/kaggle_run.sh`: `venv_bootstrap` in the `[toolkit]` section of `summary.txt`.
+
+### Changed
+
+- `scripts/setup_cuda_pypi.sh`: without ensurepip and without a system pip >= 22.3 the script
+  stops with an error that names both remedies, without installing anything.
+- `README.md`: the fallback, in the toolkit section.
+
+### Removed
+
+- Nothing.
+
+## [F02-R2] - 2026-11-14
+
+Phase 02, corrections after the review of F02-R1: CUDA libraries always from the project's
+toolkit, whatever `LD_LIBRARY_PATH` says.
+
+### Added
+
+- `cmake/SbmcFlags.cmake`: INTERFACE target `sbmc_cuda_rpath` (alias `sbmc::cuda_rpath`) with
+  the linker option `--disable-new-dtags`, so that executables record the lib-shim as RPATH,
+  searched before `LD_LIBRARY_PATH`, instead of RUNPATH; rule: every executable that loads CUDA
+  libraries links it.
+- `tests/scripts/check_rpath.sh` and the test `test_cuda_rpath` (label `tools`, CUDA builds
+  only): every CUDA executable has an RPATH folder with `libcudart.so.13` and no RUNPATH; exit
+  code 77 without readelf.
+- `tests/smoke/smoke_simt.cu`: compiled and loaded versions of the CUDA runtime and cuBLAS
+  (`cuda_runtime_compiled`, `cuda_runtime_loaded`, `cublas_compiled`, `cublas_loaded`) with
+  `CUDA_RUNTIME_MATCH` and `CUBLAS_MATCH`; a mismatch prints `SIMT_VERDICT: FAIL` and exits
+  with 1, also without a GPU.
+- `scripts/kaggle_run.sh`: RPATH and RUNPATH of `smoke_simt` and its compiled and loaded
+  versions in `summary.txt`.
+
+### Changed
+
+- `tests/CMakeLists.txt`: `smoke_simt`, `smoke_tile`, `fma_probe_tile_fmad_on` and
+  `fma_probe_tile_fmad_off` link `sbmc::cuda_rpath`.
+- `README.md`: why CUDA executables use RPATH, the `sbmc::cuda_rpath` rule and
+  `test_cuda_rpath`; `smoke_simt` and `summary.txt` descriptions.
+
+### Removed
+
+- Nothing.
+
+## [F02-R1] - 2026-11-14
+
+Phase 02: builds and tests on Kaggle's two Tesla T4 with the PyPI toolkit 13.4.3.
+
+### Added
+
+- `CMakePresets.json`: hidden bases `t4-base` (CUDA on, Tile off, sm_75 only, FMA contraction
+  on) and `t4-strict-base` (FMA contraction off).
+- `scripts/setup_cuda_pypi.sh`: option `--presets laptop|t4`. `laptop`, the default, writes the
+  same `CMakeUserPresets.json` as before (`cuda`, `cuda-strict`); `t4` writes the presets `t4`
+  and `t4-strict`, with one build job per CPU, and records the set in `vendor.sbmc.presets`.
+- `scripts/kaggle_run.sh`: Kaggle runner. Context, toolkit setup, configure, build from scratch
+  and ctest of `t4-strict` and `t4`, `smoke_simt`, environment report, `summary.txt`, secret
+  scan and archive; exit codes 0 (passed), 1 (failed), 2 (no usable GPU).
+- `scripts/env_report.sh`: `[platform]` section (`KAGGLE_DOCKER_IMAGE`,
+  `KAGGLE_KERNEL_RUN_TYPE`), number of GPUs and `nvidia-smi topo -p2p r` / `-p2p w` in `[gpu]`,
+  `[communication]` section (mpirun path and version, NCCL version from `nccl.h` or, without
+  the header, the library file resolved by `ldconfig -p`).
+- `README.md`: section "Running on Kaggle (2 x T4)" with the notebook cell.
+
+### Changed
+
+- `tests/smoke/smoke_simt.cu`: vector addition, cuBLAS SGEMM and cuBLASLt handle run on every
+  visible device, with `device<i>_...` lines and a `device<i>_verdict` line per device. The
+  existing lines keep their names and report the totals over all devices; `SIMT_VERDICT: PASS`
+  only when every device passes.
+- `tests/smoke/smoke_common.cuh`: optional verdict of the part being checked
+  (`set_part_verdict_key`), printed as FAIL before the final verdict when a check fails.
+- `scripts/setup_cuda_pypi.sh`: CUDA 12.x is refused as not supported by the project (decision
+  of phase 02); `--presets` together with `--no-presets` is an error.
+- `scripts/env_report.sh`: `--preset` documented for `cuda`, `cuda-strict`, `t4`, `t4-strict`.
+- `README.md`: status, presets table (`t4`, `t4-strict`), toolkit section, `smoke_simt` and
+  tools.
+
+### Removed
+
+- `CMakePresets.json`: hidden bases `cuda12-base` and `cuda12-strict-base` (building with CUDA 12
+  is no longer a requirement).
+- `README.md`: references to CUDA 12.
+
 ## [F01-R2] - 2026-11-13
 
 Phase 01, corrections after the review of F01-R1.

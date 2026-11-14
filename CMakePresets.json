@@ -54,7 +54,7 @@
       }
     },
     {
-      "name": "cuda12-base",
+      "name": "t4-base",
       "hidden": true,
       "inherits": "base",
       "cacheVariables": {
@@ -65,9 +65,9 @@
       }
     },
     {
-      "name": "cuda12-strict-base",
+      "name": "t4-strict-base",
       "hidden": true,
-      "inherits": "cuda12-base",
+      "inherits": "t4-base",
       "cacheVariables": {
         "SBMC_STRICT_FP": "ON"
       }
