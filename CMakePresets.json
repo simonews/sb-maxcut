@@ -1,0 +1,102 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "cpu",
+      "displayName": "CPU (Release)",
+      "inherits": "base",
+      "cacheVariables": {
+        "SBMC_ENABLE_CUDA": "OFF",
+        "SBMC_STRICT_FP": "OFF"
+      }
+    },
+    {
+      "name": "cpu-strict",
+      "displayName": "CPU (Release), no FMA contraction",
+      "inherits": "base",
+      "cacheVariables": {
+        "SBMC_ENABLE_CUDA": "OFF",
+        "SBMC_STRICT_FP": "ON"
+      }
+    },
+    {
+      "name": "cuda-base",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "SBMC_ENABLE_CUDA": "ON",
+        "SBMC_ENABLE_TILE": "ON",
+        "CMAKE_CUDA_ARCHITECTURES": "75;89",
+        "SBMC_STRICT_FP": "OFF"
+      }
+    },
+    {
+      "name": "cuda-strict-base",
+      "hidden": true,
+      "inherits": "cuda-base",
+      "cacheVariables": {
+        "SBMC_STRICT_FP": "ON"
+      }
+    },
+    {
+      "name": "cuda12-base",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "SBMC_ENABLE_CUDA": "ON",
+        "SBMC_ENABLE_TILE": "OFF",
+        "CMAKE_CUDA_ARCHITECTURES": "75",
+        "SBMC_STRICT_FP": "OFF"
+      }
+    },
+    {
+      "name": "cuda12-strict-base",
+      "hidden": true,
+      "inherits": "cuda12-base",
+      "cacheVariables": {
+        "SBMC_STRICT_FP": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "cpu",
+      "configurePreset": "cpu"
+    },
+    {
+      "name": "cpu-strict",
+      "configurePreset": "cpu-strict"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "cpu",
+      "configurePreset": "cpu",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "cpu-strict",
+      "configurePreset": "cpu-strict",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
