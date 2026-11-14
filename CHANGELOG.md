@@ -3,6 +3,46 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F02-R1] - 2026-11-14
+
+Phase 02: builds and tests on Kaggle's two Tesla T4 with the PyPI toolkit 13.4.3.
+
+### Added
+
+- `CMakePresets.json`: hidden bases `t4-base` (CUDA on, Tile off, sm_75 only, FMA contraction
+  on) and `t4-strict-base` (FMA contraction off).
+- `scripts/setup_cuda_pypi.sh`: option `--presets laptop|t4`. `laptop`, the default, writes the
+  same `CMakeUserPresets.json` as before (`cuda`, `cuda-strict`); `t4` writes the presets `t4`
+  and `t4-strict`, with one build job per CPU, and records the set in `vendor.sbmc.presets`.
+- `scripts/kaggle_run.sh`: Kaggle runner. Context, toolkit setup, configure, build from scratch
+  and ctest of `t4-strict` and `t4`, `smoke_simt`, environment report, `summary.txt`, secret
+  scan and archive; exit codes 0 (passed), 1 (failed), 2 (no usable GPU).
+- `scripts/env_report.sh`: `[platform]` section (`KAGGLE_DOCKER_IMAGE`,
+  `KAGGLE_KERNEL_RUN_TYPE`), number of GPUs and `nvidia-smi topo -p2p r` / `-p2p w` in `[gpu]`,
+  `[communication]` section (mpirun path and version, NCCL version from `nccl.h` or, without
+  the header, the library file resolved by `ldconfig -p`).
+- `README.md`: section "Running on Kaggle (2 x T4)" with the notebook cell.
+
+### Changed
+
+- `tests/smoke/smoke_simt.cu`: vector addition, cuBLAS SGEMM and cuBLASLt handle run on every
+  visible device, with `device<i>_...` lines and a `device<i>_verdict` line per device. The
+  existing lines keep their names and report the totals over all devices; `SIMT_VERDICT: PASS`
+  only when every device passes.
+- `tests/smoke/smoke_common.cuh`: optional verdict of the part being checked
+  (`set_part_verdict_key`), printed as FAIL before the final verdict when a check fails.
+- `scripts/setup_cuda_pypi.sh`: CUDA 12.x is refused as not supported by the project (decision
+  of phase 02); `--presets` together with `--no-presets` is an error.
+- `scripts/env_report.sh`: `--preset` documented for `cuda`, `cuda-strict`, `t4`, `t4-strict`.
+- `README.md`: status, presets table (`t4`, `t4-strict`), toolkit section, `smoke_simt` and
+  tools.
+
+### Removed
+
+- `CMakePresets.json`: hidden bases `cuda12-base` and `cuda12-strict-base` (building with CUDA 12
+  is no longer a requirement).
+- `README.md`: references to CUDA 12.
+
 ## [F01-R2] - 2026-11-13
 
 Phase 01, corrections after the review of F01-R1.

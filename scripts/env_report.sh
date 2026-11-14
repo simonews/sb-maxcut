@@ -2,12 +2,16 @@
 # Writes an environment report to results/env/env_<hostname>_<YYYYmmdd-HHMMSS>.txt (the folder
 # is created if needed) and prints the path of the file.
 #
-# Usage: scripts/env_report.sh [--preset cuda]
+# Usage: scripts/env_report.sh [--preset NAME]
 #
 # The report is a list of "key: value" lines grouped in [sections]; multi-line values follow
 # their key, indented by two spaces. A missing or failing tool never makes the script fail:
-# its value is written as "n/a". --preset (default: cuda) selects the build tree whose
-# tests/smoke/smoke_simt output is appended to the report.
+# its value is written as "n/a". --preset (default: cuda; also cuda-strict, t4, t4-strict)
+# selects the build tree whose tests/smoke/smoke_simt output is appended to the report.
+#
+# Environment variables: the [platform] section writes only KAGGLE_DOCKER_IMAGE and
+# KAGGLE_KERNEL_RUN_TYPE. No other variable is ever written, in particular none whose name
+# contains TOKEN, SECRET, KEY or PASSWORD.
 set -euo pipefail
 
 readonly NA="n/a"
@@ -16,7 +20,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd -- "${script_dir}/.." && pwd -P)"
 
 usage() {
-  echo "Usage: scripts/env_report.sh [--preset NAME]   (default preset: cuda)"
+  echo "Usage: scripts/env_report.sh [--preset NAME]   (cuda, cuda-strict, t4, t4-strict; default: cuda)"
 }
 
 preset="cuda"
@@ -135,6 +139,11 @@ if command -v wsl.exe >/dev/null 2>&1; then
 fi
 kv_block "wsl_version" "${wsl_version}"
 
+# Kaggle image and run type: the only two environment variables written to the report.
+section "platform"
+kv "kaggle_docker_image" "${KAGGLE_DOCKER_IMAGE:-${NA}}"
+kv "kaggle_kernel_run_type" "${KAGGLE_KERNEL_RUN_TYPE:-${NA}}"
+
 section "cpu"
 lscpu_output="$(run_or_na lscpu)"
 model="$(sed -n 's/^Model name:[[:space:]]*//p' <<<"${lscpu_output}" | head -n 1)"
@@ -196,6 +205,71 @@ kv_block "nvidia_smi_query" "$(run_or_na nvidia-smi \
   --query-gpu=name,driver_version,memory.total,pcie.link.gen.current,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max,clocks.max.sm,clocks.max.mem,power.limit \
   --format=csv)"
 kv_block "nvidia_smi_topo" "$(run_or_na nvidia-smi topo -m)"
+gpu_list="$(run_or_na nvidia-smi -L)"
+if [[ "${gpu_list}" == "${NA}"* ]]; then
+  kv "gpu_count" "${gpu_list}"
+else
+  kv "gpu_count" "$(grep -c '^GPU [0-9]' <<<"${gpu_list}" || true)"
+fi
+kv_block "nvidia_smi_topo_p2p_r" "$(run_or_na nvidia-smi topo -p2p r)"
+kv_block "nvidia_smi_topo_p2p_w" "$(run_or_na nvidia-smi topo -p2p w)"
+
+section "communication"
+mpirun_path="$(command -v mpirun 2>/dev/null || true)"
+kv "mpirun" "${mpirun_path:-${NA}}"
+if [[ -n "${mpirun_path}" ]]; then
+  # Open MPI may refuse to start as root (Kaggle runs as root) unless these two variables are set;
+  # they are passed to this command only.
+  mpirun_output="$(run_or_na timeout 30 env OMPI_ALLOW_RUN_AS_ROOT=1 \
+    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 mpirun --version)"
+  kv "mpirun_version" "${mpirun_output%%$'\n'*}"
+else
+  kv "mpirun_version" "${NA}"
+fi
+# NCCL: version from nccl.h, searched in /usr/include and then in the include folder of the
+# project's toolkit (the system toolkit is not used); without the header, the real file of the
+# library that ldconfig -p resolves.
+nccl_candidates=(/usr/include/nccl.h)
+if [[ -n "${toolkit_root}" ]]; then
+  nccl_candidates+=("${toolkit_root}/include/nccl.h")
+fi
+nccl_header=""
+for candidate in "${nccl_candidates[@]}"; do
+  if [[ -r "${candidate}" ]]; then
+    nccl_header="${candidate}"
+    break
+  fi
+done
+if [[ -n "${nccl_header}" ]]; then
+  nccl_version=""
+  for part in MAJOR MINOR PATCH; do
+    number="$(sed -n "s/^#define[[:space:]]\{1,\}NCCL_${part}[[:space:]]\{1,\}\([0-9]\{1,\}\).*/\1/p" \
+      "${nccl_header}")"
+    number="${number%%$'\n'*}"
+    nccl_version+="${nccl_version:+.}${number:-?}"
+  done
+  kv "nccl_header" "${nccl_header}"
+  kv "nccl_version" "${nccl_version}"
+else
+  kv "nccl_header" "${NA}"
+  ldconfig_bin="$(command -v ldconfig 2>/dev/null || true)"
+  for candidate in /sbin/ldconfig /usr/sbin/ldconfig; do
+    if [[ -z "${ldconfig_bin}" && -x "${candidate}" ]]; then
+      ldconfig_bin="${candidate}"
+    fi
+  done
+  nccl_library="${NA}"
+  if [[ -n "${ldconfig_bin}" ]]; then
+    ldconfig_output="$(run_or_na "${ldconfig_bin}" -p)"
+    nccl_path="$(awk '/libnccl\.so/ && / => / { sub(/^.* => /, ""); print; exit }' \
+      <<<"${ldconfig_output}")"
+    if [[ -n "${nccl_path}" ]]; then
+      nccl_real="$(readlink -f -- "${nccl_path}" 2>/dev/null || echo "${nccl_path}")"
+      nccl_library="$(basename -- "${nccl_real}") (${nccl_path} -> ${nccl_real})"
+    fi
+  fi
+  kv "nccl_library" "${nccl_library}"
+fi
 
 section "smoke_simt"
 smoke="${repo_root}/build/${preset}/tests/smoke/smoke_simt"

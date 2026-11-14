@@ -11,6 +11,7 @@ Kaggle T4 GPUs, and validates them with bit-for-bit identical dSB trajectories.
 ## Status
 
 Phase 01, scaffolding: build system, CUDA toolkit setup, working tools and smoke tests.
+Phase 02: builds and tests on Kaggle's two Tesla T4 with the same toolkit as the laptop.
 No algorithm of the project is implemented yet.
 
 ## Requirements
@@ -32,12 +33,18 @@ ctest --preset cpu-strict
 
 Configure presets (build trees in `build/<preset>/`, Release, Ninja):
 
-| Preset        | CUDA | FMA contraction                                    |
-|---------------|------|----------------------------------------------------|
-| `cpu`         | off  | on (`-ffp-contract=fast`)                          |
-| `cpu-strict`  | off  | off (`-ffp-contract=off`)                          |
-| `cuda`        | on   | on (`-ffp-contract=fast`, `--fmad=true`)           |
-| `cuda-strict` | on   | off (`-ffp-contract=off`, `--fmad=false`)          |
+| Preset        | CUDA                            | FMA contraction                           |
+|---------------|---------------------------------|-------------------------------------------|
+| `cpu`         | off                             | on (`-ffp-contract=fast`)                 |
+| `cpu-strict`  | off                             | off (`-ffp-contract=off`)                 |
+| `cuda`        | on: sm_75 and sm_89, Tile sm_89 | on (`-ffp-contract=fast`, `--fmad=true`)  |
+| `cuda-strict` | on: sm_75 and sm_89, Tile sm_89 | off (`-ffp-contract=off`, `--fmad=false`) |
+| `t4`          | on: sm_75 only, no Tile         | on (`-ffp-contract=fast`, `--fmad=true`)  |
+| `t4-strict`   | on: sm_75 only, no Tile         | off (`-ffp-contract=off`, `--fmad=false`) |
+
+`cpu` and `cpu-strict` are in `CMakePresets.json`. The CUDA presets are written by
+`scripts/setup_cuda_pypi.sh` into `CMakeUserPresets.json` (next section): `cuda` and
+`cuda-strict` for the laptop, `t4` and `t4-strict` for Kaggle.
 
 The strict presets exist for the bit-for-bit equality tests of later phases. All compile options
 come from the interface target `sbmc::flags` (`cmake/SbmcFlags.cmake`), never from
@@ -48,7 +55,8 @@ come from the interface target `sbmc::flags` (`cmake/SbmcFlags.cmake`), never fr
 The CUDA toolkit is installed from PyPI with a pinned version, without sudo:
 
 ```bash
-scripts/setup_cuda_pypi.sh          # options: --version 13.4.3, --prefix DIR, --no-presets
+scripts/setup_cuda_pypi.sh   # options: --version 13.4.3, --prefix DIR, --presets laptop|t4,
+                             #          --no-presets
 cmake --preset cuda-strict && cmake --build --preset cuda-strict && ctest --preset cuda-strict
 cmake --preset cuda        && cmake --build --preset cuda        && ctest --preset cuda
 ```
@@ -60,20 +68,24 @@ on an existing environment. It creates a library shim (versioned and unversioned
 toolkit's shared libraries, which CMake needs to find them), checks nvcc, tileiras,
 compute-sanitizer, cuobjdump, nvdisasm, the nvjitlink pin, a minimal Tile compilation and its
 disassembly, and writes `CMakeUserPresets.json`.
-That file holds the machine-specific paths, is ignored by git and defines the visible presets
-`cuda` and `cuda-strict` on top of the hidden ones of `CMakePresets.json`; rerun the script
-after moving the toolkit. IDEs that support CMake presets (CLion included) read both files.
+That file holds the machine-specific paths, is ignored by git and defines visible presets on top
+of the hidden ones of `CMakePresets.json`: with `--presets laptop` (the default) `cuda` and
+`cuda-strict`, built with 8 jobs; with `--presets t4` `t4` and `t4-strict`, built with one job
+per CPU. `--presets` and `--no-presets` cannot be combined. Rerun the script after moving the
+toolkit. IDEs that support CMake presets (CLion included) read both files.
 
-CUDA code is compiled for sm_75 (Kaggle T4) and sm_89 (RTX 4050 Laptop); CUDA Tile targets only
-for sm_89, with `-enable-tile -std=c++20`. The hidden presets `cuda12-base` and
-`cuda12-strict-base` (CUDA 12, Tile off, sm_75) are reserved for the Kaggle builds of a later
-phase.
+With the `cuda` presets (hidden bases `cuda-base` and `cuda-strict-base`), CUDA code is compiled
+for sm_75 (Kaggle T4) and sm_89 (RTX 4050 Laptop); CUDA Tile targets only for sm_89, with
+`-enable-tile -std=c++20`. The `t4` presets (hidden bases `t4-base` and `t4-strict-base`)
+compile CUDA code for sm_75 only and have no Tile targets: they are the Kaggle builds.
 
 Test labels: `cpu`, `tools`, `gpu`, `tile`, `probe` (for example `ctest --preset cuda -L tile`).
 A test that cannot run on the current machine (no GPU, missing tool) exits with 77 and CTest
 reports it as skipped. The GPU smoke tests, built in `build/<preset>/tests/smoke/`, are:
 
-- `smoke_simt`: device report, vector addition, exact cuBLAS SGEMM, cuBLASLt handle;
+- `smoke_simt`: device report, P2P matrix (`cudaDeviceCanAccessPeer`, two devices or more),
+  then on every visible device vector addition, exact cuBLAS SGEMM and cuBLASLt handle, with a
+  `device<i>_verdict` line per device; `SIMT_VERDICT: PASS` only when every device passes;
 - `smoke_tile`: CUDA Tile vector addition and INT8 `ct::mma` product checked against int64;
 - `fma_probe_tile_fmad_on` / `fma_probe_tile_fmad_off`: whether FMA contraction happens in Tile
   code and whether `--fmad=false` prevents it.
@@ -101,6 +113,64 @@ For example, to count the FFMA, FMUL and FADD instructions of each kernel of an 
        END { for (f in seen) printf "%s FFMA=%d FMUL=%d FADD=%d\n", f, ffma[f], fmul[f], fadd[f] }'
 ```
 
+## Running on Kaggle (2 x T4)
+
+`scripts/kaggle_run.sh` builds, tests and reports the project in one go on a Kaggle notebook
+with two Tesla T4. The branch or tag to test must be published on GitHub first.
+
+Notebook settings: accelerator **GPU T4 x2**, **Internet** on. Then paste this cell, with `REF`
+set to the branch or tag to test, and run it:
+
+```bash
+%%bash
+set -euo pipefail
+REF=fase-02
+mkdir -p /tmp/sbmc && cd /tmp/sbmc && rm -rf sb-maxcut
+git clone -q https://github.com/simonews/sb-maxcut && cd sb-maxcut
+git checkout -q "$REF"
+scripts/kaggle_run.sh --ref "$REF"
+```
+
+The script installs the toolkit with `scripts/setup_cuda_pypi.sh --presets t4`, configures,
+builds from scratch and tests `t4-strict` and then `t4`, runs `smoke_simt` on both GPUs and
+writes the environment report. Everything goes to `/kaggle/working/sbmc_<REF>_<YYYYmmdd-HHMMSS>/`
+(UTC time), with the archive `/kaggle/working/sbmc_<REF>_<YYYYmmdd-HHMMSS>.tar.gz` next to it:
+both are in the notebook's output files (`/kaggle/working`), where the archive can be
+downloaded. The folder holds:
+
+- `summary.txt`, also printed at the end of the cell: commit, nvcc and nvidia-nvjitlink
+  versions, outcome of configure, build and ctest for each preset with the names of the passed,
+  failed and skipped tests, verdict lines of `smoke_simt`, P2P matrix, environment report;
+- the log of every step: `1_context.log`, `2_setup.log`, `3_<preset>_configure.log`,
+  `3_<preset>_build.log`, `3_<preset>_ctest.log`, `5_env_report.log`;
+- the output of `smoke_simt` (`4_smoke_simt.txt`) and the environment report
+  (`env_<host>_<timestamp>.txt`).
+
+Exit codes: 0 everything passed and `smoke_simt` printed `SIMT_VERDICT: PASS`; 1 a step or a
+test failed (the cell also prints the last lines of the failed logs); 2 no usable GPU
+(`smoke_simt` exited with 77). With 1 or 2 the cell ends with an error, and the folder and the
+archive are there all the same. A test skipped by ctest (`test_sync_from_zip` when rsync, unzip
+or zip is missing) is not a failure and is listed in `summary.txt`. Options: `--ref LABEL`
+(label in the file names, default the short hash of HEAD), `--out DIR` (default
+`/kaggle/working`, or `./kaggle-out` where that folder does not exist). In the clone, the script
+writes only `build/`, `results/env/` and `CMakeUserPresets.json` (and `kaggle-out/` when that is
+the output folder).
+
+Notes:
+
+- A session consumes GPU quota from the moment it starts, whether a cell is running or not:
+  start it when the branch is published, and stop it once the archive is downloaded.
+- Kaggle's system toolkit (CUDA 13.0 in `/usr/local/cuda`) is not used: the presets point CMake
+  to the toolkit installed from PyPI, CUDA 13.4.3 as on the laptop. Kaggle's driver (580,
+  "CUDA Version: 13.0") runs CUDA 13.x executables thanks to CUDA's minor version
+  compatibility, with a limited set of features; the executables carry machine code for sm_75,
+  so no PTX JIT compilation is needed.
+- No environment variable is printed or saved, apart from `KAGGLE_DOCKER_IMAGE` and
+  `KAGGLE_KERNEL_RUN_TYPE` in the environment report. Before making the archive, the script
+  searches the files of the run for the values of the variables whose name contains TOKEN,
+  SECRET, KEY or PASSWORD (Kaggle's tokens among them), without printing them: if one is found,
+  the run fails and no archive is made.
+
 ## Tools
 
 - `scripts/sync_from_zip.sh <sb-maxcut_FNN_RN.zip>`: applies a delivery zip to a clean working
@@ -113,9 +183,12 @@ For example, to count the FFMA, FMUL and FADD instructions of each kernel of an 
   `*.nsys-rep`, `*.ncu-rep`), and `.git` also when it is a file (git worktrees). When a delivery
   changes `.sync-exclude`, the script stops with exit code 2 and shows the diff: copy the new
   `.sync-exclude` by hand, commit it, then run the script again.
-- `scripts/env_report.sh [--preset cuda]`: writes `results/env/env_<host>_<timestamp>.txt`
-  (git state, OS and WSL, CPU, memory, tool and toolkit versions, GPU, `smoke_simt` output).
+- `scripts/env_report.sh [--preset NAME]` (`cuda` by default; also `cuda-strict`, `t4`,
+  `t4-strict`): writes `results/env/env_<host>_<timestamp>.txt` (git state, OS and WSL, Kaggle
+  image and run type, CPU, memory, tool and toolkit versions, GPU with the number of GPUs and the
+  P2P status, MPI and NCCL versions, output of `build/<preset>/tests/smoke/smoke_simt`).
 - `scripts/setup_cuda_pypi.sh`: see above.
+- `scripts/kaggle_run.sh [--ref LABEL] [--out DIR]`: see "Running on Kaggle (2 x T4)".
 
 Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 `scripts/sync_from_zip.sh` enforces it on every delivery.
