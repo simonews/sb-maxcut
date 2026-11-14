@@ -3,6 +3,31 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F02-R3] - 2026-11-14
+
+Phase 02, correction after the first run on Kaggle: the image's Python has no ensurepip, so
+`python3 -m venv` could not create the toolkit's virtual environment.
+
+### Added
+
+- `scripts/setup_cuda_pypi.sh`: fallback for the virtual environment. When `python3 -m venv`
+  fails, or an existing environment has no working pip, the incomplete environment is removed
+  (only `<prefix>/venv`), recreated with `python3 -m venv --without-pip` and given pip by the
+  system pip (`python3 -m pip --python <venv>/bin/python install pip`, pip >= 22.3, checked
+  before anything is installed). The summary gains the line "venv bootstrap" (`existing`,
+  `ensurepip` or `system pip <version>`).
+- `scripts/kaggle_run.sh`: `venv_bootstrap` in the `[toolkit]` section of `summary.txt`.
+
+### Changed
+
+- `scripts/setup_cuda_pypi.sh`: without ensurepip and without a system pip >= 22.3 the script
+  stops with an error that names both remedies, without installing anything.
+- `README.md`: the fallback, in the toolkit section.
+
+### Removed
+
+- Nothing.
+
 ## [F02-R2] - 2026-11-14
 
 Phase 02, corrections after the review of F02-R1: CUDA libraries always from the project's

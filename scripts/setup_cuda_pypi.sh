@@ -12,6 +12,12 @@
 # Idempotent: a second run reuses the virtual environment, re-checks the installation,
 # recreates the library shim and regenerates CMakeUserPresets.json. nvidia-nvjitlink is pinned
 # to the version of nvidia-cuda-nvcc, also in an environment that has another version.
+#
+# Virtual environment: an existing one whose pip works is reused; otherwise "python3 -m venv"
+# creates it. Where that fails because the Python has no ensurepip (Kaggle's image), or where an
+# existing one has no working pip, the fallback recreates it with "python3 -m venv --without-pip"
+# and installs pip into it with the system pip ("python3 -m pip --python ...", pip >= 22.3).
+# The summary reports which way was taken ("venv bootstrap").
 set -euo pipefail
 
 readonly DEFAULT_VERSION="13.4.3"
@@ -59,6 +65,21 @@ EOF
 package_version() {
   "${venv_python}" -c 'import importlib.metadata as m, sys; print(m.version(sys.argv[1]))' "$1" \
     2>/dev/null
+}
+
+# Succeeds when the virtual environment has an interpreter that runs "-m pip --version". Needs
+# venv_python.
+venv_pip_works() {
+  [[ -x "${venv_python}" ]] && "${venv_python}" -m pip --version >/dev/null 2>&1
+}
+
+# Removes the virtual environment, but only the path computed by this script: <prefix>/venv,
+# with a prefix that is neither empty nor /.
+remove_venv() {
+  if [[ -z "${prefix}" || "${prefix}" == "/" || "${venv_dir}" != "${prefix}/venv" ]]; then
+    die "refusing to remove '${venv_dir}': not <prefix>/venv with a valid prefix"
+  fi
+  rm -rf -- "${venv_dir}"
 }
 
 # Escapes a string for use inside a JSON string literal.
@@ -161,13 +182,60 @@ venv_python="${venv_dir}/bin/python"
 requirement="cuda-toolkit[${EXTRAS}]==${version}"
 
 echo "==> Prefix: ${prefix}"
-if [[ ! -x "${venv_python}" ]]; then
+# venv_bootstrap: existing (reused), ensurepip (python3 -m venv) or "system pip <version>".
+venv_bootstrap=""
+venv_created_now=0
+if venv_pip_works; then
+  venv_bootstrap="existing"
+elif [[ ! -e "${venv_dir}" ]]; then
   echo "==> Creating the virtual environment ${venv_dir}"
-  python3 -m venv "${venv_dir}" ||
-    die "python3 -m venv failed (on Ubuntu: sudo apt install python3-venv), then remove ${venv_dir} and retry"
+  venv_created_now=1
+  if python3 -m venv "${venv_dir}" && venv_pip_works; then
+    venv_bootstrap="ensurepip"
+  else
+    echo "==> python3 -m venv could not install pip into ${venv_dir} (ensurepip missing?)"
+  fi
+else
+  echo "==> The virtual environment ${venv_dir} exists, but pip does not work in it"
 fi
-"${venv_python}" -m pip --version >/dev/null 2>&1 ||
-  die "pip is not available in ${venv_dir}: remove that directory and rerun the script"
+
+if [[ -z "${venv_bootstrap}" ]]; then
+  # Fallback: needs a system pip >= 22.3, the first release with --python. It is checked before
+  # anything is removed or installed.
+  echo "==> Fallback: virtual environment without pip, then pip from the system pip"
+  system_pip_status=0
+  system_pip_output="$(python3 -m pip --version 2>&1)" || system_pip_status=$?
+  if ((system_pip_status == 0)) &&
+    [[ "${system_pip_output}" =~ ^pip\ ([0-9]+)\.([0-9]+)([.0-9a-zA-Z]*) ]] &&
+    ((BASH_REMATCH[1] > 22 || (BASH_REMATCH[1] == 22 && BASH_REMATCH[2] >= 3))); then
+    system_pip_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+  else
+    # Nothing installed: the incomplete environment created by this run is removed, an older one
+    # is left as it was.
+    hint=""
+    if ((venv_created_now)); then
+      remove_venv
+    else
+      hint=" With python3-venv installed, removing ${venv_dir} lets the next run create it again."
+    fi
+    found="${system_pip_output%%$'\n'*}"
+    if ((system_pip_status != 0)); then
+      found="${found:+${found} }(exit status ${system_pip_status})"
+    fi
+    die "no working pip for the virtual environment ${venv_dir}: the fallback needs a system pip" \
+      ">= 22.3 (the first with --python), but 'python3 -m pip --version' gives:" \
+      "${found:-no output}. Install the python3-venv package (on Ubuntu: sudo apt install" \
+      "python3-venv) or a pip >= 22.3 for python3, then rerun.${hint}"
+  fi
+  remove_venv
+  python3 -m venv --without-pip "${venv_dir}" ||
+    die "python3 -m venv --without-pip ${venv_dir} failed"
+  echo "==> Installing pip into ${venv_dir} with the system pip ${system_pip_version}"
+  python3 -m pip --python "${venv_python}" install --disable-pip-version-check --no-input pip ||
+    die "the system pip could not install pip into ${venv_dir}"
+  venv_pip_works || die "pip does not work in ${venv_dir} after the fallback installation"
+  venv_bootstrap="system pip ${system_pip_version}"
+fi
 
 echo "==> Installing ${requirement}"
 "${venv_python}" -m pip install --disable-pip-version-check --no-input "${requirement}" ||
@@ -432,6 +500,7 @@ cat <<EOF
     nvdisasm          : ${nvdisasm_version_line}
     nvidia-nvjitlink  : ${nvjitlink_version} (pinned, same as nvidia-cuda-nvcc ${nvcc_package_version})
     virtual env       : ${venv_dir}
+    venv bootstrap    : ${venv_bootstrap}
     toolkit root      : ${toolkit_root}
     library shim      : ${shim_dir} (${shim_count} versioned libraries)
     presets           : ${presets_status}

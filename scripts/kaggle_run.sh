@@ -375,6 +375,11 @@ fi
 step_begin "[6/6] summary.txt, secret scan, archive"
 toolkit_root="$(presets_field toolkit-root)"
 venv="$(presets_field venv)"
+# How setup_cuda_pypi.sh got pip into the virtual environment, from its final summary.
+venv_bootstrap="$(sed -n 's/^[[:space:]]*venv bootstrap[[:space:]]*:[[:space:]]*//p' \
+  "${run_dir}/2_setup.log" 2>/dev/null || true)"
+venv_bootstrap="${venv_bootstrap%%$'\n'*}"
+venv_bootstrap="${venv_bootstrap:-${NA}}"
 nvcc_version="${NA}"
 if [[ -n "${toolkit_root}" && -x "${toolkit_root}/bin/nvcc" ]] &&
   nvcc_output="$("${toolkit_root}/bin/nvcc" --version 2>&1)"; then
@@ -453,6 +458,7 @@ summary="${run_dir}/summary.txt"
   echo
   echo "[toolkit]"
   echo "setup: ${setup_outcome} (2_setup.log)"
+  echo "venv_bootstrap: ${venv_bootstrap}"
   echo "nvcc: ${nvcc_version}"
   echo "nvidia_nvjitlink: ${nvjitlink_version}"
   for preset in "${PRESETS[@]}"; do

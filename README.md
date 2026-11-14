@@ -62,12 +62,15 @@ cmake --preset cuda        && cmake --build --preset cuda        && ctest --pres
 ```
 
 The script installs `cuda-toolkit[...]==13.4.3`, nvdisasm included, into a virtual environment
-under `~/.local/share/sbmc/cuda-13.4.3/`. It pins `nvidia-nvjitlink`, which the metapackage only
-requires as a minimum version, to the version of nvcc (13.4.92 for 13.4.3), also when it reruns
-on an existing environment. It creates a library shim (versioned and unversioned names of the
-toolkit's shared libraries, which CMake needs to find them), checks nvcc, tileiras,
-compute-sanitizer, cuobjdump, nvdisasm, the nvjitlink pin, a minimal Tile compilation and its
-disassembly, and writes `CMakeUserPresets.json`.
+under `~/.local/share/sbmc/cuda-13.4.3/`. Where `python3 -m venv` cannot install pip because
+the Python has no ensurepip, as on Kaggle's image, it creates the environment without pip and
+installs pip into it with the system pip (`python3 -m pip --python ...`, pip 22.3 or newer); the
+summary line "venv bootstrap" says which way was taken. It pins `nvidia-nvjitlink`, which the
+metapackage only requires as a minimum version, to the version of nvcc (13.4.92 for 13.4.3),
+also when it reruns on an existing environment. It creates a library shim (versioned and
+unversioned names of the toolkit's shared libraries, which CMake needs to find them), checks
+nvcc, tileiras, compute-sanitizer, cuobjdump, nvdisasm, the nvjitlink pin, a minimal Tile
+compilation and its disassembly, and writes `CMakeUserPresets.json`.
 That file holds the machine-specific paths, is ignored by git and defines visible presets on top
 of the hidden ones of `CMakePresets.json`: with `--presets laptop` (the default) `cuda` and
 `cuda-strict`, built with 8 jobs; with `--presets t4` `t4` and `t4-strict`, built with one job
