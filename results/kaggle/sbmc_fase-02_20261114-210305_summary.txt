@@ -1,0 +1,99 @@
+# sbmc Kaggle run summary
+run: sbmc_fase-02_20261114-210305
+ref: fase-02
+date_utc: 2026-11-14T21:03:05Z
+commit: ce6086c979fc696595b8b157783db4cbac9eb3fe
+git_status: clean
+nproc: 4
+gpus_visible: 2 (nvidia-smi -L)
+context: ok (1_context.log)
+
+[toolkit]
+setup: ok (2_setup.log)
+venv_bootstrap: system pip 26.2.2
+nvcc: Cuda compilation tools, release 13.4, V13.4.92
+nvidia_nvjitlink: 13.4.92
+
+[preset t4-strict]
+configure: ok (3_t4-strict_configure.log)
+build: ok (3_t4-strict_build.log)
+ctest: ok (3_t4-strict_ctest.log)
+tests_passed: 4 (test_sanity, test_sync_from_zip, smoke_simt, test_cuda_rpath)
+tests_failed: 0
+tests_skipped: 0
+
+[preset t4]
+configure: ok (3_t4_configure.log)
+build: ok (3_t4_build.log)
+ctest: ok (3_t4_ctest.log)
+tests_passed: 4 (test_sanity, test_sync_from_zip, smoke_simt, test_cuda_rpath)
+tests_failed: 0
+tests_skipped: 0
+
+[smoke_simt]
+binary: build/t4/tests/smoke/smoke_simt
+rpath (readelf -d): /root/.local/share/sbmc/cuda-13.4.3/lib-shim
+runpath (readelf -d): none
+result: ok
+output: 4_smoke_simt.txt
+versions:
+  cuda_runtime_version: 13040 (13.4)
+  cuda_driver_version: 13000 (13.0)
+  cublas_version: 13.8.0
+  cublaslt_version: 130800
+  cuda_runtime_compiled: 13040 (13.4)
+  cuda_runtime_loaded: 13040 (13.4)
+  cublas_compiled: 13.8.0
+  cublas_loaded: 13.8.0
+  device_count: 2
+  device0_name: Tesla T4
+  device0_compute_capability: 7.5
+  device1_name: Tesla T4
+  device1_compute_capability: 7.5
+verdicts:
+  CUDA_RUNTIME_MATCH: PASS
+  CUBLAS_MATCH: PASS
+  device0_verdict: PASS
+  device1_verdict: PASS
+  SIMT_VECTOR_ADD: PASS
+  CUBLAS_SGEMM: PASS
+  CUBLASLT_HANDLE: PASS
+  SIMT_VERDICT: PASS
+libraries (ldd):
+  libcudart.so.13 => /root/.local/share/sbmc/cuda-13.4.3/lib-shim/libcudart.so.13
+  libcublas.so.13 => /root/.local/share/sbmc/cuda-13.4.3/lib-shim/libcublas.so.13
+  libcublasLt.so.13 => /root/.local/share/sbmc/cuda-13.4.3/lib-shim/libcublasLt.so.13
+
+[p2p]
+cuda_device_can_access_peer (smoke_simt):
+  p2p_access_0_to_1: yes
+  p2p_access_1_to_0: yes
+nvidia_smi_topo_p2p_r:
+   	[4mGPU0	GPU1	[0m
+   GPU0	X	OK	
+   GPU1	OK	X	
+  
+  Legend:
+  
+    X    = Self
+    OK   = Status Ok
+    CNS  = Chipset not supported
+    GNS  = GPU not supported
+    TNS  = Topology not supported
+    NS   = Not supported
+    U    = Unknown
+
+[env_report]
+file: env_eabc0f981c00_20261114-210433.txt (copy of results/env/env_eabc0f981c00_20261114-210433.txt in the clone)
+result: ok (5_env_report.log)
+
+[notes]
+none
+
+[result]
+secret_scan: clean (3 variables searched)
+failed: none
+elapsed_s: 90
+exit_code: 0
+verdict: PASS
+archive: /kaggle/working/sbmc_fase-02_20261114-210305.tar.gz
