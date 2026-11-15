@@ -59,6 +59,8 @@ find_package(OpenMP REQUIRED COMPONENTS CXX)
 
 include(cmake/SbmcFlags.cmake)
 
+add_subdirectory(src/core)
+
 enable_testing()
 add_subdirectory(tests)
 
