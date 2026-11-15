@@ -3,6 +3,59 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F03-R1] - 2026-11-15
+
+Phase 03: the core library, the first library of the project (standard C++20 and OpenMP only,
+no CUDA types in the public headers).
+
+### Added
+
+- `include/sbmc/error.hpp`: `sbmc::Error` (derived from `std::runtime_error`), `sbmc::IoError`,
+  `sbmc::InvalidArgument`.
+- `include/sbmc/philox.hpp`: macro `SBMC_HD`; `U32x4`, `U32x2` (with defaulted `operator==`);
+  `philox4x32_10` (Philox4x32-10, header-only, `constexpr`, `noexcept`, host and device, no
+  intrinsics); `RngDomain` (`couplings` 1, `sb_initial_positions` 2, `sa_initial_spins` 3,
+  `sa_acceptance` 4); `stream_block`, `stream_word` (the stream convention, identical to the
+  cuRAND sequence); `coupling_from_word`, `position_from_word`.
+- `include/sbmc/instance.hpp` and `src/core/instance.cpp`: `Spin`, `Edge`, `Graph`,
+  `DenseSpinGlass`, `Instance = std::variant<Graph, DenseSpinGlass>`; `num_spins`,
+  `total_weight`, `ising_energy`, `cut_direct` (int64, cut computed directly) and
+  `dense_rows_int8` (INT8 rows of J with padding) for `Graph`, `DenseSpinGlass` and `Instance`;
+  `coupling` (implicit dense generator on `(min(i, j), max(i, j))`); full precondition checks
+  with `InvalidArgument`; OpenMP over the rows for `DenseSpinGlass`, rows generated in groups of
+  four.
+- `include/sbmc/rudy.hpp` and `src/core/rudy.cpp`: `read_rudy` and `parse_rudy`, canonical
+  graph, `IoError` messages `<source>:<line>: <reason>` and `<source>: <reason>`, the first
+  error in input order; a file that cannot be opened, or a directory, gives an `IoError` with
+  the path.
+- `include/sbmc/initial_state.hpp` and `src/core/initial_state.cpp`: `initial_position`
+  (`SBMC_HD constexpr`), `InitialState`, `make_initial_state` (replica-major x0, global replica
+  indices, OpenMP).
+- `src/core/CMakeLists.txt`: INTERFACE target `sbmc_headers` (`sbmc::headers`), static library
+  `sbmc_core` (`sbmc::core`), header check `sbmc_header_check` (C++, every preset) and
+  `sbmc_header_check_cuda` (nvcc, CUDA presets), generated units that include each public
+  header twice.
+- Tests: `test_philox` (T11, CPU part), `test_instance` (T1, T5 for dense INT8 rows, T12, int64
+  sums, preconditions), `test_rudy` (T6 on example inputs), `test_initial_state` (x0), label
+  `cpu`, in `build/<preset>/tests/core/`; `tests/data/four_nodes.rudy`;
+  `test_curand_philox` (T11, GPU part: cuRAND, the project's Philox and x0 on the device, label
+  `gpu`, in `build/<preset>/tests/gpu/`, listed in `test_cuda_rpath`).
+- `README.md`: section "Core library" (instances, rudy reader rules, domains and stream rule,
+  cuRAND equivalence, conversions, initial positions, origin of the reference values) and
+  section "Tests" (labels, folders, tests per preset).
+
+### Changed
+
+- `CMakeLists.txt`: `add_subdirectory(src/core)` after `include(cmake/SbmcFlags.cmake)`.
+- `tests/CMakeLists.txt`: header comment (labels and folders); the four core test executables;
+  `test_curand_philox` in the CUDA block, before `test_cuda_rpath`. Tests per preset: 6 (`cpu`,
+  `cpu-strict`), 12 (`cuda`, `cuda-strict`), 9 (`t4`, `t4-strict`).
+- `README.md`: status (phase 03), test labels moved to the section "Tests", repository layout.
+
+### Removed
+
+- Nothing.
+
 ## [F02-R3] - 2026-11-14
 
 Phase 02, correction after the first run on Kaggle: the image's Python has no ensurepip, so

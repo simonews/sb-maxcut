@@ -1,4 +1,7 @@
-# Tests: doctest unit tests (cpu), tool tests (tools) and CUDA smoke tests (gpu, tile, probe).
+# Tests: doctest unit tests (cpu), tool tests (tools), CUDA tests and smoke tests (gpu, tile,
+# probe). Folders: core/ (unit tests of sbmc::core, executables in <build>/tests/core/), data/
+# (input files of the tests), gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/ (CUDA
+# smoke tests, executables in <build>/tests/smoke/), scripts/ (tool tests and checks).
 # Tests that cannot run on the current machine exit with 77, registered as SKIP_RETURN_CODE.
 
 add_library(doctest INTERFACE)
@@ -10,6 +13,18 @@ target_link_libraries(test_sanity PRIVATE sbmc::flags doctest OpenMP::OpenMP_CXX
 target_compile_definitions(test_sanity PRIVATE "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 add_test(NAME test_sanity COMMAND test_sanity)
 set_tests_properties(test_sanity PROPERTIES LABELS "cpu")
+
+# Unit tests of the core library: one doctest executable per file of core/.
+foreach(_sbmc_test IN ITEMS test_philox test_instance test_rudy test_initial_state)
+  add_executable(${_sbmc_test} core/${_sbmc_test}.cpp)
+  set_target_properties(${_sbmc_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                 "${CMAKE_CURRENT_BINARY_DIR}/core")
+  target_link_libraries(${_sbmc_test} PRIVATE sbmc::flags sbmc::core doctest OpenMP::OpenMP_CXX)
+  add_test(NAME ${_sbmc_test} COMMAND ${_sbmc_test})
+  set_tests_properties(${_sbmc_test} PROPERTIES LABELS "cpu")
+endforeach()
+target_compile_definitions(test_rudy PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\"")
 
 # --- Tools ----------------------------------------------------------------------------------
 add_test(NAME test_sync_from_zip
@@ -70,6 +85,18 @@ if(SBMC_ENABLE_CUDA)
       list(APPEND _sbmc_cuda_executables "$<TARGET_FILE:${_sbmc_probe}>")
     endforeach()
   endif()
+
+  # T11 on the GPU: cuRAND, the project's Philox and x0 on the device against the host. Built
+  # for every architecture of the preset. The device API of cuRAND is header-only
+  # (curand_kernel.h): no cuRAND library is linked.
+  add_executable(test_curand_philox gpu/test_curand_philox.cu)
+  set_target_properties(test_curand_philox PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                      "${CMAKE_CURRENT_BINARY_DIR}/gpu")
+  target_link_libraries(test_curand_philox PRIVATE sbmc::flags sbmc::cuda_rpath sbmc::headers
+                                                   CUDA::cudart)
+  add_test(NAME test_curand_philox COMMAND test_curand_philox)
+  set_tests_properties(test_curand_philox PROPERTIES LABELS "gpu" SKIP_RETURN_CODE 77)
+  list(APPEND _sbmc_cuda_executables "$<TARGET_FILE:test_curand_philox>")
 
   # Every CUDA executable of the build must find the CUDA libraries through RPATH (a folder with
   # libcudart.so.13) and have no RUNPATH. Skipped (77) when readelf is missing.

@@ -12,7 +12,10 @@ Kaggle T4 GPUs, and validates them with bit-for-bit identical dSB trajectories.
 
 Phase 01, scaffolding: build system, CUDA toolkit setup, working tools and smoke tests.
 Phase 02: builds and tests on Kaggle's two Tesla T4 with the same toolkit as the laptop.
-No algorithm of the project is implemented yet.
+Phase 03, core library: rudy reader, Ising model with int64 sums, the project's Philox4x32-10
+streams (checked against cuRAND), initial positions, implicit dense instances and dense INT8 rows
+of J (see "Core library"). Simulated bifurcation and simulated annealing are not implemented
+yet.
 
 ## Requirements
 
@@ -94,9 +97,8 @@ library that propagates it. The test `test_cuda_rpath` (label `tools`, CUDA buil
 folder with `libcudart.so.13` and no RUNPATH. As a second guard, `smoke_simt` fails when the CUDA
 runtime or cuBLAS it loads differ from the headers it was compiled with.
 
-Test labels: `cpu`, `tools`, `gpu`, `tile`, `probe` (for example `ctest --preset cuda -L tile`).
-A test that cannot run on the current machine (no GPU, missing tool) exits with 77 and CTest
-reports it as skipped. The GPU smoke tests, built in `build/<preset>/tests/smoke/`, are:
+Test labels, folders and the number of tests per preset are in "Tests" below. The GPU smoke
+tests, built in `build/<preset>/tests/smoke/`, are:
 
 - `smoke_simt`: loaded CUDA runtime and cuBLAS against the headers of the build
   (`CUDA_RUNTIME_MATCH`, `CUBLAS_MATCH`; a mismatch fails with exit code 1, GPU or not), device
@@ -129,6 +131,161 @@ For example, to count the FFMA, FMUL and FADD instructions of each kernel of an 
        fn != "" && /[[:space:]]FADD[[:space:].]/ { fadd[fn]++ }
        END { for (f in seen) printf "%s FFMA=%d FMUL=%d FADD=%d\n", f, ffma[f], fmul[f], fadd[f] }'
 ```
+
+## Core library
+
+The static library `sbmc::core` (`src/core/`) and its public headers (`include/sbmc/`, INTERFACE
+target `sbmc::headers`) use only standard C++20 and OpenMP, so the CPU part also builds without
+CUDA and, later, on Windows. The public headers contain no CUDA type and include no CUDA header:
+the only CUDA-related element is the macro `SBMC_HD` of `sbmc/philox.hpp` (`__host__ __device__`
+under `__CUDACC__`, empty otherwise). This is enforced by the build: for each public header CMake
+generates a translation unit that includes it twice, compiled as C++ in the OBJECT library
+`sbmc_header_check` in every preset and, in the CUDA presets, also by nvcc for the architectures
+of the preset in `sbmc_header_check_cuda`.
+
+Errors are exceptions derived from `sbmc::Error` (`sbmc/error.hpp`): `sbmc::IoError` for inputs
+that cannot be read or break their format, `sbmc::InvalidArgument` for violated preconditions
+(the function then writes nothing to its outputs). Preconditions are checked in every build,
+never with `assert`: CMake adds `-DNDEBUG` to Release builds.
+
+### Instances and Ising model (`sbmc/instance.hpp`)
+
+- `Graph`: `n` and the canonical edge list, 0-based, `u < v`, `w != 0` and `w != INT32_MIN`,
+  in strictly increasing `(u, v)` order (no duplicates), with `1 <= n <= 2^31 - 1`.
+- `DenseSpinGlass`: `n` and a `seed`, the implicit complete graph with `J_ij = +-1` taken from the
+  `couplings` stream of the seed (below) and never stored: any `n` up to `2^31 - 1` is valid, and
+  the project uses it up to about 160,000 nodes.
+- `Instance = std::variant<Graph, DenseSpinGlass>`, the input of the solvers.
+
+Conventions: `J_ij = -w_ij`, `J_ii = 0` (for a `DenseSpinGlass`, `w_ij = -J_ij`);
+`W = sum_{i<j} w_ij`, `E(s) = sum_{i<j} w_ij s_i s_j`, `C(s) = sum_{i<j} w_ij [s_i != s_j]`, so
+`2C = W - E`. The functions `num_spins`, `total_weight`, `ising_energy`, `cut_direct` and
+`dense_rows_int8` exist for `Graph`, `DenseSpinGlass` and `Instance`; `coupling(g, i, j)` gives
+one `J_ij` of a `DenseSpinGlass`. Sums are in int64 and `cut_direct` computes `C` directly on
+the edges or pairs, never from `W` and `E`. Every function that takes a `Graph` checks it in
+full, except `num_spins`, which checks `n` only. `dense_rows_int8(inst, row_begin, row_end, ld,
+out)` writes rows `[row_begin, row_end)` of J in INT8, row-major with stride `ld`, with a zero
+diagonal and zero padding columns (`j >= n`) and rows (`i >= n`); for a `Graph` every edge needs
+`1 <= |w| <= 127`. On a `DenseSpinGlass` the functions run with OpenMP over the rows (rows in
+groups of four, so that one Philox block gives four elements) and their results do not depend
+on the number of threads.
+
+### Rudy reader (`sbmc/rudy.hpp`)
+
+`read_rudy(path)` reads a G-set file; `parse_rudy(stream, source)` applies the same rules to a
+stream. Format: a header line `N M`, then exactly `M` edge lines `i j w` with 1-based indices.
+
+- Accepted: `\n` line endings, a last line without `\n`, CRLF (one trailing `\r` per line is
+  removed), leading and trailing spaces and tabs, several spaces or tabs between tokens, blank
+  lines anywhere (they still count for the line numbers), integer tokens with an optional `+` or
+  `-`, edges with `i > j` and edges in any order.
+- Rejected: no header; a header without exactly two integer tokens, or with `N` outside
+  `[1, 2^31 - 1]` or `M` outside `[0, N(N - 1)/2]`; an edge line without exactly three integer
+  tokens, with `i` or `j` outside `[1, N]`, with `i == j`, with `w == 0` or `|w| > 2^31 - 1`; a
+  token that is not an optional sign followed by decimal digits only (`1.0`, `1.5`, `1e3`, `12a`,
+  `+-1`); a repeated edge, in the same or in the opposite direction; fewer than `M` edge lines;
+  a non-blank line after the `M` edge lines.
+- Result: the canonical `Graph`, with `n = N`, `u = min(i, j) - 1`, `v = max(i, j) - 1` and the
+  edges sorted by `(u, v)`.
+- Messages of `IoError::what()`: `<source>:<line>: <reason>` for an error tied to a line, with
+  the physical line number counted from 1 (for a repeated edge, the line of the second
+  occurrence, and the reason gives `line <number>` of the first); `<source>: <reason>` for no
+  header, fewer than `M` edge lines and read errors. The source of `read_rudy` is the path; a
+  file that cannot be opened, or a directory, gives an `IoError` with the path. When the input
+  has several errors, the first one in input order is reported. Nothing is preallocated from
+  `M`.
+
+### Random streams (`sbmc/philox.hpp`)
+
+Philox4x32-10 of Salmon, Moraes, Dror and Shaw (SC 2011), identical to Random123 and to cuRAND's
+`curand_Philox4x32_10`, written as header-only `constexpr noexcept` functions without
+intrinsics: the same code compiles for the host and for the device (`SBMC_HD`). Every random
+number of the project comes from a stream identified by a seed, a domain `d` and a stream index:
+
+```
+stream_block(seed, d, stream, b) = philox4x32_10({lo32(b), hi32(b), stream, d},
+                                                 {lo32(seed), hi32(seed)})
+stream_word(seed, d, stream, k)  = component k mod 4 of stream_block(seed, d, stream, k / 4)
+                                   (0, 1, 2, 3 = x, y, z, w)
+```
+
+| Domain                 | Value | Seed (key)    | Stream index       | Word k            | Use                               |
+|------------------------|-------|---------------|--------------------|-------------------|-----------------------------------|
+| `couplings`            | 1     | instance seed | `min(i, j)`        | `max(i, j)`       | `J_ij = coupling_from_word(word)` |
+| `sb_initial_positions` | 2     | run seed      | global replica `r` | spin index `i`    | `x0 = position_from_word(word)`   |
+| `sa_initial_spins`     | 3     | run seed      | `r`                | `i`               | reserved for phase 06, not used   |
+| `sa_acceptance`        | 4     | run seed      | `r`                | fixed in phase 06 | reserved for phase 06, not used   |
+
+The values are fixed: 0 is never used, a new domain takes the next number and numbers are never
+reassigned. Because a stream depends only on indices (instance, replica, spin), results do not
+depend on threads, devices or on how the work is split.
+
+Equivalence with cuRAND, checked on the GPU by `test_curand_philox`: after
+`curand_init(seed, ((uint64)d << 32) | stream, k, &state)`, the t-th call to `curand(&state)`
+returns `stream_word(seed, d, stream, k + t)`, and with `k` a multiple of 4 `curand4(&state)`
+returns `stream_block(seed, d, stream, k / 4)`. The GPU code can therefore use either cuRAND or
+the project's Philox and get the same bits.
+
+Conversions:
+
+- `coupling_from_word(w)`: `+1` when the top bit of `w` is 0, `-1` otherwise.
+- `position_from_word(w)`: `t = (int32)(w >> 8) - 2^23`, an exact integer in `[-2^23, 2^23 - 1]`,
+  converted to float and multiplied once by `S = 0.1f / 2^23` (`0x1.99999ap-27f`, bits
+  `0x324CCCCD`): a value in `[-0.1f, 0.1f)`. With a single rounded multiplication no FMA
+  contraction is possible, so the bits are the same in every preset, strict or not, on the host
+  and on the device (`w = 0` gives `-0.1f`).
+
+### Initial positions (`sbmc/initial_state.hpp`)
+
+`initial_position(seed, r, i)` is the x0 of spin `i` in the replica with global index `r` (the
+`sb_initial_positions` stream); `y0 = 0`. `make_initial_state(n, replicas, seed, first_replica)`
+returns the x0 of replicas `first_replica, ..., first_replica + replicas - 1`, replica-major
+(`x0[r * n + i]`), with OpenMP: splitting the replicas over several calls (multi-GPU, M1) gives
+the same values. The initial conditions are generated once on the host and shared by every
+variant, the condition of the bit-for-bit dSB test T7.
+
+### Reference values of the tests
+
+The reference values of `tests/core/` (Philox words and blocks, couplings, sums and rows of dense
+instances, bits of x0) were computed by cldArchitect with an independent implementation (two
+Python versions, vectorised NumPy and scalar, that agree with each other), checked on the
+Philox4x32-10 known-answer vectors of Random123 (`tests/kat_vectors` of
+github.com/DEShawResearch/random123, commit 9545ff6), which `test_philox` checks too.
+
+## Tests
+
+| Label   | Tests                                                                            | Sources                      |
+|---------|----------------------------------------------------------------------------------|------------------------------|
+| `cpu`   | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state` | `tests/`, `tests/core/`      |
+| `tools` | `test_sync_from_zip`; `test_cuda_rpath` (CUDA presets)                           | `tests/scripts/`             |
+| `gpu`   | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)         | `tests/smoke/`, `tests/gpu/` |
+| `tile`  | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                | `tests/smoke/`               |
+| `probe` | `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                              | `tests/smoke/`               |
+
+Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset>/tests/core/`,
+`build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; `tests/data/` holds the input files
+of the tests (`four_nodes.rudy`, the 4-node example of the reference document). Number of tests:
+6 with `cpu` and `cpu-strict`, 12 with `cuda` and `cuda-strict`, 9 with `t4` and `t4-strict`.
+A test that cannot run on the current machine (no GPU, missing tool) exits with 77 and CTest
+reports it as skipped (for example `ctest --preset cuda -L tile` runs only the Tile tests).
+
+Core tests (doctest):
+
+- `test_philox` (T11, CPU part): the three Random123 vectors (the first also at compile time),
+  reference words of the streams, a block against its four words, both conversions;
+- `test_instance`: T1 (the 4-node example), int64 sums and the identity `2C = W - E` on random
+  graphs, every precondition, T5 (dense INT8 rows of a `Graph`: values, symmetry, padding, rows
+  in blocks, round trip) and T12 (implicit dense instances: reference couplings, sums and rows up
+  to n = 160,000, statistics, independence from the number of threads);
+- `test_rudy` (T6 on example inputs): the accepted variants and every rejection rule, with the
+  line numbers of the messages;
+- `test_initial_state`: reference bits of x0, layout, replica split, independence from the
+  number of threads, range and mean;
+- `test_curand_philox` (T11, GPU part, label `gpu`): cuRAND (`curand`, sequences of 16 calls,
+  `curand4`), the project's Philox on the device and x0 on the device, all against the host, with
+  the lines `T11_CURAND_WORD`, `T11_CURAND_SEQUENCE`, `T11_CURAND4`, `T11_OWN_PHILOX_DEVICE`,
+  `T11_X0_DEVICE` (`PASS` or `FAIL` with `(<different>/<cases>)`) and the final
+  `T11_GPU_VERDICT: PASS|FAIL`.
 
 ## Running on Kaggle (2 x T4)
 
@@ -211,18 +368,24 @@ Notes:
 Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 `scripts/sync_from_zip.sh` enforces it on every delivery.
 
-## Repository layout (planned)
+## Repository layout
 
 ```
 CMakeLists.txt, CMakePresets.json, cmake/   build system
-include/sbmc/        public headers
-src/core/            G-set reader, Ising model, int64 cut and energy, Philox, TTS statistics
+include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state
+src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, initial
+                     positions (TTS statistics in a later phase)
 src/cpu/             sequential reference, OpenMP SB, simulated annealing, brute force
 src/gpu/             cuBLAS, cuBLASLt, bitwise and cuSPARSE products, update kernels
 src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
 apps/                command-line programs
 tests/               unit, integration and smoke tests (ctest)
+tests/core/          unit tests of the core library (doctest)
+tests/data/          input files of the tests
+tests/gpu/           CUDA tests (test_curand_philox)
+tests/smoke/         CUDA smoke tests and FMA probes
+tests/scripts/       tool tests and checks
 python/              NumPy reference, analysis, plots
 bench/configs/       experiment configurations
 data/                G-set and best known values with sources
@@ -232,7 +395,9 @@ docs/                report sources and figures
 third_party/         vendored dependencies
 ```
 
-Only `cmake/`, `scripts/`, `tests/` and `third_party/` exist in phase 01.
+Existing in phase 03: `cmake/`, `include/sbmc/`, `scripts/`, `src/core/`, `tests/` (with
+`core/`, `data/`, `gpu/`, `scripts/`, `smoke/`) and `third_party/`; the other folders come with
+later phases.
 
 ## License and third-party code
 
