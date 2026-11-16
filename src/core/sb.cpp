@@ -29,6 +29,8 @@ float c0_from_sums(std::int64_t n, std::int64_t w, std::int64_t q) {
   if (n < 2) {
     invalid(kFunction, "n = " + std::to_string(n) + ": at least 2 spins are needed");
   }
+  // Defensive check without a test (answer 1 A to F04-R1): with a valid instance |W| < 2^62
+  // (a Graph would need more than 2^31 edges, a DenseSpinGlass has |W| < 2^61), so it cannot fire.
   if (w > kInt64Max / 2 || w < -(kInt64Max / 2)) {
     invalid(kFunction, "S1 = -2 W overflows int64 (W = " + std::to_string(w) + ")");
   }
@@ -42,6 +44,8 @@ float c0_from_sums(std::int64_t n, std::int64_t w, std::int64_t q) {
   const double mean = static_cast<double>(s1) / static_cast<double>(pairs);
   const double ms = static_cast<double>(s2) / static_cast<double>(pairs);
   const double var = ms - mean * mean;
+  // var not > 0 is tested (zero variance). var not finite is a defensive check without a test
+  // (answer 1 A to F04-R1): the operands are finite, so it cannot fire with a valid instance.
   if (!std::isfinite(var) || !(var > 0.0)) {
     invalid(kFunction, "the variance of the off-diagonal couplings is not positive (var = " +
                            std::to_string(var) + ")");
@@ -49,6 +53,8 @@ float c0_from_sums(std::int64_t n, std::int64_t w, std::int64_t q) {
   const double sigma = std::sqrt(var);
   const double c0 = 1.0 / (2.0 * sigma * std::sqrt(static_cast<double>(n)));
   const auto result = static_cast<float>(c0);
+  // Defensive check without a test (answer 1 A to F04-R1): with var > 0 computed from int64
+  // sums, 2 sigma sqrt(n) stays above about 2^-56, so c0 < 2^56 is finite.
   if (!std::isfinite(result)) {
     invalid(kFunction, "c0 is not finite");
   }

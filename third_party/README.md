@@ -19,3 +19,22 @@ Dependencies copied into the repository without modifications.
 
 Usage: the CMake interface target `doctest` (in `tests/CMakeLists.txt`) adds `third_party/` as
 a system include directory; tests include `<doctest/doctest.h>`.
+
+## CLI11
+
+| Field    | Value |
+|----------|-------|
+| Name     | CLI11, command line parser for C++11 and later (single-header edition) |
+| Version  | 2.7.2 (latest release, 2026-08-02: date of the annotated tag) |
+| Release  | https://github.com/CLIUtils/CLI11/releases/tag/v2.7.2 |
+| Commit   | cbd58a3696887b34c70949aef21a71735a0c2ad5 (tag `v2.7.2`) |
+| License  | BSD-3-Clause (`CLI11/LICENSE`) |
+
+| File              | Upstream path                                                   | SHA-256 |
+|-------------------|-----------------------------------------------------------------|---------|
+| `CLI11/CLI11.hpp` | release asset `CLI11.hpp` of v2.7.2 (single header, 493,427 bytes) | `ffa9a30da295c5858fb5f91f9f45771bab09471d7010a34c7c68c857a330dd76` |
+| `CLI11/LICENSE`   | `LICENSE` at tag `v2.7.2`                                       | `cfc76368aef8f51868fa1cda6bcfa26e583406a4cf8e48e725e7624df24d8855` |
+
+Usage: the CMake interface target `sbmc_cli11` (alias `sbmc::cli11`, in `apps/CMakeLists.txt`)
+adds `third_party/` as a system include directory; the applications in `apps/` include
+`<CLI11/CLI11.hpp>`. No public header of the project includes it.

@@ -1,16 +1,20 @@
 // Sequential reference C0 (sbmc/sb_sequential.hpp): a short trajectory bit for bit, the reference
-// cases G1-G6, properties that hold in every preset, and the preconditions.
+// cases G1-G6, properties that hold in every preset, and the preconditions; the fingerprints of
+// the whole trajectories of G1-G6 and the domain case GS-G1 (G1 of the G-set), the references of
+// T7 for the later variants.
 //
 // The reference values were computed by cldArchitect with two independent implementations of
 // the algorithm (NumPy in float32 and scalar Python rounding to float32 after every operation);
 // the optima come from an exact enumeration with Gray code. "Strict" means
 // SBMC_STRICT_FP_BUILD = 1 (no FMA contraction): there the floating-point states, the
-// fingerprints of the final states and the integer results of G1-G6 are compared exactly. In
-// every preset dt = 1.25f and a0 = 1; "auto" means c0 = 0.
+// fingerprints of the final states and of the trajectories, and the integer results of G1-G6 and
+// GS-G1 are compared exactly. In every preset a0 = 1; dt = 1.25f except in GS-G1 (0.5f); "auto"
+// means c0 = 0.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #include <omp.h>
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -35,6 +39,9 @@
 #endif
 #ifndef SBMC_STRICT_FP_BUILD
 #error "SBMC_STRICT_FP_BUILD must be defined by CMake (1 in the strict presets, 0 otherwise)"
+#endif
+#ifndef SBMC_DATA_DIR
+#error "SBMC_DATA_DIR must be defined by CMake (absolute path of data/)"
 #endif
 
 namespace {
@@ -90,6 +97,22 @@ SbParams params(SbAlgorithm algorithm, int replicas, int steps, float c0, std::u
 std::uint64_t fingerprint(const SbResult& result) {
   std::uint64_t h = 0xCBF29CE484222325ull;
   for (const std::vector<float>* state : {&result.final_x, &result.final_y}) {
+    for (const float value : *state) {
+      const std::uint32_t word = bits(value);
+      for (int byte = 0; byte < 4; ++byte) {
+        h ^= (word >> (8 * byte)) & 0xFFu;
+        h *= 0x100000001B3ull;
+      }
+    }
+  }
+  return h;
+}
+
+// FNV-1a 64 of the bytes of trace_x followed by those of trace_y, in the order [k][r][i] (4
+// little-endian bytes per float): the fingerprint of the recorded trajectory.
+std::uint64_t trajectory_fingerprint(const SbResult& result) {
+  std::uint64_t h = 0xCBF29CE484222325ull;
+  for (const std::vector<float>* state : {&result.trace_x, &result.trace_y}) {
     for (const float value : *state) {
       const std::uint32_t word = bits(value);
       for (int byte = 0; byte < 4; ++byte) {
@@ -398,6 +421,85 @@ TEST_CASE("C0: reference cases G1-G6") {
     CHECK(bit_differences(last_x, result.final_x) == 0u);
     CHECK(bit_differences(last_y, result.final_y) == 0u);
   }
+}
+
+// Fingerprints of the whole trajectories of G1-G6 (trace_steps = M), the references of T7: the
+// fingerprints of the final states see only the final signs, because at the end every spin of
+// every replica sits on a wall (|x| = 1, y = 0).
+TEST_CASE("C0: fingerprints of the trajectories of G1-G6 (strict)") {
+  if (!kStrict) {
+    MESSAGE("production preset: checked only in the strict ones");
+    return;
+  }
+  const std::vector<std::uint64_t> expected = {0x53F1D9C82C26E009ull, 0x70C8B29BC12705AEull,
+                                               0x8DF7CB7BC5646913ull, 0x7B4113BC797CE654ull,
+                                               0x07E018CF0A497A77ull, 0x4F60D256CEE00FC2ull};
+  const std::vector<ReferenceCase> cases = reference_cases();
+  REQUIRE(cases.size() == expected.size());
+  for (std::size_t c = 0; c < cases.size(); ++c) {
+    const SbResult result = run_reference(cases[c], cases[c].steps);
+    REQUIRE(result.trace_steps == cases[c].steps);
+    const std::uint64_t got = trajectory_fingerprint(result);
+    INFO(cases[c].name << ": expected " << hex64(expected[c]) << ", got " << hex64(got));
+    CHECK(got == expected[c]);
+  }
+}
+
+// Domain case GS-G1: G1 of the G-set (data/gset/G1), dSB, R = 16, M = 2000, dt = 0.5f, a0 = 1,
+// automatic c0, seed 1, trace_steps = 100. With dt = 1.25f C0 does not work on G1 (positive
+// weights): see the README.
+TEST_CASE("C0: GS-G1, G1 of the G-set with dt = 0.5") {
+  constexpr std::int64_t kBestKnown = 11624;
+  const Instance g1 = sbmc::read_rudy(std::string(SBMC_DATA_DIR) + "/gset/G1");
+  SbParams p;
+  p.algorithm = SbAlgorithm::discrete;
+  p.replicas = 16;
+  p.steps = 2000;
+  p.dt = 0.5f;
+  p.a0 = 1.0f;
+  p.c0 = 0.0f;
+  p.seed = 1;
+  const SbResult result = sbmc::run_sb_sequential(g1, p, 100);
+  REQUIRE(result.per_replica.size() == 16u);
+  REQUIRE(result.trace_x.size() == 100u * 16u * 800u);
+
+  // Every preset.
+  std::int64_t best = 0;
+  for (int r = 0; r < 16; ++r) {
+    const auto& rep = result.per_replica[static_cast<std::size_t>(r)];
+    INFO("replica " << r << ": best_cut " << rep.best_cut);
+    best = std::max(best, rep.best_cut);
+    CHECK(rep.best_cut <= kBestKnown);
+    CHECK(rep.best_cut == sbmc::cut_direct(g1, replica_spins(result, r)));
+  }
+  CHECK(best >= 11600);
+
+  // Strict values.
+  if (!kStrict) {
+    MESSAGE("production preset: the exact values are checked only in the strict ones");
+    return;
+  }
+  const std::vector<std::int64_t> best_cut = {11613, 11608, 11566, 11576, 11596, 11572,
+                                              11587, 11603, 11620, 11576, 11559, 11613,
+                                              11624, 11594, 11609, 11620};
+  const std::vector<int> best_step = {1794, 1693, 1696, 1621, 1676, 1697, 1683, 1719,
+                                      1692, 1637, 1645, 1736, 1696, 1513, 1769, 1667};
+  for (std::size_t r = 0; r < 16; ++r) {
+    const auto& rep = result.per_replica[r];
+    INFO("replica " << r << ": best_cut " << rep.best_cut << ", best_step " << rep.best_step
+                    << ", final_cut " << rep.final_cut);
+    CHECK(rep.best_cut == best_cut[r]);
+    CHECK(rep.best_step == best_step[r]);
+    CHECK(rep.final_cut == best_cut[r]);
+  }
+  const std::uint64_t trajectory = trajectory_fingerprint(result);
+  const std::uint64_t final_state = fingerprint(result);
+  INFO("trajectory: expected 0x22C204C132E1ACAA, got " << hex64(trajectory)
+                                                       << "; final state: expected "
+                                                          "0x715609A2687E4759, got "
+                                                       << hex64(final_state));
+  CHECK(trajectory == 0x22C204C132E1ACAAull);
+  CHECK(final_state == 0x715609A2687E4759ull);
 }
 
 // Every recorded step of G3-G6 (compressed rows and dense J, dSB and bSB) recomputed in the test

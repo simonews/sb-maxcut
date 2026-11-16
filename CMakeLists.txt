@@ -61,6 +61,7 @@ include(cmake/SbmcFlags.cmake)
 
 add_subdirectory(src/core)
 add_subdirectory(src/cpu)
+add_subdirectory(apps)
 
 # Python interpreter of the Python tests (tests/python), chosen again at every configure:
 # SBMC_PYTHON when set; otherwise the virtual environment of the project, .venv/bin/python

@@ -15,11 +15,13 @@ Phase 02: builds and tests on Kaggle's two Tesla T4 with the same toolkit as the
 Phase 03, core library: rudy reader, Ising model with int64 sums, the project's Philox4x32-10
 streams (checked against cuRAND), initial positions, implicit dense instances and dense INT8 rows
 of J (see "Core library").
-Phase 04, part 1 of 2 (sequential simulated bifurcation and Python reference): the sequential
-reference C0 of bSB and dSB in FP32 with a fixed order of operations, the parts common to every
-variant, the Python reference P0 in float64 and the test T8 that compares them (see "Sequential
-simulated bifurcation" and "Python reference P0 and T8"). Part 2 adds the G-set, K2000, the table
-of the best known values and `sbmc_run`. Simulated annealing is not implemented yet.
+Phase 04 complete (C0, P0, G-set, sbmc_run): the sequential reference C0 of bSB and dSB in FP32
+with a fixed order of operations, the parts common to every variant, the Python reference P0 in
+float64 and the test T8 that compares them (see "Sequential simulated bifurcation" and "Python
+reference P0 and T8"); the G-set instances of the experiments, K2000 and the table of the
+best-known values (see "Data"); `sbmc_run`, which runs C0 and writes the results CSV (see
+"sbmc_run and the results CSV"). Simulated annealing and the TTS statistics are not implemented
+yet.
 
 ## Requirements
 
@@ -30,11 +32,13 @@ of the best known values and `sbmc_run`. Simulated annealing is not implemented 
 - An NVIDIA driver that supports CUDA 13.4 (`nvidia-smi` in WSL reports "CUDA Version" 13.4 or
   newer)
 - For the tools and their test: git, rsync, unzip and zip (`sudo apt install rsync unzip zip`)
+- For `scripts/fetch_data.sh`: curl and sha256sum
 
 ## CPU build and tests
 
 ```bash
 scripts/setup_python.sh          # once: .venv with NumPy for the Python tests
+scripts/fetch_data.sh            # once: the data that is not in git (K2000 for test_k2000)
 cmake --preset cpu-strict
 cmake --build --preset cpu-strict
 ctest --preset cpu-strict
@@ -261,7 +265,11 @@ of simulated bifurcation (`test_sb`, `test_sb_sequential`, `test_p0`) were compu
 cldArchitect with two independent implementations of the algorithm, NumPy in float32 and scalar
 Python rounding to float32 after every operation, which agree bit for bit; the optima of the
 reference cases come from an exact enumeration with Gray code, checked against an enumeration
-with NumPy for n <= 20.
+with NumPy for n <= 20. The fingerprints of the trajectories (G1-G6, GS-G1) come from the same two
+implementations, also compared at every step with `sbmc_trace` of the cpu-strict preset of
+F04-R1; the bits of `auto_c0` for G1 and K2000 were obtained from the library of F04-R1 in the
+cpu-strict preset. The values of the G-set files (`test_gset`, `test_data`) and of K2000
+(`test_k2000`) are counts on the files, given by cldArchitect.
 
 ## Sequential simulated bifurcation
 
@@ -295,7 +303,17 @@ evaluate s(M), the signs after the last step (every algorithm, every eval_every)
   large random instances: on very small graphs it can be too large (on the 4-node example it is
   0.6708 and dSB oscillates, reaching the optimum in few replicas), so the tests on that graph use
   `c0 = 0.3` explicitly. It is undefined, and rejected, when the off-diagonal elements have zero
-  variance (for example a complete graph with equal weights).
+  variance (for example a complete graph with equal weights). Three of its checks cannot fire
+  with a valid instance (overflow of `S1 = -2W`, a variance that is not finite, a c0 that is not
+  finite): they stay as defensive checks, documented in `src/core/sb.cpp`, without a test.
+- Time step: `dt = 1.25` (the default of `SbParams`) is the value of the literature for random
+  matrices with zero mean, and it fails on graphs with positive weights. On G1, C0 with
+  `dt = 1.25` keeps in every replica the cut of the random initial configuration (about 9,600, at
+  step 0). For G1, lambda_min(J) = -48.79 and lambda_max(J) = 13.27, and the general formula of the
+  reference document (section 6), `dt = 1.25 sqrt(2 / (1 - lambda_min / lambda_max))`, gives 0.818;
+  in cldArchitect's emulation `dt = 1.0` fails, 0.83 reaches 11,539 and 0.5 with M = 2000 reaches
+  11,624, the best-known value (the test GS-G1 below). The automatic choice of dt comes with the
+  estimate of lambda in phase 07 (tuning): until then `sbmc_run` requires `--dt`.
 - Best cut of a replica: the minimum E over the evaluated configurations; a configuration becomes
   the best when it is the first evaluated or strictly better (ties keep the smallest m);
   `best_cut = (W - best_energy)/2`, `final_cut` is the cut of s(M). bSB with `eval_every = 0`
@@ -312,6 +330,11 @@ evaluate s(M), the signs after the last step (every algorithm, every eval_every)
   tests compare C0 with exact reference values there, and from phase 05 every dSB variant must
   reproduce C0's trajectories exactly (T7). In the production presets FMA contraction may change
   the last bits, and the tests check only robust properties (cuts, energies, the final check).
+- References of T7: the tests fix the fingerprints (FNV-1a 64 of `trace_x` then `trace_y`, order
+  [k][r][i]) of the whole trajectories of G1-G6 and of the first 100 steps of GS-G1 (G1 of the
+  G-set, dSB, R = 16, M = 2000, dt = 0.5, automatic c0, seed 1). The fingerprints of the final
+  states are not enough: at the end every spin of every replica sits on a wall (|x| = 1, y = 0),
+  so they see only the final signs. The trajectories are what T7 compares.
 
 ## Python reference P0 and T8
 
@@ -357,12 +380,122 @@ exit statuses of `sbmc_trace` on invalid command lines (2) and on errors of the 
 instance or of the output file (1). The last line is `T8_VERDICT: PASS|FAIL` (`P0_VERDICT` for
 `test_p0`).
 
+## Data
+
+The instances and the target values are in `data/`; their origin, checks and format are described
+in `data/README.md`.
+
+- `data/gset/`: the 13 G-set instances of the experiments (evaluation: G1, G11, G14, G22, G43, G48,
+  G55, G63, G70, G81; tuning: G2, G12, G15), byte for byte as published at Stanford, and
+  `SHA256SUMS` with the SHA-256 of all 71 G-set files.
+- `data/best_known.csv`: best-known cut values with status, sources and the date of the check.
+- `data/raw/` (not in git): the other 58 G-set files and K2000 (`WK2000_1.rud`, 22.8 MB, above
+  the 5 MB limit), downloaded by `scripts/fetch_data.sh`, which checks every file against its
+  SHA-256 (`--gset`, `--k2000`, both by default; a second run reports "cached").
+- `.gitattributes` marks `data/gset/G*` as `-text`: git never converts the line endings of the
+  G-set files (the originals of G56, G60 and G61 have CRLF).
+
+## sbmc_run and the results CSV
+
+`sbmc_run` (`apps/`, built in `build/<preset>/apps/`) runs the sequential reference C0 on one
+instance and appends one row per repetition to a CSV with the results schema 1
+(`sbmc/results.hpp`). The command line is parsed with CLI11 (`third_party/CLI11`).
+
+```
+sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb --replicas R --steps M
+         --dt X [--name NAME] [--variant c0] [--a0 X] [--c0 auto|X] [--eval-every K] [--seed S]
+         [--reps K] [--warmup K] [--target best-known|none|INTEGER] [--best-known FILE]
+         [--out FILE] [--notes TEXT]
+```
+
+| Option | Meaning |
+|--------|---------|
+| `--instance FILE` | rudy file; or `--dense N --instance-seed S`, the implicit complete graph with J_ij = +-1 |
+| `--name NAME` | name in the `instance` column and in the best-known table; default: the file name without folder and extension (`data/gset/G1` gives `G1`, `WK2000_1.rud` gives `WK2000_1`), or `dense_n<N>_s<S>` |
+| `--algo`, `--replicas`, `--steps`, `--dt` | required: dSB or bSB, R, M and the time step (no default for dt, see "Sequential simulated bifurcation") |
+| `--variant c0` | the implementation; phase 04 has only `c0` |
+| `--a0 X`, `--c0 auto\|X` | a0 (default 1); c0 automatic (default) or a finite number > 0 (`--c0 0` is an error: in the library c0 = 0 means automatic, and the CSV would record another value) |
+| `--eval-every K` | bSB: evaluate the signs every K steps (default 0: only the final configuration) |
+| `--seed S` | seed of the initial positions (default 0) |
+| `--reps K`, `--warmup K` | recorded repetitions (default 1) and warm-up runs, not recorded (default 1) |
+| `--target` | `best-known` (the row `--name` of `--best-known`, default `data/best_known.csv` relative to the current folder), an integer, or `none` (default) |
+| `--out FILE` | CSV of the results: header written when the file is new or empty, one row appended per repetition (no CSV without `--out`) |
+| `--notes TEXT` | free text of the `notes` column (no line breaks) |
+
+Integers are decimal only (CLI11 alone would read `010` as octal). Exit status: 0 success; 1
+error of the library (for example `--replicas 0`: the preconditions of C0 stay with the library,
+as in `sbmc_trace`), of reading or writing, or an instance that is not in the best-known table; 2
+error of the command line (unknown, missing or repeated option, value that cannot be converted
+or is not in the list, missing or double instance). On stdout every repetition prints
+`rep <k>: best_cut <v> mean_cut <v> [n_success <a>/<R>] t_solve_ms <v>`.
+
+Repetitions (decision B7): repetition k runs C0 with `first_replica = k R` and the same `--seed`,
+that is on the global replicas [k R, (k + 1) R): different initial positions for every
+repetition, each one reproducible on its own (the replicas of a repetition are the same whatever
+the number of repetitions). The warm-up runs use `first_replica = 0` and are not recorded.
+`t_solve_ms` is the duration of `run_sb_sequential`, including its preparation (check of the
+instance, internal copy of J, automatic c0, initial positions); `t_setup_ms` is the time to read
+the rudy file (or to set up the dense instance), the same in every row of a run.
+
+Example: G1 with the parameters of GS-G1, five repetitions, target the best-known value:
+
+```bash
+mkdir -p results/f04
+build/cpu/apps/sbmc_run --instance data/gset/G1 --algo dsb --replicas 16 --steps 2000 --dt 0.5 \
+    --seed 1 --reps 5 --target best-known --out results/f04/sbmc_run_G1_c0.csv \
+    --notes "laptop on AC power, Windows power mode: Best performance"
+```
+
+K2000: the file is `data/raw/k2000/WK2000_1.rud` and its row in the table is `K2000`, so a run with
+`--target best-known` needs `--name K2000`.
+
+Columns of schema 1 (44, in order: the columns of section 10.4 of the reference document,
+preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
+`target_source` added before `notes`, which stays the last column):
+
+| Column | Meaning | C0 (`sbmc_run`, phase 04) |
+|--------|---------|---------------------------|
+| `schema_version` | version of the schema | 1 |
+| `timestamp` | start of the repetition, UTC, `YYYY-MM-DDThh:mm:ssZ` | |
+| `git_hash` | commit of the source tree at build time | 40 hexadecimal digits, or `unknown` |
+| `dirty` | uncommitted changes to tracked files at build time | 1, 0, or empty when unknown |
+| `host` | host name (`/proc/sys/kernel/hostname`) | |
+| `os` | `PRETTY_NAME` of `/etc/os-release`, " / ", kernel release (`/proc/sys/kernel/osrelease`, which names the WSL kernel on WSL) | `unknown` for a missing part |
+| `gpu`, `driver`, `cuda`, `cublas` | GPU, driver, CUDA runtime and cuBLAS versions | empty (CPU) |
+| `compiler` | C++ compiler, `<id> <version>` | for example `GNU 13.3.0` |
+| `algo` | `dsb`, `bsb` (`sa` from phase 06) | |
+| `variant` | implementation | `c0` |
+| `instance` | `--name` | |
+| `n`, `nnz` | spins; edges (a dense instance has n(n - 1)/2) | |
+| `replicas`, `steps` | R and M | |
+| `dt`, `c0`, `a0` | parameters as float, shortest form that reads back as the same float; `c0` is the value used (the automatic one with `--c0 auto`) | |
+| `beta0`, `beta1` | temperature schedule of simulated annealing | empty (SB) |
+| `seed`, `rep` | `--seed`; repetition k | |
+| `t_setup_ms`, `t_solve_ms`, `t_step_us` | setup time, solve time of the repetition, `t_solve_ms` * 1000 / M; three decimals | |
+| `best_cut`, `mean_cut` | maximum and mean (three decimals) over the replicas of their best cut | |
+| `n_success`, `p_s`, `target` | replicas with best cut >= target, `n_success` / R, the target | empty without a target |
+| `tts99_ms` | time to solution at 99% | empty: phase 06 (statistics over the repetitions) |
+| `ranks`, `t_comm_ms` | MPI processes, communication time | 1; empty (multi-GPU only) |
+| `sm_clock_avg_mhz`, `temp_max_c`, `power_avg_w` | GPU clock, temperature and power during the run | empty (CPU) |
+| `eval_every`, `first_replica` | bSB evaluation period; global index of the first replica, k R | |
+| `threads` | CPU threads | 1 (C0 is sequential) |
+| `target_source` | origin of the target: `best_known`, `user`, `none` | |
+| `notes` | `--notes` | |
+
+Reproducibility (section 8.8 of the reference document): the build information (`git_hash`,
+`dirty`, `compiler`) is written at every build by `cmake/sbmc_build_info.cmake` into
+`build/<preset>/generated/sbmc/build_info.hpp`, rewritten only when it changes, so `dirty`
+follows the state of the tracked files at the last build without a new configure. The version of
+WSL appears in the `os` column (kernel release). The power profile of the laptop cannot be read
+automatically: in the measurement campaigns it goes into `--notes`.
+
 ## Tests
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_sb_sequential` | `tests/`, `tests/core/`, `tests/cpu/` |
-| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`)                                                                 | `tests/python/`, `tests/tools/`       |
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`                                                    | `tests/python/`, `tests/tools/`       |
+| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`)                                                                      | `tests/python/`                       |
 | `tools`  | `test_sync_from_zip`; `test_cuda_rpath` (CUDA presets)                                                            | `tests/scripts/`                      |
 | `gpu`    | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)                                          | `tests/smoke/`, `tests/gpu/`          |
 | `tile`   | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                 | `tests/smoke/`                        |
@@ -371,13 +504,15 @@ instance or of the output file (1). The last line is `T8_VERDICT: PASS|FAIL` (`P
 Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset>/tests/core/`,
 `build/<preset>/tests/cpu/`, `build/<preset>/tests/tools/` (`sbmc_trace`, a tool of the tests, not
 a test), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
-`build/<preset>/tests/python/`. `tests/data/` holds the input files of the tests:
-`four_nodes.rudy` (the 4-node example of the reference document) and two 4 x 6 toroidal grids,
-`torus_4x6_unit.rudy` (unit weights, maximum cut 48) and `torus_4x6_pm1.rudy` (+-1 weights,
-maximum cut 24). Number of tests: 10 with `cpu` and `cpu-strict`, 16 with `cuda` and
-`cuda-strict`, 13 with `t4` and `t4-strict`. A test that cannot run on the current machine (no
-GPU, no NumPy, missing tool) exits with 77 and CTest reports it as skipped (for example
-`ctest --preset cuda -L tile` runs only the Tile tests).
+`build/<preset>/tests/python/`, the files of `test_sbmc_run` to `build/<preset>/tests/apps/`.
+`tests/data/` holds the input files of the tests: `four_nodes.rudy` (the 4-node example of the
+reference document) and two 4 x 6 toroidal grids, `torus_4x6_unit.rudy` (unit weights, maximum
+cut 48) and `torus_4x6_pm1.rudy` (+-1 weights, maximum cut 24); `test_gset`, `test_data`,
+`test_results` and the case GS-G1 read `data/`. Number of tests: 15 with `cpu` and `cpu-strict`, 21
+with `cuda` and `cuda-strict`, 18 with `t4` and `t4-strict`. A test that cannot run on the current
+machine (no GPU, no NumPy, missing tool, missing data) exits with 77 and CTest reports it as
+skipped (for example `ctest --preset cuda -L tile` runs only the Tile tests): `test_k2000` needs
+`scripts/fetch_data.sh --k2000` first.
 
 Tests in detail (the C++ ones use doctest):
 
@@ -393,14 +528,34 @@ Tests in detail (the C++ ones use doctest):
   number of threads, range and mean;
 - `test_sb`: the pressure schedule and the automatic c0 against reference bits, `sb_sign`,
   `sb_update` (walls, exact values), every precondition;
+- `test_gset` (T6 on the files of `data/gset/`): n, m and W of the 13 instances, the first and
+  last canonical edges of G1 and G81, E and C of G1 with every spin +1, `auto_c0` of G1;
+- `test_k2000`: n, m, W and the counts of the weights of K2000, `auto_c0`; exits with 77 and
+  "SKIP: run scripts/fetch_data.sh --k2000" when the file is missing;
+- `test_results`: the 44 columns of schema 1, `csv_escape`, `csv_line` and `csv_split` (round
+  trips, malformed lines), `append_results_row` in a temporary folder (new file, appended rows,
+  file with another header left unchanged, wrong rows), `read_best_known` on
+  `data/best_known.csv` and on malformed tables;
 - `test_sb_sequential`: C0 on a short trajectory bit for bit, the reference cases G1-G6 (best cut,
-  best step and final cut of every replica, fingerprint of the final state), every step of G3-G6
-  recomputed from the specified operations, properties of every preset (optimum reached, final
-  check, final state equal to the last recorded one), replica split, independence from the
-  number of threads, every precondition. Exact floating-point values only in the strict presets;
+  best step and final cut of every replica, fingerprint of the final state and of the whole
+  trajectory), every step of G3-G6 recomputed from the specified operations, the domain case
+  GS-G1 on G1 of the G-set (every preset: a replica reaches at least 11,600 and none exceeds the
+  best-known 11,624; strict: every replica, the fingerprints of the first 100 steps and of the
+  final state), properties of every preset (optimum reached, final check, final state equal to
+  the last recorded one), replica split, independence from the number of threads, every
+  precondition. Exact floating-point values only in the strict presets;
 - `test_p0` and `test_t8` (label `python`): P0 alone and T8, C0 against P0 (section "Python
   reference P0 and T8"), with the lines `P0 ...` and `T8 ...` and the final `P0_VERDICT` and
   `T8_VERDICT`;
+- `test_data` (label `python`): `data/gset/SHA256SUMS` (71 sorted lines, its SHA-256) and the
+  SHA-256 of the 13 files, P0's reader on the 13 files (n, m, W), `data/best_known.csv` read with
+  the csv module (header and 14 rows; best-known value at most the sum of the positive weights);
+  final line `DATA_VERDICT`;
+- `test_sbmc_run` (label `apps`): `sbmc_run` run from the repository root, its exit statuses (2 for
+  the command line, 1 for the library and for reading and writing), the 44 columns and their
+  values on the 4-node graph, a repetition against `sbmc_trace` on the same global replicas,
+  appending to an existing CSV, `--target best-known` on G1 and with `--name`, a dense instance
+  with a warm-up run, the lines on stdout; final line `RUN_VERDICT`;
 - `test_curand_philox` (T11, GPU part, label `gpu`): cuRAND (`curand`, sequences of 16 calls,
   `curand4`), the project's Philox on the device and x0 on the device, all against the host, with
   the lines `T11_CURAND_WORD`, `T11_CURAND_SEQUENCE`, `T11_CURAND4`, `T11_OWN_PHILOX_DEVICE`,
@@ -483,6 +638,7 @@ Notes:
   image and run type, CPU, memory, tool and toolkit versions, GPU with the number of GPUs and the
   P2P status, MPI and NCCL versions, output of `build/<preset>/tests/smoke/smoke_simt`).
 - `scripts/setup_cuda_pypi.sh`: see above.
+- `scripts/fetch_data.sh [--gset] [--k2000]`: see "Data" and `data/README.md`.
 - `scripts/kaggle_run.sh [--ref LABEL] [--out DIR]`: see "Running on Kaggle (2 x T4)".
 
 Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
@@ -491,40 +647,46 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 ## Repository layout
 
 ```
-CMakeLists.txt, CMakePresets.json, cmake/   build system
+CMakeLists.txt, CMakePresets.json, cmake/   build system (cmake/sbmc_build_info.cmake: build
+                     information of the results rows)
 include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
-                     sb, sb_sequential
+                     sb, sb_sequential, results
 src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, initial
-                     positions, pressure schedule and automatic c0 (TTS statistics later)
+                     positions, pressure schedule and automatic c0, results schema and CSV, table
+                     of best-known values (TTS statistics later)
 src/cpu/             sequential reference C0 (phase 04); OpenMP SB, simulated annealing and
                      brute force in later phases
 src/gpu/             cuBLAS, cuBLASLt, bitwise and cuSPARSE products, update kernels
 src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
-apps/                command-line programs
+apps/                command-line programs: sbmc_run (phase 04)
 tests/               unit, integration and smoke tests (ctest)
 tests/core/          unit tests of the core library (doctest)
 tests/cpu/           unit tests of the CPU solvers (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
-tests/python/        Python tests: P0 alone (test_p0) and T8 (test_t8)
+tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run
+                     (test_sbmc_run)
 tests/smoke/         CUDA smoke tests and FMA probes
 tests/scripts/       tool tests and checks
 tests/tools/         tools of the tests (sbmc_trace)
 python/              NumPy reference P0 (sbmc_ref), requirements.txt; analysis and plots later
 bench/configs/       experiment configurations
-data/                G-set and best known values with sources
+data/                G-set instances (gset/), best-known values with sources (best_known.csv),
+                     downloaded data outside git (raw/); see data/README.md
 results/             CSV files and metadata (raw data outside git)
 scripts/             setup, tools, measurement campaigns
 docs/                report sources and figures
-third_party/         vendored dependencies
+third_party/         vendored dependencies: doctest, CLI11
 ```
 
-Existing in phase 04: `cmake/`, `include/sbmc/`, `python/`, `scripts/`, `src/core/`, `src/cpu/`,
-`tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`, `scripts/`, `smoke/`, `tools/`) and
-`third_party/`; the other folders come with later phases.
+Existing in phase 04: `apps/`, `cmake/`, `data/`, `include/sbmc/`, `python/`, `scripts/`,
+`src/core/`, `src/cpu/`, `tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`, `scripts/`,
+`smoke/`, `tools/`) and `third_party/`; the other folders come with later phases.
 
 ## License and third-party code
 
-MIT License, see `LICENSE`. Vendored dependency: doctest 2.5.3 (MIT), single header in
-`third_party/doctest/`; versions, sources and checksums in `third_party/README.md`.
+MIT License, see `LICENSE`. Vendored dependencies: doctest 2.5.3 (MIT), single header in
+`third_party/doctest/`, and CLI11 2.7.2 (BSD-3-Clause), single header in `third_party/CLI11/`;
+versions, sources and checksums in `third_party/README.md`. The G-set files in `data/gset/` are
+third-party data, not covered by the license of the project (see `data/README.md`).

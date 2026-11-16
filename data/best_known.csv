@@ -1,0 +1,15 @@
+instance,n,m,best_known,status,source_1,source_2,checked,notes
+G1,800,19176,11624,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G2,800,19176,11620,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G11,800,1600,564,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G12,800,1600,556,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G14,800,4694,3064,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G15,800,4661,3050,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G22,2000,19990,13359,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G43,1000,9990,6660,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,
+G48,3000,6000,6000,optimal,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5","Z.-S. Shen et al. 2024, arXiv:2412.09285, Table S1",2026-11-16,"equals the number of edges, all of weight +1: every edge is cut"
+G55,5000,12498,10299,best_known,"F. Ma, J.-K. Hao 2017, arXiv:1510.09156, Table 5",,2026-11-16,"single source found; U. Benlic, J.-K. Hao 2013 (BLS) reported 10294"
+G63,7000,41459,27052,best_known,"R. Ota et al. 2026, doi:10.5281/zenodo.19189885",,2026-11-16,"public certificate not yet checked here; previous best 27047 (N. Khan, N. Shukla 2025, arXiv:2510.21105)"
+G70,10000,9999,9595,best_known,"K. M. Zick 2023, arXiv:2311.09275, Table II",,2026-11-16,"attributed by Zick to Chen et al. 2023 (arXiv:2307.00783) and reached by Cosm; F. Ma, J.-K. Hao 2017 gave 9591"
+G81,20000,40000,14060,reported_optimal,"K. M. Zick 2025, arXiv:2505.18508","arXiv:2606.25313, Table S2",2026-11-16,reported as proven optimal with an exact solver in arXiv:2606.25313
+K2000,2000,1999000,33337,best_known,"H. Goto et al. 2021, Sci. Adv. 7, eabe7953","H. Goto, R. Hidaka, K. Tatsumura 2026, arXiv:2508.17655v5",2026-11-16,file data/raw/k2000/WK2000_1.rud; both sources from the same group

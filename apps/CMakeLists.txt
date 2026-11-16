@@ -1,0 +1,33 @@
+# Applications. Phase 04: sbmc_run, which runs the sequential reference C0 on one instance and
+# writes one CSV row per repetition (results schema 1, sbmc/results.hpp). Executables in
+# <build>/apps/.
+
+# CLI11 (third_party/CLI11, single header): command line parsing, for the applications only. The
+# public headers of the project never include it.
+add_library(sbmc_cli11 INTERFACE)
+add_library(sbmc::cli11 ALIAS sbmc_cli11)
+target_include_directories(sbmc_cli11 SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
+
+# Build information of the results rows (git hash, uncommitted changes, compiler, build type):
+# cmake/sbmc_build_info.cmake writes <build>/generated/sbmc/build_info.hpp at every build, from
+# this target, which is always out of date. The header is rewritten only when its content
+# changes, and it is declared as a byproduct, so that Ninja recompiles its includers only then.
+find_package(Git QUIET)
+set(_sbmc_build_info_header "${PROJECT_BINARY_DIR}/generated/sbmc/build_info.hpp")
+add_custom_target(sbmc_build_info
+  COMMAND "${CMAKE_COMMAND}"
+          "-DSBMC_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+          "-DSBMC_OUTPUT=${_sbmc_build_info_header}"
+          "-DSBMC_GIT=${GIT_EXECUTABLE}"
+          "-DSBMC_COMPILER=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+          "-DSBMC_BUILD_TYPE=$<CONFIG>"
+          -P "${PROJECT_SOURCE_DIR}/cmake/sbmc_build_info.cmake"
+  BYPRODUCTS "${_sbmc_build_info_header}"
+  COMMENT "Checking the build information (git hash, uncommitted changes)"
+  VERBATIM)
+
+add_executable(sbmc_run sbmc_run.cpp)
+set_target_properties(sbmc_run PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+add_dependencies(sbmc_run sbmc_build_info)
+target_include_directories(sbmc_run PRIVATE "${PROJECT_BINARY_DIR}/generated")
+target_link_libraries(sbmc_run PRIVATE sbmc::flags sbmc::cpu sbmc::cli11)

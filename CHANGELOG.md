@@ -3,6 +3,59 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F04-R2] - 2026-11-16
+
+Phase 04, part 2 of 2: G-set and K2000, the table of best-known values, `sbmc_run` with the
+results CSV (schema 1), T6 on the real files and the fingerprints of the trajectories for T7.
+
+### Added
+
+- `data/gset/`: 13 G-set instances (G1, G2, G11, G12, G14, G15, G22, G43, G48, G55, G63, G70, G81),
+  byte for byte as published at Stanford, and `SHA256SUMS` with the SHA-256 of all 71 G-set files.
+- `data/best_known.csv`: best-known cut values of the 13 instances and of K2000, with status,
+  sources and the date of the check; `data/README.md`: origin, checks and format of the data.
+- `scripts/fetch_data.sh`: checks the committed G-set files and downloads into `data/raw/` the
+  other 58 G-set files and K2000, every file checked against its SHA-256.
+- `third_party/CLI11/` (CLI11 2.7.2, BSD-3-Clause): `CLI11.hpp` and `LICENSE`.
+- `include/sbmc/results.hpp` and `src/core/results.cpp` (in `sbmc_core`): results schema 1 (44
+  columns), `csv_escape`, `csv_line`, `csv_split`, `append_results_row`, `read_best_known`,
+  `find_best_known`.
+- `cmake/sbmc_build_info.cmake`: build information (git hash, uncommitted changes, compiler,
+  build type) written at every build into `<build>/generated/sbmc/build_info.hpp`, only when it
+  changes.
+- `apps/CMakeLists.txt` and `apps/sbmc_run.cpp`: interface target `sbmc::cli11`, target
+  `sbmc_build_info`, and `sbmc_run`, which runs C0 on one instance and appends one row of schema 1
+  per repetition (repetition k on the global replicas [kR, (k + 1)R), same seed).
+- `tests/core/test_gset.cpp` (T6 on `data/gset/`), `tests/core/test_k2000.cpp` (skipped with 77
+  until `scripts/fetch_data.sh --k2000`) and `tests/core/test_results.cpp`, label `cpu`.
+- `tests/python/test_data.py` (label `python`): fingerprints of `data/gset/`, P0's reader on the
+  13 files, `data/best_known.csv`; `tests/python/test_sbmc_run.py` (label `apps`): command line,
+  exit statuses and CSV of `sbmc_run`.
+
+### Changed
+
+- `.gitattributes`: `data/gset/G* -text`, so that git never converts the line endings of the
+  G-set files.
+- `CMakeLists.txt`: `add_subdirectory(apps)`.
+- `src/core/CMakeLists.txt`: `results.cpp` in `sbmc_core`, `results.hpp` in the header check
+  (C++ and CUDA); header comment.
+- `src/core/sb.cpp`: comments on the three checks of `auto_c0` that cannot fire with a valid
+  instance (defensive checks without a test).
+- `tests/CMakeLists.txt`: header comment (label `apps`); `test_gset`, `test_k2000` and
+  `test_results` in the loop of the core tests; `SBMC_DATA_DIR` for `test_sb_sequential`; the
+  function `sbmc_add_python_test` for the Python tests; `test_data` and `test_sbmc_run`. Tests per
+  preset: 15 (`cpu`, `cpu-strict`), 21 (`cuda`, `cuda-strict`), 18 (`t4`, `t4-strict`).
+- `tests/cpu/test_sb_sequential.cpp`: fingerprints of the whole trajectories of G1-G6 (strict) and
+  the domain case GS-G1 on G1 of the G-set (dt = 0.5).
+- `third_party/README.md`: section CLI11.
+- `README.md`: status (phase 04 complete), requirements, sections "Data" and "sbmc_run and the
+  results CSV", dt on graphs with positive weights, defensive checks of `auto_c0`, references of
+  T7, tests, tools, repository layout, third-party code.
+
+### Removed
+
+- Nothing.
+
 ## [F04-R1] - 2026-11-15
 
 Phase 04, part 1 of 2: sequential simulated bifurcation (C0), the Python reference (P0) and T8.
