@@ -3,6 +3,57 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F04-R1] - 2026-11-15
+
+Phase 04, part 1 of 2: sequential simulated bifurcation (C0), the Python reference (P0) and T8.
+
+### Added
+
+- `include/sbmc/sb.hpp` and `src/core/sb.cpp` (in `sbmc_core`): `SbAlgorithm`, `SbParams`,
+  `SbReplicaResult`, `SbResult`; `pressure_schedule` (p[m] in double, one rounding to float);
+  `auto_c0` for `Graph`, `DenseSpinGlass` and `Instance` (int64 sums with overflow checks, then
+  double in a fixed order); `sb_sign` and `sb_update` (`SBMC_HD constexpr`, symplectic Euler
+  update and inelastic walls), shared by every variant.
+- `include/sbmc/sb_sequential.hpp`, `src/cpu/sb_sequential.cpp` and `src/cpu/CMakeLists.txt`:
+  static library `sbmc_cpu` (`sbmc::cpu`) with `run_sb_sequential`, the sequential reference C0
+  of bSB and dSB in FP32 (compressed rows for a `Graph`, dense INT8 J for a `DenseSpinGlass`
+  with n <= 32768; best-cut rule of F04-C1, section 5.3; final check with `cut_direct`; optional
+  trace of the first steps); no OpenMP directive and no public function in the step loop.
+- `tests/core/test_sb.cpp` and `tests/cpu/test_sb_sequential.cpp` (label `cpu`): reference bits
+  of the pressure, of c0 and of the update; the short trajectory and the cases G1-G6 bit for bit
+  in the strict presets; every step of G3-G6 recomputed from the specified operations; properties
+  of every preset; replica split; independence from the number of threads; preconditions.
+- `tests/tools/sbmc_trace.cpp`: tool of the tests (`<build>/tests/tools/sbmc_trace`) that runs C0
+  and writes the binary trace `SBMCTRC1` read by T8.
+- `tests/data/torus_4x6_unit.rudy` and `tests/data/torus_4x6_pm1.rudy`: 4 x 6 toroidal grids
+  with unit and +-1 weights.
+- `python/requirements.txt` (`numpy==2.5.4`) and the package `python/sbmc_ref` (P0, float64 and
+  exact integers, NumPy only): `model.py` (rudy reader, couplings, W, E, C, `auto_c0`) and
+  `sb.py` (`sign`, `pressure_schedule`, `sb_step`, `run_sb`, `best_from_states`).
+- `tests/python/test_p0.py` and `tests/python/test_t8.py` (label `python`, skipped with 77 without
+  NumPy): P0 alone, and T8 (coherence, one step at a time, free run, best cut on ten cases, plus
+  the exit statuses of `sbmc_trace`).
+- `scripts/setup_python.sh`: the virtual environment `.venv` of the project with the pinned NumPy
+  (venv bootstrap as in `setup_cuda_pypi.sh`; Python 3.12 or newer).
+
+### Changed
+
+- `CMakeLists.txt`: `add_subdirectory(src/cpu)`; interpreter of the Python tests chosen at every
+  configure (`SBMC_PYTHON`, then `.venv/bin/python`, then `python3` from the PATH); summary line
+  "Python (tests)".
+- `src/core/CMakeLists.txt`: `sb.cpp` in `sbmc_core`; `sb.hpp` and `sb_sequential.hpp` in the
+  header check; header comment.
+- `tests/CMakeLists.txt`: header comment (labels and folders); `test_sb` in the loop of the core
+  tests; `test_sb_sequential`; the tool `sbmc_trace`; `test_p0` and `test_t8`. Tests per preset:
+  10 (`cpu`, `cpu-strict`), 16 (`cuda`, `cuda-strict`), 13 (`t4`, `t4-strict`).
+- `README.md`: status (phase 04, part 1 of 2), requirements, sections "Sequential simulated
+  bifurcation" and "Python reference P0 and T8", tests, origin of the reference values,
+  repository layout.
+
+### Removed
+
+- Nothing.
+
 ## [F03-R1] - 2026-11-15
 
 Phase 03: the core library, the first library of the project (standard C++20 and OpenMP only,

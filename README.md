@@ -14,14 +14,19 @@ Phase 01, scaffolding: build system, CUDA toolkit setup, working tools and smoke
 Phase 02: builds and tests on Kaggle's two Tesla T4 with the same toolkit as the laptop.
 Phase 03, core library: rudy reader, Ising model with int64 sums, the project's Philox4x32-10
 streams (checked against cuRAND), initial positions, implicit dense instances and dense INT8 rows
-of J (see "Core library"). Simulated bifurcation and simulated annealing are not implemented
-yet.
+of J (see "Core library").
+Phase 04, part 1 of 2 (sequential simulated bifurcation and Python reference): the sequential
+reference C0 of bSB and dSB in FP32 with a fixed order of operations, the parts common to every
+variant, the Python reference P0 in float64 and the test T8 that compares them (see "Sequential
+simulated bifurcation" and "Python reference P0 and T8"). Part 2 adds the G-set, K2000, the table
+of the best known values and `sbmc_run`. Simulated annealing is not implemented yet.
 
 ## Requirements
 
 - WSL2 with Ubuntu 24.04 (the CPU code uses only standard C++20 and OpenMP)
 - GCC 13, CMake 3.28 or newer, Ninja
-- Python 3 with `venv` (`sudo apt install python3-venv`): used only to install the CUDA toolkit
+- Python 3 with `venv` (`sudo apt install python3-venv`): used to install the CUDA toolkit and,
+  with Python 3.12 or newer, the virtual environment of the Python tests (`scripts/setup_python.sh`)
 - An NVIDIA driver that supports CUDA 13.4 (`nvidia-smi` in WSL reports "CUDA Version" 13.4 or
   newer)
 - For the tools and their test: git, rsync, unzip and zip (`sudo apt install rsync unzip zip`)
@@ -29,6 +34,7 @@ yet.
 ## CPU build and tests
 
 ```bash
+scripts/setup_python.sh          # once: .venv with NumPy for the Python tests
 cmake --preset cpu-strict
 cmake --build --preset cpu-strict
 ctest --preset cpu-strict
@@ -49,9 +55,9 @@ Configure presets (build trees in `build/<preset>/`, Release, Ninja):
 `scripts/setup_cuda_pypi.sh` into `CMakeUserPresets.json` (next section): `cuda` and
 `cuda-strict` for the laptop, `t4` and `t4-strict` for Kaggle.
 
-The strict presets exist for the bit-for-bit equality tests of later phases. All compile options
-come from the interface target `sbmc::flags` (`cmake/SbmcFlags.cmake`), never from
-`CMAKE_CXX_FLAGS` or `CMAKE_CUDA_FLAGS`.
+The strict presets exist for the bit-for-bit equality tests (the exact values of C0 and, from
+phase 05, T7). All compile options come from the interface target `sbmc::flags`
+(`cmake/SbmcFlags.cmake`), never from `CMAKE_CXX_FLAGS` or `CMAKE_CUDA_FLAGS`.
 
 ## CUDA toolkit and GPU build
 
@@ -250,26 +256,130 @@ The reference values of `tests/core/` (Philox words and blocks, couplings, sums 
 instances, bits of x0) were computed by cldArchitect with an independent implementation (two
 Python versions, vectorised NumPy and scalar, that agree with each other), checked on the
 Philox4x32-10 known-answer vectors of Random123 (`tests/kat_vectors` of
-github.com/DEShawResearch/random123, commit 9545ff6), which `test_philox` checks too.
+github.com/DEShawResearch/random123, commit 9545ff6), which `test_philox` checks too. The values
+of simulated bifurcation (`test_sb`, `test_sb_sequential`, `test_p0`) were computed by
+cldArchitect with two independent implementations of the algorithm, NumPy in float32 and scalar
+Python rounding to float32 after every operation, which agree bit for bit; the optima of the
+reference cases come from an exact enumeration with Gray code, checked against an enumeration
+with NumPy for n <= 20.
+
+## Sequential simulated bifurcation
+
+The static library `sbmc::cpu` (`src/cpu/`) contains the sequential reference C0,
+`run_sb_sequential(inst, params, trace_steps)` (`sbmc/sb_sequential.hpp`); the parts common to
+every variant are in `sbmc/sb.hpp` (`sbmc::core`). Every spin i of a replica has a position x_i
+and a momentum y_i; the equations of motion of the reference document (section 6) are integrated
+with the symplectic Euler scheme of Goto et al., in FP32 as on the GPU:
+
+```
+x = x0 (make_initial_state: uniform in [-0.1, 0.1), Philox domain 2), y = 0
+for m = 0 .. M - 1:
+    s = sgn(x)                       # s(m), before any update of the step; sgn(0) = +1
+    dSB: F_i = sum_j J_ij s_j         # int64, exact; field_i = (float)F_i
+    bSB: acc = +0.0 (double); acc += (double)J_ij * (double)x_j, j increasing; field_i = (float)acc
+    evaluate s(m): dSB always, E = -(sum_i s_i F_i) / 2; bSB when eval_every > 0 and
+                   m mod eval_every = 0, E = E(s(m)) in int64
+    for every spin (sb_update):
+        y = y + dt * (c0 * field - p[m] * x)
+        x = x + dt_a0 * y            # dt_a0 = dt * a0, computed once in float
+        if x > 1 or x < -1: x = (x < 0) ? -1 : 1; y = 0      # inelastic walls; x = +-1 stays
+evaluate s(M), the signs after the last step (every algorithm, every eval_every)
+```
+
+- Pressure: `p[m] = a0 (1 - (m + 1)/M)`, computed as `(float)((double)a0 * ((double)(M - 1 - m)
+  / (double)M))`: one division, one multiplication, one rounding and no addition, so the same
+  bits in every preset; `p[M - 1] = 0`.
+- Automatic c0 (`params.c0 = 0`): `c0 = 1 / (2 sigma sqrt(n))`, with sigma the standard deviation
+  of the n(n - 1) off-diagonal J_ij, computed from int64 sums (`S1 = -2W`, `S2 = 2Q`,
+  `P = n(n - 1)`, `Q = sum_{i<j} w_ij^2`) and then in double in a fixed order. It is meant for
+  large random instances: on very small graphs it can be too large (on the 4-node example it is
+  0.6708 and dSB oscillates, reaching the optimum in few replicas), so the tests on that graph use
+  `c0 = 0.3` explicitly. It is undefined, and rejected, when the off-diagonal elements have zero
+  variance (for example a complete graph with equal weights).
+- Best cut of a replica: the minimum E over the evaluated configurations; a configuration becomes
+  the best when it is the first evaluated or strictly better (ties keep the smallest m);
+  `best_cut = (W - best_energy)/2`, `final_cut` is the cut of s(M). bSB with `eval_every = 0`
+  evaluates only s(M). After the run the best cut of every replica is checked with one call of
+  `cut_direct` (`sbmc::Error` with "internal" on a mismatch).
+- C0 checks the instance once at the entry (B5): the step loop works on internal copies of J
+  (compressed rows for a `Graph`, dense INT8 for a `DenseSpinGlass`, at most n = 32768) and calls
+  no public function of the instance. C0 itself has no OpenMP directive; it runs the replicas
+  one after the other and records, on request, the states after the first `trace_steps` steps.
+- Why C0 is the bit-for-bit reference: positions, momenta, fields and parameters are float, the
+  only double operations are the ones written above, the dSB field is an exact integer, and every
+  variant uses the same `sb_sign` and `sb_update` (`SBMC_HD`, also on the device). In the strict
+  presets (no FMA contraction) the floating-point results are therefore fixed bit for bit: the
+  tests compare C0 with exact reference values there, and from phase 05 every dSB variant must
+  reproduce C0's trajectories exactly (T7). In the production presets FMA contraction may change
+  the last bits, and the tests check only robust properties (cuts, energies, the final check).
+
+## Python reference P0 and T8
+
+`python/sbmc_ref` is P0, an independent reference in float64 and exact integers, with NumPy and
+the standard library only (no Philox, no C++ code): an independent rudy reader, `coupling_matrix`,
+`total_weight`, `ising_energy`, `cut_direct`, `auto_c0` (written with `numpy.std`, differently
+from the C++ formula on purpose), `sign`, `pressure_schedule`, `sb_step`, `run_sb` and
+`best_from_states`.
+
+The Python tests use the virtual environment of the project, `.venv/` (git-ignored), created by
+`scripts/setup_python.sh` with NumPy 2.5.4 (`python/requirements.txt`, wheels only; Python 3.12 or
+newer). A second run reuses it ("venv bootstrap: existing"). At every configure CMake picks the
+interpreter of the tests: the cache variable `SBMC_PYTHON` when set, otherwise `.venv/bin/python`,
+otherwise `python3` from the PATH; the summary shows the choice on the line "Python (tests)". The
+tests run in isolated mode without bytecode (`python -I -B`), so nothing is written into the
+source tree; without NumPy or without an interpreter they exit with 77 (skipped).
+
+```bash
+scripts/setup_python.sh
+cmake --preset cpu-strict                      # picks .venv/bin/python
+ctest --preset cpu-strict -L python -V         # test_p0 and test_t8 with their full output
+```
+
+`test_p0` checks P0 alone against exact values (T1, the two tori, the pressure, c0, the sign,
+three SB runs, the errors of the reader). `test_t8` is T8: the test tool `sbmc_trace`
+(`tests/tools/`) runs C0 and writes a binary trace (little-endian, magic `SBMCTRC1`: header with
+n, R, M, K, algorithm, eval_every, dt, a0, the c0 used, seed, first_replica and W; then p[m], J as
+INT8, x0, the states x and y after the first K steps, and per replica best_energy, best_cut,
+best_step, final_cut); the script reads it, with a check of its exact size, into `<build>/tests/
+python/`, and compares it with P0 on ten cases (the 4-node graph, the 4 x 6 torus with +-1
+weights, a dense instance with n = 64; bSB and dSB):
+
+| Check | What                                                                                  | Tolerance                             |
+|-------|---------------------------------------------------------------------------------------|---------------------------------------|
+| A     | header, J, W against P0; c0 against P0's `auto_c0` (or the bits of 0.3f); p; x0 range | c0: 1e-6 relative; p: 1e-7            |
+| B     | one step at a time: P0 starts from the C++ state k, compared with state k + 1         | `1e-5 (1 + abs(P0))`                  |
+| C     | free run of the first 20 steps of a 1000-step run, from x0 only                       | `1e-4 max(abs(P0), 0.01)`, same signs |
+| D     | P0's best-cut rule on the recorded states: best_energy, best_step, final_cut          | exact                                 |
+
+Each case prints `T8 <case>: one-step max=... [free-run max=... signs=identical] [best=equal]
+PASS|FAIL`, "max" being the largest ratio between error and tolerance; a further line checks the
+exit statuses of `sbmc_trace` on invalid command lines (2) and on errors of the library, of the
+instance or of the output file (1). The last line is `T8_VERDICT: PASS|FAIL` (`P0_VERDICT` for
+`test_p0`).
 
 ## Tests
 
-| Label   | Tests                                                                            | Sources                      |
-|---------|----------------------------------------------------------------------------------|------------------------------|
-| `cpu`   | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state` | `tests/`, `tests/core/`      |
-| `tools` | `test_sync_from_zip`; `test_cuda_rpath` (CUDA presets)                           | `tests/scripts/`             |
-| `gpu`   | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)         | `tests/smoke/`, `tests/gpu/` |
-| `tile`  | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                | `tests/smoke/`               |
-| `probe` | `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                              | `tests/smoke/`               |
+| Label    | Tests                                                                                                             | Sources                               |
+|----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_sb_sequential` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`)                                                                 | `tests/python/`, `tests/tools/`       |
+| `tools`  | `test_sync_from_zip`; `test_cuda_rpath` (CUDA presets)                                                            | `tests/scripts/`                      |
+| `gpu`    | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)                                          | `tests/smoke/`, `tests/gpu/`          |
+| `tile`   | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                 | `tests/smoke/`                        |
+| `probe`  | `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                               | `tests/smoke/`                        |
 
 Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset>/tests/core/`,
-`build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; `tests/data/` holds the input files
-of the tests (`four_nodes.rudy`, the 4-node example of the reference document). Number of tests:
-6 with `cpu` and `cpu-strict`, 12 with `cuda` and `cuda-strict`, 9 with `t4` and `t4-strict`.
-A test that cannot run on the current machine (no GPU, missing tool) exits with 77 and CTest
-reports it as skipped (for example `ctest --preset cuda -L tile` runs only the Tile tests).
+`build/<preset>/tests/cpu/`, `build/<preset>/tests/tools/` (`sbmc_trace`, a tool of the tests, not
+a test), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
+`build/<preset>/tests/python/`. `tests/data/` holds the input files of the tests:
+`four_nodes.rudy` (the 4-node example of the reference document) and two 4 x 6 toroidal grids,
+`torus_4x6_unit.rudy` (unit weights, maximum cut 48) and `torus_4x6_pm1.rudy` (+-1 weights,
+maximum cut 24). Number of tests: 10 with `cpu` and `cpu-strict`, 16 with `cuda` and
+`cuda-strict`, 13 with `t4` and `t4-strict`. A test that cannot run on the current machine (no
+GPU, no NumPy, missing tool) exits with 77 and CTest reports it as skipped (for example
+`ctest --preset cuda -L tile` runs only the Tile tests).
 
-Core tests (doctest):
+Tests in detail (the C++ ones use doctest):
 
 - `test_philox` (T11, CPU part): the three Random123 vectors (the first also at compile time),
   reference words of the streams, a block against its four words, both conversions;
@@ -281,6 +391,16 @@ Core tests (doctest):
   line numbers of the messages;
 - `test_initial_state`: reference bits of x0, layout, replica split, independence from the
   number of threads, range and mean;
+- `test_sb`: the pressure schedule and the automatic c0 against reference bits, `sb_sign`,
+  `sb_update` (walls, exact values), every precondition;
+- `test_sb_sequential`: C0 on a short trajectory bit for bit, the reference cases G1-G6 (best cut,
+  best step and final cut of every replica, fingerprint of the final state), every step of G3-G6
+  recomputed from the specified operations, properties of every preset (optimum reached, final
+  check, final state equal to the last recorded one), replica split, independence from the
+  number of threads, every precondition. Exact floating-point values only in the strict presets;
+- `test_p0` and `test_t8` (label `python`): P0 alone and T8, C0 against P0 (section "Python
+  reference P0 and T8"), with the lines `P0 ...` and `T8 ...` and the final `P0_VERDICT` and
+  `T8_VERDICT`;
 - `test_curand_philox` (T11, GPU part, label `gpu`): cuRAND (`curand`, sequences of 16 calls,
   `curand4`), the project's Philox on the device and x0 on the device, all against the host, with
   the lines `T11_CURAND_WORD`, `T11_CURAND_SEQUENCE`, `T11_CURAND4`, `T11_OWN_PHILOX_DEVICE`,
@@ -372,21 +492,26 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 
 ```
 CMakeLists.txt, CMakePresets.json, cmake/   build system
-include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state
+include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
+                     sb, sb_sequential
 src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, initial
-                     positions (TTS statistics in a later phase)
-src/cpu/             sequential reference, OpenMP SB, simulated annealing, brute force
+                     positions, pressure schedule and automatic c0 (TTS statistics later)
+src/cpu/             sequential reference C0 (phase 04); OpenMP SB, simulated annealing and
+                     brute force in later phases
 src/gpu/             cuBLAS, cuBLASLt, bitwise and cuSPARSE products, update kernels
 src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
 apps/                command-line programs
 tests/               unit, integration and smoke tests (ctest)
 tests/core/          unit tests of the core library (doctest)
+tests/cpu/           unit tests of the CPU solvers (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
+tests/python/        Python tests: P0 alone (test_p0) and T8 (test_t8)
 tests/smoke/         CUDA smoke tests and FMA probes
 tests/scripts/       tool tests and checks
-python/              NumPy reference, analysis, plots
+tests/tools/         tools of the tests (sbmc_trace)
+python/              NumPy reference P0 (sbmc_ref), requirements.txt; analysis and plots later
 bench/configs/       experiment configurations
 data/                G-set and best known values with sources
 results/             CSV files and metadata (raw data outside git)
@@ -395,9 +520,9 @@ docs/                report sources and figures
 third_party/         vendored dependencies
 ```
 
-Existing in phase 03: `cmake/`, `include/sbmc/`, `scripts/`, `src/core/`, `tests/` (with
-`core/`, `data/`, `gpu/`, `scripts/`, `smoke/`) and `third_party/`; the other folders come with
-later phases.
+Existing in phase 04: `cmake/`, `include/sbmc/`, `python/`, `scripts/`, `src/core/`, `src/cpu/`,
+`tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`, `scripts/`, `smoke/`, `tools/`) and
+`third_party/`; the other folders come with later phases.
 
 ## License and third-party code
 

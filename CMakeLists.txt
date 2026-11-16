@@ -60,6 +60,30 @@ find_package(OpenMP REQUIRED COMPONENTS CXX)
 include(cmake/SbmcFlags.cmake)
 
 add_subdirectory(src/core)
+add_subdirectory(src/cpu)
+
+# Python interpreter of the Python tests (tests/python), chosen again at every configure:
+# SBMC_PYTHON when set; otherwise the virtual environment of the project, .venv/bin/python
+# (scripts/setup_python.sh); otherwise python3 from the PATH; otherwise none, and the Python
+# tests exit with 77. Only SBMC_PYTHON is cached: a .venv created after the first configure is
+# used by the next one.
+set(SBMC_PYTHON "" CACHE FILEPATH
+    "Python interpreter of the Python tests (empty: .venv/bin/python, then python3 from the PATH)")
+set(_sbmc_python "")
+set(_sbmc_python_origin "")
+if(SBMC_PYTHON)
+  set(_sbmc_python "${SBMC_PYTHON}")
+  set(_sbmc_python_origin "SBMC_PYTHON")
+elseif(EXISTS "${PROJECT_SOURCE_DIR}/.venv/bin/python")
+  set(_sbmc_python "${PROJECT_SOURCE_DIR}/.venv/bin/python")
+  set(_sbmc_python_origin ".venv")
+else()
+  find_program(_sbmc_python_in_path NAMES python3 NO_CACHE)
+  if(_sbmc_python_in_path)
+    set(_sbmc_python "${_sbmc_python_in_path}")
+    set(_sbmc_python_origin "PATH")
+  endif()
+endif()
 
 enable_testing()
 add_subdirectory(tests)
@@ -78,6 +102,11 @@ else()
   set(_sbmc_cuda_archs "n/a")
   set(_sbmc_tile_state "${SBMC_ENABLE_TILE} (no effect without SBMC_ENABLE_CUDA)")
 endif()
+if(_sbmc_python)
+  set(_sbmc_python_summary "${_sbmc_python} (${_sbmc_python_origin})")
+else()
+  set(_sbmc_python_summary "not found (Python tests exit with 77)")
+endif()
 message(STATUS "")
 message(STATUS "sbmc configuration summary")
 message(STATUS "  project version    : ${PROJECT_VERSION}")
@@ -89,4 +118,5 @@ message(STATUS "  SBMC_ENABLE_TILE   : ${_sbmc_tile_state}")
 message(STATUS "  SBMC_ENABLE_MPI    : ${SBMC_ENABLE_MPI}")
 message(STATUS "  SBMC_ENABLE_NCCL   : ${SBMC_ENABLE_NCCL}")
 message(STATUS "  SBMC_STRICT_FP     : ${SBMC_STRICT_FP}")
+message(STATUS "  Python (tests)     : ${_sbmc_python_summary}")
 message(STATUS "")
