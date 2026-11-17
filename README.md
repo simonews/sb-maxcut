@@ -20,8 +20,13 @@ with a fixed order of operations, the parts common to every variant, the Python 
 float64 and the test T8 that compares them (see "Sequential simulated bifurcation" and "Python
 reference P0 and T8"); the G-set instances of the experiments, K2000 and the table of the
 best-known values (see "Data"); `sbmc_run`, which runs C0 and writes the results CSV (see
-"sbmc_run and the results CSV"). Simulated annealing and the TTS statistics are not implemented
-yet.
+"sbmc_run and the results CSV").
+Phase 05, part 1 of 2 (exact solution by brute force, T2 for C0): the exact enumeration C3 with
+Gray code, parallel with OpenMP, and `sbmc_bruteforce`, which runs it on one instance; T2, the
+sequential reference C0 against the exact optimum on small graphs (see "Exact solution by brute
+force (C3)"); the flag `dirty` of the build information ignores `results/` (see "sbmc_run and the
+results CSV"). Part 2 adds the OpenMP simulated bifurcation C1. Simulated annealing and the TTS
+statistics are not implemented yet.
 
 ## Requirements
 
@@ -269,7 +274,14 @@ with NumPy for n <= 20. The fingerprints of the trajectories (G1-G6, GS-G1) come
 implementations, also compared at every step with `sbmc_trace` of the cpu-strict preset of
 F04-R1; the bits of `auto_c0` for G1 and K2000 were obtained from the library of F04-R1 in the
 cpu-strict preset. The values of the G-set files (`test_gset`, `test_data`) and of K2000
-(`test_k2000`) are counts on the files, given by cldArchitect.
+(`test_k2000`) are counts on the files, given by cldArchitect. The exact optima of C3
+(`test_bruteforce`, `test_t2`, `test_sbmc_bruteforce`: minimum energy, number of optimal
+partitions, canonical optimum) come from cldArchitect's own Gray-code enumeration in C++,
+independent of the project's code and checked against an exhaustive enumeration in NumPy on every
+instance up to 24 nodes; the dense instances with 30 and 32 nodes come from the Gray-code
+enumeration only. The numbers of replicas of C0 at the optimum in T2 come from cldArchitect's
+emulation of C0 in float32, equal to `n_success` of `sbmc_run` in the cpu-strict preset of F04-R2
+(an emulation in float64 gives the same counts).
 
 ## Sequential simulated bifurcation
 
@@ -335,6 +347,122 @@ evaluate s(M), the signs after the last step (every algorithm, every eval_every)
   G-set, dSB, R = 16, M = 2000, dt = 0.5, automatic c0, seed 1). The fingerprints of the final
   states are not enough: at the end every spin of every replica sits on a wall (|x| = 1, y = 0),
   so they see only the final signs. The trajectories are what T7 compares.
+
+## Exact solution by brute force (C3)
+
+`solve_bruteforce(inst, threads)` (`sbmc/bruteforce.hpp`, in `sbmc::cpu`) computes the exact
+Max-Cut of an instance with at most 40 spins (`kBruteForceMaxSpins`) by enumeration: the reference
+optimum of the domain test T2 on small graphs (reference document, section 8.2). It returns n, W,
+`min_energy`, `max_cut`, `optimal_count`, `best_spins` and `threads`.
+
+- Code and canonical optimum. s and -s have the same energy, so s_0 = +1. A configuration with
+  s_0 = +1 has the code `c = sum_{i=1}^{n-1} [s_i = -1] 2^(i-1)`, an integer in [0, 2^(n-1)): every
+  partition of the nodes is exactly one code, and `optimal_count`, the number of codes with
+  E = `min_energy`, is the number of optimal partitions. `best_spins` is the canonical optimum: the
+  optimal code with the smallest value (`best_spins[0] = +1`).
+- Algorithm. The 2^(n-1) codes are split into 2^p contiguous intervals, each with its p high bits
+  fixed. An interval computes its first configuration from scratch (local fields
+  `h_i = sum_j J_ij s_j` and `E = -(sum_i s_i h_i) / 2`, O(n^2)), then visits its other codes in
+  Gray-code order: step g flips spin `a = countr_zero(g) + 1`, with `E += 2 s_a h_a` and
+  `h_j -= 2 J_ja s_a` for every j (O(n)), the values taken before the flip. An OpenMP loop with
+  `schedule(dynamic, 1)` distributes the intervals: p is the smallest value with 2^p >= 8 times the
+  number of threads, at most n - 1 and at most 16. The update of the fields adds a row of -2J or
+  +2J padded with zeros to a width fixed at compile time (8, 16, 24, 32 or 40), so the compiler
+  vectorises it. Everything is in int64: with |w| <= 2^31 - 1 and n <= 40, |h_i| < 2^37 and
+  |E| < 2^41.
+- Independence from the number of threads. Every interval writes only its own minimum, count and
+  smallest optimal code; after the parallel region they are combined with exact integer
+  operations (the smallest minimum, the sum of the counts that reach it, the smallest of their
+  codes), so `min_energy`, `max_cut`, `optimal_count` and `best_spins` depend neither on the number
+  of threads nor on p. `threads = 0` means the default number of OpenMP threads, a positive value
+  goes into the `num_threads` clause, and the global OpenMP state is never changed; `threads` in
+  the result is the size of the team that ran the enumeration.
+- Checks, in this order and before any large allocation: `threads >= 0`; n (`num_spins`, which
+  checks n only) and n <= 40; the whole instance (`total_weight`). For a large `DenseSpinGlass`,
+  `total_weight` costs O(n^2): it must not run before the check on n. Inside the parallel region no
+  public function of the instance is called (B5). At the end `max_cut = (W - min_energy)/2` is
+  checked against `cut_direct` and `min_energy` against `ising_energy` (`sbmc::Error` with
+  "internal" on a mismatch).
+- Cost: 2^(n-1) configurations, so the time doubles with every node; n = 40 (2^39 configurations)
+  should take minutes on the laptop (an estimate, not measured yet). Times measured in
+  cldExecutor's sandbox (Intel Xeon Processor @ 2.30GHz, 2 cores, preset `cpu`,
+  `sbmc_bruteforce --dense <n> --instance-seed <n>`): they are measurements of that machine, not
+  of the laptop.
+
+| n  | Configurations (2^(n-1)) | 1 thread | 2 threads | Per configuration, 1 thread |
+|----|--------------------------|----------|-----------|-----------------------------|
+| 30 | 536,870,912              | 2.41 s   | 1.17 s    | 4.5 ns                      |
+| 32 | 2,147,483,648            | 8.43 s   | 4.11 s    | 3.9 ns                      |
+
+### sbmc_bruteforce
+
+`sbmc_bruteforce` (`apps/`, built in `build/<preset>/apps/`) runs C3 on one instance and writes one
+line on stdout, nothing else (no CSV, no build information). The command line follows the
+conventions of `sbmc_run` (CLI11, decimal integers only).
+
+```
+sbmc_bruteforce (--instance FILE | --dense N --instance-seed S) [--name NAME] [--threads T]
+```
+
+| Option | Meaning |
+|--------|---------|
+| `--instance FILE` | rudy file; or `--dense N --instance-seed S`, the implicit complete graph with J_ij = +-1 |
+| `--name NAME` | name in the output line; default: the file name without folder and extension, or `dense_n<N>_s<S>`. Not empty, and without spaces, tabs, `\r` or `\n` (also when it is taken from the file name) |
+| `--threads T` | OpenMP threads, an integer >= 0; default 0, the default number of OpenMP |
+
+Output, one space between the fields:
+
+```
+BRUTEFORCE instance=<name> n=<n> m=<m> W=<W> max_cut=<C> min_energy=<E> optimal_count=<k> threads=<t> t_setup_ms=<x> t_solve_ms=<y> config=<s>
+```
+
+| Field | Meaning |
+|-------|---------|
+| `instance` | `--name` |
+| `n`, `m` | spins; edges of the rudy graph, or n(n - 1)/2 for a dense instance |
+| `W` | total weight |
+| `max_cut`, `min_energy` | the exact optimum, `max_cut = (W - min_energy)/2` |
+| `optimal_count` | number of optimal partitions (codes with s_0 = +1 and E = `min_energy`) |
+| `threads` | size of the OpenMP team that ran the enumeration |
+| `t_setup_ms`, `t_solve_ms` | time to read the file (or set up the dense instance) and time of `solve_bruteforce`, `std::chrono::steady_clock`, fixed notation with three decimals |
+| `config` | the canonical optimum, n characters `+` or `-`, spin 0 first |
+
+Exit status: 0 success; 1 error of the library (for example n > 40 or an invalid instance) or of
+reading; 2 error of the command line (unknown option, missing or double instance, `--dense`
+without `--instance-seed` or the opposite, integer that is not decimal or out of range, negative
+`--threads`, name not valid). Every message on stderr starts with `sbmc_bruteforce: `.
+
+```bash
+build/cpu/apps/sbmc_bruteforce --instance tests/data/four_nodes.rudy --threads 1
+# BRUTEFORCE instance=four_nodes n=4 m=5 W=5 max_cut=4 min_energy=-3 optimal_count=1 threads=1 t_setup_ms=0.037 t_solve_ms=0.018 config=+-+-
+```
+
+### T2: C0 against the exact optimum
+
+`test_t2` (label `cpu`) checks, on small graphs, that the sequential reference C0 reaches the exact
+optimum of C3 and never exceeds it. Every case first computes the optimum with `solve_bruteforce`,
+which must equal the expected one, then runs C0 with R = 16, a0 = 1, automatic c0 and
+first_replica = 0:
+
+| Case | Instance | Algorithm | dt | M | seed | eval_every | Optimum | Replicas at the optimum (strict) |
+|------|----------|-----------|----|---|------|------------|---------|----------------------------------|
+| T2-1 | `sparse_24_unit.rudy` | dSB | 0.75 | 300 | 51 | 0 | 40 | 16 |
+| T2-2 | `sparse_24_unit.rudy` | bSB | 0.75 | 300 | 51 | 1 | 40 | 16 |
+| T2-3 | `DenseSpinGlass{16, 16}` | dSB | 1.25 | 200 | 54 | 0 | 29 | 14 |
+| T2-4 | `DenseSpinGlass{16, 16}` | bSB | 1.25 | 200 | 54 | 1 | 29 | 16 |
+| T2-5 | `DenseSpinGlass{22, 22}` | dSB | 1.25 | 300 | 54 | 0 | 34 | 16 |
+| T2-6 | `DenseSpinGlass{22, 22}` | bSB | 1.25 | 300 | 54 | 1 | 34 | 16 |
+| T2-7 | `torus_4x6_pm1.rudy` | bSB | 1.25 | 200 | 54 | 1 | 24 | 16 |
+
+In every preset: at least one replica reaches the optimum, no best cut exceeds it, and the best cut
+of every replica equals `cut_direct` of its best configuration. In the strict presets the number
+of replicas at the optimum is compared exactly, and so are the 16 best cuts of T2-3 (two replicas
+stop at 27); in the production presets FMA contraction may change them. On `sparse_24_unit.rudy`
+dt = 0.75 because its weights are all positive: with lambda_min(J) = -4.359 and
+lambda_max(J) = 3.121, the general formula of the reference document (section 6),
+`dt = 1.25 sqrt(2 / (1 - lambda_min / lambda_max))`, gives 1.142, below the 1.25 of random
+matrices with zero mean (the same issue as on G1, see "Sequential simulated bifurcation"). C1 and
+simulated annealing join T2 in the later phases.
 
 ## Python reference P0 and T8
 
@@ -458,7 +586,7 @@ preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
 | `schema_version` | version of the schema | 1 |
 | `timestamp` | start of the repetition, UTC, `YYYY-MM-DDThh:mm:ssZ` | |
 | `git_hash` | commit of the source tree at build time | 40 hexadecimal digits, or `unknown` |
-| `dirty` | uncommitted changes to tracked files at build time | 1, 0, or empty when unknown |
+| `dirty` | uncommitted changes, at build time, to tracked files outside `results/` of the root | 1, 0, or empty when unknown |
 | `host` | host name (`/proc/sys/kernel/hostname`) | |
 | `os` | `PRETTY_NAME` of `/etc/os-release`, " / ", kernel release (`/proc/sys/kernel/osrelease`, which names the WSL kernel on WSL) | `unknown` for a missing part |
 | `gpu`, `driver`, `cuda`, `cublas` | GPU, driver, CUDA runtime and cuBLAS versions | empty (CPU) |
@@ -489,14 +617,24 @@ follows the state of the tracked files at the last build without a new configure
 WSL appears in the `os` column (kernel release). The power profile of the laptop cannot be read
 automatically: in the measurement campaigns it goes into `--notes`.
 
+`dirty` is 1 when a tracked file outside the folder `results/` of the repository root has changes,
+staged or not, 0 otherwise (-1, an empty column, when git is missing or the source tree is not a
+repository): the command is `git status --porcelain --untracked-files=no -- . ":(exclude)results"`,
+run in the root. `results/` holds the committed results of the measurements, and a row appended
+to one of its CSV files does not change the sources: without the exclusion, the rows appended by a
+measurement would mark the following builds as dirty until they are committed. A `results` folder
+elsewhere (`sub/results/`) and the files of the root whose name starts with `results`
+(`results_old.csv`) still count. The test `test_build_info` (label `tools`) checks these cases in
+a temporary repository.
+
 ## Tests
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential`, `test_bruteforce`, `test_t2` | `tests/`, `tests/core/`, `tests/cpu/` |
 | `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`                                                    | `tests/python/`, `tests/tools/`       |
-| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`)                                                                      | `tests/python/`                       |
-| `tools`  | `test_sync_from_zip`; `test_cuda_rpath` (CUDA presets)                                                            | `tests/scripts/`                      |
+| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`                                              | `tests/python/`                       |
+| `tools`  | `test_sync_from_zip`, `test_build_info`; `test_cuda_rpath` (CUDA presets)                                         | `tests/scripts/`                      |
 | `gpu`    | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)                                          | `tests/smoke/`, `tests/gpu/`          |
 | `tile`   | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                 | `tests/smoke/`                        |
 | `probe`  | `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                               | `tests/smoke/`                        |
@@ -504,15 +642,21 @@ automatically: in the measurement campaigns it goes into `--notes`.
 Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset>/tests/core/`,
 `build/<preset>/tests/cpu/`, `build/<preset>/tests/tools/` (`sbmc_trace`, a tool of the tests, not
 a test), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
-`build/<preset>/tests/python/`, the files of `test_sbmc_run` to `build/<preset>/tests/apps/`.
+`build/<preset>/tests/python/`, the files of `test_sbmc_run` to `build/<preset>/tests/apps/`, those
+of `test_sbmc_bruteforce` to `build/<preset>/tests/bruteforce/`.
 `tests/data/` holds the input files of the tests: `four_nodes.rudy` (the 4-node example of the
-reference document) and two 4 x 6 toroidal grids, `torus_4x6_unit.rudy` (unit weights, maximum
-cut 48) and `torus_4x6_pm1.rudy` (+-1 weights, maximum cut 24); `test_gset`, `test_data`,
-`test_results` and the case GS-G1 read `data/`. Number of tests: 15 with `cpu` and `cpu-strict`, 21
-with `cuda` and `cuda-strict`, 18 with `t4` and `t4-strict`. A test that cannot run on the current
-machine (no GPU, no NumPy, missing tool, missing data) exits with 77 and CTest reports it as
-skipped (for example `ctest --preset cuda -L tile` runs only the Tile tests): `test_k2000` needs
-`scripts/fetch_data.sh --k2000` first.
+reference document); two 4 x 6 toroidal grids, `torus_4x6_unit.rudy` (unit weights, maximum
+cut 48) and `torus_4x6_pm1.rudy` (+-1 weights, maximum cut 24, 35 optimal partitions);
+`sparse_24_unit.rudy`, a sparse random-like graph with 24 nodes, 48 edges of weight 1 and degrees
+between 2 and 6, like the random graphs of the G-set (maximum cut 40, the instance of T2-1 and
+T2-2); `weighted_isolated_13.rudy`, 13 nodes and 19 edges with weights of both signs up to
+2^31 - 1 and two isolated nodes (maximum cut 6,442,452,014, 4 optimal partitions), which tests the
+int64 sums of C3 (only C3: `auto_c0` rejects it, because Q overflows int64). `test_gset`,
+`test_data`, `test_results` and the case GS-G1 read `data/`. Number of tests: 19 with `cpu` and
+`cpu-strict`, 25 with `cuda` and `cuda-strict`, 22 with `t4` and `t4-strict`. A test that cannot
+run on the current machine (no GPU, no NumPy, missing tool, missing data) exits with 77 and CTest
+reports it as skipped (for example `ctest --preset cuda -L tile` runs only the Tile tests):
+`test_k2000` needs `scripts/fetch_data.sh --k2000` first.
 
 Tests in detail (the C++ ones use doctest):
 
@@ -544,6 +688,14 @@ Tests in detail (the C++ ones use doctest):
   final state), properties of every preset (optimum reached, final check, final state equal to
   the last recorded one), replica split, independence from the number of threads, every
   precondition. Exact floating-point values only in the strict presets;
+- `test_bruteforce` (C3): n, W, minimum energy, maximum cut, number of optimal partitions and
+  canonical optimum of 15 instances (the five files of `tests/data/`, dense instances with 1 to 24
+  spins, graphs with 1 to 3 nodes), with `cut_direct` and `ising_energy` of the optimum; the same
+  result with 1, 2, 3 and the default number of threads (`omp_set_dynamic(0)`, the team size in
+  `threads`, the OpenMP settings unchanged by the library); every precondition, among them a
+  `DenseSpinGlass` with n = 2^31 - 1, rejected at once because n is checked before `total_weight`;
+- `test_t2` (T2): the seven cases of "T2: C0 against the exact optimum", the optimum from C3,
+  the replicas of C0 at the optimum (counts and the best cuts of T2-3 in the strict presets);
 - `test_p0` and `test_t8` (label `python`): P0 alone and T8, C0 against P0 (section "Python
   reference P0 and T8"), with the lines `P0 ...` and `T8 ...` and the final `P0_VERDICT` and
   `T8_VERDICT`;
@@ -556,6 +708,19 @@ Tests in detail (the C++ ones use doctest):
   values on the 4-node graph, a repetition against `sbmc_trace` on the same global replicas,
   appending to an existing CSV, `--target best-known` on G1 and with `--name`, a dense instance
   with a warm-up run, the lines on stdout; final line `RUN_VERDICT`;
+- `test_sbmc_bruteforce` (label `apps`, standard library only): `sbmc_bruteforce` with absolute
+  paths, its exit statuses (2 for the command line, 1 for the library and for reading, always
+  with an empty stdout and a message that starts with `sbmc_bruteforce: `), the output line (the
+  word `BRUTEFORCE` and the 11 fields in order, the times with three decimals) and its values on
+  `four_nodes.rudy`, `weighted_isolated_13.rudy` and dense instances with 1, 16 and 20 spins (the
+  last one with 1 and 4 threads), `--name`; one line `BF <check>: PASS|FAIL` per check and the
+  final line `BF_VERDICT`;
+- `test_build_info` (label `tools`): `cmake/sbmc_build_info.cmake` run with `cmake -P` in a
+  temporary git repository (git configuration isolated as in `test_sync_from_zip`): `dirty` stays 0
+  for changes in `results/` (modified, untracked, deleted files) and becomes 1 for a modified or
+  staged source, for `sub/results/` and for `results_old.csv`; git_hash equal to HEAD; a second
+  run without changes writes nothing; -1 and `unknown` without git and outside a repository. One
+  line `BUILD_INFO <case>: PASS|FAIL` per case and `BUILD_INFO_VERDICT`; exit 77 without git;
 - `test_curand_philox` (T11, GPU part, label `gpu`): cuRAND (`curand`, sequences of 16 calls,
   `curand4`), the project's Philox on the device and x0 on the device, all against the host, with
   the lines `T11_CURAND_WORD`, `T11_CURAND_SEQUENCE`, `T11_CURAND4`, `T11_OWN_PHILOX_DEVICE`,
@@ -650,25 +815,25 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 CMakeLists.txt, CMakePresets.json, cmake/   build system (cmake/sbmc_build_info.cmake: build
                      information of the results rows)
 include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
-                     sb, sb_sequential, results
+                     sb, sb_sequential, bruteforce, results
 src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, initial
                      positions, pressure schedule and automatic c0, results schema and CSV, table
                      of best-known values (TTS statistics later)
-src/cpu/             sequential reference C0 (phase 04); OpenMP SB, simulated annealing and
-                     brute force in later phases
+src/cpu/             sequential reference C0 (phase 04), exact enumeration C3 with OpenMP
+                     (phase 05); OpenMP SB and simulated annealing in later phases
 src/gpu/             cuBLAS, cuBLASLt, bitwise and cuSPARSE products, update kernels
 src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
-apps/                command-line programs: sbmc_run (phase 04)
+apps/                command-line programs: sbmc_run (phase 04), sbmc_bruteforce (phase 05)
 tests/               unit, integration and smoke tests (ctest)
 tests/core/          unit tests of the core library (doctest)
-tests/cpu/           unit tests of the CPU solvers (doctest)
+tests/cpu/           unit tests of the CPU solvers and T2 (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
 tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run
-                     (test_sbmc_run)
+                     (test_sbmc_run), sbmc_bruteforce (test_sbmc_bruteforce)
 tests/smoke/         CUDA smoke tests and FMA probes
-tests/scripts/       tool tests and checks
+tests/scripts/       tool tests and checks (sync_from_zip.sh, build information, RPATH)
 tests/tools/         tools of the tests (sbmc_trace)
 python/              NumPy reference P0 (sbmc_ref), requirements.txt; analysis and plots later
 bench/configs/       experiment configurations
@@ -680,7 +845,7 @@ docs/                report sources and figures
 third_party/         vendored dependencies: doctest, CLI11
 ```
 
-Existing in phase 04: `apps/`, `cmake/`, `data/`, `include/sbmc/`, `python/`, `scripts/`,
+Existing in phase 05: `apps/`, `cmake/`, `data/`, `include/sbmc/`, `python/`, `scripts/`,
 `src/core/`, `src/cpu/`, `tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`, `scripts/`,
 `smoke/`, `tools/`) and `third_party/`; the other folders come with later phases.
 

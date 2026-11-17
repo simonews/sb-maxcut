@@ -1,6 +1,8 @@
-# Applications. Phase 04: sbmc_run, which runs the sequential reference C0 on one instance and
-# writes one CSV row per repetition (results schema 1, sbmc/results.hpp). Executables in
-# <build>/apps/.
+# Applications, executables in <build>/apps/. Phase 04: sbmc_run, which runs the sequential
+# reference C0 on one instance and writes one CSV row per repetition (results schema 1,
+# sbmc/results.hpp). Phase 05: sbmc_bruteforce, which runs the exact enumeration C3
+# (sbmc/bruteforce.hpp) on one instance and writes one line on stdout, without CSV and without the
+# build information.
 
 # CLI11 (third_party/CLI11, single header): command line parsing, for the applications only. The
 # public headers of the project never include it.
@@ -31,3 +33,8 @@ set_target_properties(sbmc_run PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURR
 add_dependencies(sbmc_run sbmc_build_info)
 target_include_directories(sbmc_run PRIVATE "${PROJECT_BINARY_DIR}/generated")
 target_link_libraries(sbmc_run PRIVATE sbmc::flags sbmc::cpu sbmc::cli11)
+
+add_executable(sbmc_bruteforce sbmc_bruteforce.cpp)
+set_target_properties(sbmc_bruteforce PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                 "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(sbmc_bruteforce PRIVATE sbmc::flags sbmc::cpu sbmc::cli11)

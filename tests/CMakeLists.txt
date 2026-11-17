@@ -1,13 +1,15 @@
 # Tests: doctest unit tests (cpu), Python tests (python), tests of the applications (apps), tool
 # tests (tools), CUDA tests and smoke tests (gpu, tile, probe). Folders: core/ (unit tests of
 # sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/ and K2000 on
-# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/), data/ (input
-# files of the tests), python/ (Python tests, run with the interpreter chosen by the root
-# CMakeLists.txt: the reference P0, T8 with traces in <build>/tests/python/, the data of data/, and
-# sbmc_run, label apps, with its files in <build>/tests/apps/), tools/ (test tools, executables in
-# <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/
-# (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/ (tool tests and checks). Tests
-# that cannot run on the current machine exit with 77, registered as SKIP_RETURN_CODE.
+# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/: C0, the
+# exact enumeration C3 and T2), data/ (input files of the tests), python/ (Python tests, run with
+# the interpreter chosen by the root CMakeLists.txt: the reference P0, T8 with traces in
+# <build>/tests/python/, the data of data/; and, label apps, sbmc_run with its files in
+# <build>/tests/apps/ and sbmc_bruteforce with its files in <build>/tests/bruteforce/), tools/ (test
+# tools, executables in <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in
+# <build>/tests/gpu/), smoke/ (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/
+# (tool tests and checks: sync_from_zip.sh, the build information, RPATH). Tests that cannot run
+# on the current machine exit with 77, registered as SKIP_RETURN_CODE.
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
@@ -55,6 +57,20 @@ target_compile_definitions(test_sb_sequential PRIVATE
                            "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 add_test(NAME test_sb_sequential COMMAND test_sb_sequential)
 set_tests_properties(test_sb_sequential PROPERTIES LABELS "cpu")
+
+# The exact enumeration C3 (test_bruteforce) and T2, the heuristic solvers against the exact optimum
+# (test_t2; phase 05: C0).
+foreach(_sbmc_test IN ITEMS test_bruteforce test_t2)
+  add_executable(${_sbmc_test} cpu/${_sbmc_test}.cpp)
+  set_target_properties(${_sbmc_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                 "${CMAKE_CURRENT_BINARY_DIR}/cpu")
+  target_link_libraries(${_sbmc_test} PRIVATE sbmc::flags sbmc::cpu doctest OpenMP::OpenMP_CXX)
+  target_compile_definitions(${_sbmc_test} PRIVATE
+                             "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\"")
+  add_test(NAME ${_sbmc_test} COMMAND ${_sbmc_test})
+  set_tests_properties(${_sbmc_test} PROPERTIES LABELS "cpu")
+endforeach()
+target_compile_definitions(test_t2 PRIVATE "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 
 # --- Test tools -----------------------------------------------------------------------------
 # sbmc_trace: runs C0 and writes the trace file read by T8 (python/test_t8.py). Not a test.
@@ -104,12 +120,22 @@ sbmc_add_python_test(test_sbmc_run apps WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}
                      ARGS "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
                           "--trace-tool" "$<TARGET_FILE:sbmc_trace>"
                           "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/apps")
+# sbmc_bruteforce (apps/), with absolute paths; its files go to <build>/tests/bruteforce/.
+sbmc_add_python_test(test_sbmc_bruteforce apps
+                     ARGS "--tool" "$<TARGET_FILE:sbmc_bruteforce>"
+                          "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/bruteforce")
 
 # --- Tools ----------------------------------------------------------------------------------
 add_test(NAME test_sync_from_zip
          COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_sync_from_zip.sh"
                  "${PROJECT_SOURCE_DIR}/scripts/sync_from_zip.sh")
 set_tests_properties(test_sync_from_zip PROPERTIES LABELS "tools" SKIP_RETURN_CODE 77)
+# cmake/sbmc_build_info.cmake in temporary git repositories: dirty ignores results/ of the root.
+add_test(NAME test_build_info
+         COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_build_info.sh" "${CMAKE_COMMAND}"
+                 "${PROJECT_SOURCE_DIR}/cmake/sbmc_build_info.cmake")
+set_tests_properties(test_build_info PROPERTIES LABELS "tools" SKIP_RETURN_CODE 77)
 
 # --- GPU smoke tests ------------------------------------------------------------------------
 # Executables in <build>/tests/smoke/, next to their sources' layout (scripts/env_report.sh runs
