@@ -1,13 +1,15 @@
 # Core library: public headers (include/sbmc/) and sbmc_core (rudy reader, Ising model in int64,
-# dense INT8 rows of J, Philox streams, initial positions). Standard C++20 and OpenMP only: the
-# public headers contain no CUDA type and include no CUDA header; the only CUDA-related element
-# is the macro SBMC_HD of sbmc/philox.hpp, active under __CUDACC__ only.
+# dense INT8 rows of J, Philox streams, initial positions, parts of simulated bifurcation common
+# to every variant: pressure schedule and automatic c0; results schema 1, CSV helpers and the
+# table of best-known values). Standard C++20 and OpenMP only: the public headers contain no CUDA
+# type and include no CUDA header; the only CUDA-related element is the macro SBMC_HD of
+# sbmc/philox.hpp, active under __CUDACC__ only (sb_sign and sb_update of sbmc/sb.hpp use it).
 
 add_library(sbmc_headers INTERFACE)
 add_library(sbmc::headers ALIAS sbmc_headers)
 target_include_directories(sbmc_headers INTERFACE "${PROJECT_SOURCE_DIR}/include")
 
-add_library(sbmc_core STATIC instance.cpp rudy.cpp initial_state.cpp)
+add_library(sbmc_core STATIC instance.cpp rudy.cpp initial_state.cpp sb.cpp results.cpp)
 add_library(sbmc::core ALIAS sbmc_core)
 target_link_libraries(sbmc_core PUBLIC sbmc::headers PRIVATE sbmc::flags OpenMP::OpenMP_CXX)
 
@@ -24,6 +26,9 @@ set(_sbmc_public_headers
   instance.hpp
   rudy.hpp
   initial_state.hpp
+  sb.hpp
+  sb_sequential.hpp
+  results.hpp
 )
 set(_sbmc_header_check_dir "${CMAKE_CURRENT_BINARY_DIR}/header_check")
 set(_sbmc_header_check_cxx_sources "")

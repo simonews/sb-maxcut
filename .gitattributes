@@ -20,3 +20,8 @@
 *.xlsx binary
 *.nsys-rep binary
 *.ncu-rep binary
+
+# G-set files (data/gset/): kept byte for byte as published at Stanford, trailing space of the
+# header and line endings included (G56, G60 and G61 have CRLF), so git never converts their line
+# endings, whatever the rules above say.
+data/gset/G* -text

@@ -1,8 +1,13 @@
-# Tests: doctest unit tests (cpu), tool tests (tools), CUDA tests and smoke tests (gpu, tile,
-# probe). Folders: core/ (unit tests of sbmc::core, executables in <build>/tests/core/), data/
-# (input files of the tests), gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/ (CUDA
-# smoke tests, executables in <build>/tests/smoke/), scripts/ (tool tests and checks).
-# Tests that cannot run on the current machine exit with 77, registered as SKIP_RETURN_CODE.
+# Tests: doctest unit tests (cpu), Python tests (python), tests of the applications (apps), tool
+# tests (tools), CUDA tests and smoke tests (gpu, tile, probe). Folders: core/ (unit tests of
+# sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/ and K2000 on
+# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/), data/ (input
+# files of the tests), python/ (Python tests, run with the interpreter chosen by the root
+# CMakeLists.txt: the reference P0, T8 with traces in <build>/tests/python/, the data of data/, and
+# sbmc_run, label apps, with its files in <build>/tests/apps/), tools/ (test tools, executables in
+# <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/
+# (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/ (tool tests and checks). Tests
+# that cannot run on the current machine exit with 77, registered as SKIP_RETURN_CODE.
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
@@ -15,7 +20,8 @@ add_test(NAME test_sanity COMMAND test_sanity)
 set_tests_properties(test_sanity PROPERTIES LABELS "cpu")
 
 # Unit tests of the core library: one doctest executable per file of core/.
-foreach(_sbmc_test IN ITEMS test_philox test_instance test_rudy test_initial_state)
+foreach(_sbmc_test IN ITEMS test_philox test_instance test_rudy test_initial_state test_sb
+                            test_gset test_k2000 test_results)
   add_executable(${_sbmc_test} core/${_sbmc_test}.cpp)
   set_target_properties(${_sbmc_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                  "${CMAKE_CURRENT_BINARY_DIR}/core")
@@ -25,6 +31,79 @@ foreach(_sbmc_test IN ITEMS test_philox test_instance test_rudy test_initial_sta
 endforeach()
 target_compile_definitions(test_rudy PRIVATE
                            "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\"")
+target_compile_definitions(test_sb PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                           "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
+# T6 (data/gset/) and K2000 (data/raw/k2000/, skipped with 77 until scripts/fetch_data.sh --k2000
+# has downloaded it); test_results reads data/best_known.csv.
+foreach(_sbmc_test IN ITEMS test_gset test_k2000)
+  target_compile_definitions(${_sbmc_test} PRIVATE
+                             "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\""
+                             "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
+endforeach()
+set_tests_properties(test_k2000 PROPERTIES SKIP_RETURN_CODE 77)
+target_compile_definitions(test_results PRIVATE "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+
+# Unit tests of the CPU solvers (sbmc::cpu): the sequential reference C0.
+add_executable(test_sb_sequential cpu/test_sb_sequential.cpp)
+set_target_properties(test_sb_sequential PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                    "${CMAKE_CURRENT_BINARY_DIR}/cpu")
+target_link_libraries(test_sb_sequential PRIVATE sbmc::flags sbmc::cpu doctest OpenMP::OpenMP_CXX)
+target_compile_definitions(test_sb_sequential PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                           "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\""
+                           "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
+add_test(NAME test_sb_sequential COMMAND test_sb_sequential)
+set_tests_properties(test_sb_sequential PROPERTIES LABELS "cpu")
+
+# --- Test tools -----------------------------------------------------------------------------
+# sbmc_trace: runs C0 and writes the trace file read by T8 (python/test_t8.py). Not a test.
+add_executable(sbmc_trace tools/sbmc_trace.cpp)
+set_target_properties(sbmc_trace PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                            "${CMAKE_CURRENT_BINARY_DIR}/tools")
+target_link_libraries(sbmc_trace PRIVATE sbmc::flags sbmc::cpu)
+
+# --- Python ---------------------------------------------------------------------------------
+# Scripts of python/, run with the interpreter of the root CMakeLists.txt in isolated mode and
+# without bytecode, so that nothing is written into the source tree. Without an interpreter the
+# tests are registered anyway and exit with 77.
+#   sbmc_add_python_test(<name> <label> [WORKING_DIRECTORY <dir>] ARGS <arguments>...)
+function(sbmc_add_python_test name label)
+  cmake_parse_arguments(PARSE_ARGV 2 _sbmc "" "WORKING_DIRECTORY" "ARGS")
+  if(_sbmc_python)
+    set(_sbmc_command "${_sbmc_python}" -I -B "${CMAKE_CURRENT_SOURCE_DIR}/python/${name}.py"
+                      ${_sbmc_ARGS})
+  else()
+    set(_sbmc_command bash -c "echo '${name}: no Python interpreter: run scripts/setup_python.sh, then configure again' && exit 77")
+  endif()
+  if(_sbmc_WORKING_DIRECTORY)
+    add_test(NAME ${name} COMMAND ${_sbmc_command} WORKING_DIRECTORY "${_sbmc_WORKING_DIRECTORY}")
+  else()
+    add_test(NAME ${name} COMMAND ${_sbmc_command})
+  endif()
+  set_tests_properties(${name} PROPERTIES LABELS "${label}" SKIP_RETURN_CODE 77)
+endfunction()
+
+# P0 alone (test_p0) and T8, C0 against P0 through the traces of sbmc_trace, written to
+# <build>/tests/python/ (test_t8).
+set(_sbmc_python_common
+    "--pyroot" "${PROJECT_SOURCE_DIR}/python" "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data")
+sbmc_add_python_test(test_p0 python ARGS ${_sbmc_python_common})
+sbmc_add_python_test(test_t8 python ARGS ${_sbmc_python_common}
+                     "--tool" "$<TARGET_FILE:sbmc_trace>"
+                     "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/python")
+# The data of data/: SHA256SUMS and the 13 G-set files, read by P0, and best_known.csv.
+sbmc_add_python_test(test_data python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--data-root" "${PROJECT_SOURCE_DIR}/data")
+
+# --- Applications ---------------------------------------------------------------------------
+# sbmc_run (apps/), run from the repository root (its defaults are relative to it); its CSV files
+# go to <build>/tests/apps/.
+sbmc_add_python_test(test_sbmc_run apps WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+                     ARGS "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--trace-tool" "$<TARGET_FILE:sbmc_trace>"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/apps")
 
 # --- Tools ----------------------------------------------------------------------------------
 add_test(NAME test_sync_from_zip

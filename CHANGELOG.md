@@ -3,6 +3,110 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F04-R2] - 2026-11-16
+
+Phase 04, part 2 of 2: G-set and K2000, the table of best-known values, `sbmc_run` with the
+results CSV (schema 1), T6 on the real files and the fingerprints of the trajectories for T7.
+
+### Added
+
+- `data/gset/`: 13 G-set instances (G1, G2, G11, G12, G14, G15, G22, G43, G48, G55, G63, G70, G81),
+  byte for byte as published at Stanford, and `SHA256SUMS` with the SHA-256 of all 71 G-set files.
+- `data/best_known.csv`: best-known cut values of the 13 instances and of K2000, with status,
+  sources and the date of the check; `data/README.md`: origin, checks and format of the data.
+- `scripts/fetch_data.sh`: checks the committed G-set files and downloads into `data/raw/` the
+  other 58 G-set files and K2000, every file checked against its SHA-256.
+- `third_party/CLI11/` (CLI11 2.7.2, BSD-3-Clause): `CLI11.hpp` and `LICENSE`.
+- `include/sbmc/results.hpp` and `src/core/results.cpp` (in `sbmc_core`): results schema 1 (44
+  columns), `csv_escape`, `csv_line`, `csv_split`, `append_results_row`, `read_best_known`,
+  `find_best_known`.
+- `cmake/sbmc_build_info.cmake`: build information (git hash, uncommitted changes, compiler,
+  build type) written at every build into `<build>/generated/sbmc/build_info.hpp`, only when it
+  changes.
+- `apps/CMakeLists.txt` and `apps/sbmc_run.cpp`: interface target `sbmc::cli11`, target
+  `sbmc_build_info`, and `sbmc_run`, which runs C0 on one instance and appends one row of schema 1
+  per repetition (repetition k on the global replicas [kR, (k + 1)R), same seed).
+- `tests/core/test_gset.cpp` (T6 on `data/gset/`), `tests/core/test_k2000.cpp` (skipped with 77
+  until `scripts/fetch_data.sh --k2000`) and `tests/core/test_results.cpp`, label `cpu`.
+- `tests/python/test_data.py` (label `python`): fingerprints of `data/gset/`, P0's reader on the
+  13 files, `data/best_known.csv`; `tests/python/test_sbmc_run.py` (label `apps`): command line,
+  exit statuses and CSV of `sbmc_run`.
+
+### Changed
+
+- `.gitattributes`: `data/gset/G* -text`, so that git never converts the line endings of the
+  G-set files.
+- `CMakeLists.txt`: `add_subdirectory(apps)`.
+- `src/core/CMakeLists.txt`: `results.cpp` in `sbmc_core`, `results.hpp` in the header check
+  (C++ and CUDA); header comment.
+- `src/core/sb.cpp`: comments on the three checks of `auto_c0` that cannot fire with a valid
+  instance (defensive checks without a test).
+- `tests/CMakeLists.txt`: header comment (label `apps`); `test_gset`, `test_k2000` and
+  `test_results` in the loop of the core tests; `SBMC_DATA_DIR` for `test_sb_sequential`; the
+  function `sbmc_add_python_test` for the Python tests; `test_data` and `test_sbmc_run`. Tests per
+  preset: 15 (`cpu`, `cpu-strict`), 21 (`cuda`, `cuda-strict`), 18 (`t4`, `t4-strict`).
+- `tests/cpu/test_sb_sequential.cpp`: fingerprints of the whole trajectories of G1-G6 (strict) and
+  the domain case GS-G1 on G1 of the G-set (dt = 0.5).
+- `third_party/README.md`: section CLI11.
+- `README.md`: status (phase 04 complete), requirements, sections "Data" and "sbmc_run and the
+  results CSV", dt on graphs with positive weights, defensive checks of `auto_c0`, references of
+  T7, tests, tools, repository layout, third-party code.
+
+### Removed
+
+- Nothing.
+
+## [F04-R1] - 2026-11-15
+
+Phase 04, part 1 of 2: sequential simulated bifurcation (C0), the Python reference (P0) and T8.
+
+### Added
+
+- `include/sbmc/sb.hpp` and `src/core/sb.cpp` (in `sbmc_core`): `SbAlgorithm`, `SbParams`,
+  `SbReplicaResult`, `SbResult`; `pressure_schedule` (p[m] in double, one rounding to float);
+  `auto_c0` for `Graph`, `DenseSpinGlass` and `Instance` (int64 sums with overflow checks, then
+  double in a fixed order); `sb_sign` and `sb_update` (`SBMC_HD constexpr`, symplectic Euler
+  update and inelastic walls), shared by every variant.
+- `include/sbmc/sb_sequential.hpp`, `src/cpu/sb_sequential.cpp` and `src/cpu/CMakeLists.txt`:
+  static library `sbmc_cpu` (`sbmc::cpu`) with `run_sb_sequential`, the sequential reference C0
+  of bSB and dSB in FP32 (compressed rows for a `Graph`, dense INT8 J for a `DenseSpinGlass`
+  with n <= 32768; best-cut rule of F04-C1, section 5.3; final check with `cut_direct`; optional
+  trace of the first steps); no OpenMP directive and no public function in the step loop.
+- `tests/core/test_sb.cpp` and `tests/cpu/test_sb_sequential.cpp` (label `cpu`): reference bits
+  of the pressure, of c0 and of the update; the short trajectory and the cases G1-G6 bit for bit
+  in the strict presets; every step of G3-G6 recomputed from the specified operations; properties
+  of every preset; replica split; independence from the number of threads; preconditions.
+- `tests/tools/sbmc_trace.cpp`: tool of the tests (`<build>/tests/tools/sbmc_trace`) that runs C0
+  and writes the binary trace `SBMCTRC1` read by T8.
+- `tests/data/torus_4x6_unit.rudy` and `tests/data/torus_4x6_pm1.rudy`: 4 x 6 toroidal grids
+  with unit and +-1 weights.
+- `python/requirements.txt` (`numpy==2.5.4`) and the package `python/sbmc_ref` (P0, float64 and
+  exact integers, NumPy only): `model.py` (rudy reader, couplings, W, E, C, `auto_c0`) and
+  `sb.py` (`sign`, `pressure_schedule`, `sb_step`, `run_sb`, `best_from_states`).
+- `tests/python/test_p0.py` and `tests/python/test_t8.py` (label `python`, skipped with 77 without
+  NumPy): P0 alone, and T8 (coherence, one step at a time, free run, best cut on ten cases, plus
+  the exit statuses of `sbmc_trace`).
+- `scripts/setup_python.sh`: the virtual environment `.venv` of the project with the pinned NumPy
+  (venv bootstrap as in `setup_cuda_pypi.sh`; Python 3.12 or newer).
+
+### Changed
+
+- `CMakeLists.txt`: `add_subdirectory(src/cpu)`; interpreter of the Python tests chosen at every
+  configure (`SBMC_PYTHON`, then `.venv/bin/python`, then `python3` from the PATH); summary line
+  "Python (tests)".
+- `src/core/CMakeLists.txt`: `sb.cpp` in `sbmc_core`; `sb.hpp` and `sb_sequential.hpp` in the
+  header check; header comment.
+- `tests/CMakeLists.txt`: header comment (labels and folders); `test_sb` in the loop of the core
+  tests; `test_sb_sequential`; the tool `sbmc_trace`; `test_p0` and `test_t8`. Tests per preset:
+  10 (`cpu`, `cpu-strict`), 16 (`cuda`, `cuda-strict`), 13 (`t4`, `t4-strict`).
+- `README.md`: status (phase 04, part 1 of 2), requirements, sections "Sequential simulated
+  bifurcation" and "Python reference P0 and T8", tests, origin of the reference values,
+  repository layout.
+
+### Removed
+
+- Nothing.
+
 ## [F03-R1] - 2026-11-15
 
 Phase 03: the core library, the first library of the project (standard C++20 and OpenMP only,
