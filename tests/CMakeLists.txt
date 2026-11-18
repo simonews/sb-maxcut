@@ -1,9 +1,9 @@
 # Tests: doctest unit tests (cpu), Python tests (python), tests of the applications (apps), tool
 # tests (tools), CUDA tests and smoke tests (gpu, tile, probe). Folders: core/ (unit tests of
 # sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/ and K2000 on
-# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/: C0, the
-# exact enumeration C3 and T2), data/ (input files of the tests), python/ (Python tests, run with
-# the interpreter chosen by the root CMakeLists.txt: the reference P0, T8 with traces in
+# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/: C0, C1 with
+# T7, the exact enumeration C3 and T2), data/ (input files of the tests), python/ (Python tests,
+# run with the interpreter chosen by the root CMakeLists.txt: the reference P0, T8 with traces in
 # <build>/tests/python/, the data of data/; and, label apps, sbmc_run with its files in
 # <build>/tests/apps/ and sbmc_bruteforce with its files in <build>/tests/bruteforce/), tools/ (test
 # tools, executables in <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in
@@ -58,8 +58,20 @@ target_compile_definitions(test_sb_sequential PRIVATE
 add_test(NAME test_sb_sequential COMMAND test_sb_sequential)
 set_tests_properties(test_sb_sequential PROPERTIES LABELS "cpu")
 
+# C1, simulated bifurcation with OpenMP over blocks of replicas: T7 against C0.
+add_executable(test_sb_openmp cpu/test_sb_openmp.cpp)
+set_target_properties(test_sb_openmp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                "${CMAKE_CURRENT_BINARY_DIR}/cpu")
+target_link_libraries(test_sb_openmp PRIVATE sbmc::flags sbmc::cpu doctest OpenMP::OpenMP_CXX)
+target_compile_definitions(test_sb_openmp PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                           "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\""
+                           "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
+add_test(NAME test_sb_openmp COMMAND test_sb_openmp)
+set_tests_properties(test_sb_openmp PROPERTIES LABELS "cpu")
+
 # The exact enumeration C3 (test_bruteforce) and T2, the heuristic solvers against the exact optimum
-# (test_t2; phase 05: C0).
+# (test_t2; phase 05: C0 and C1).
 foreach(_sbmc_test IN ITEMS test_bruteforce test_t2)
   add_executable(${_sbmc_test} cpu/${_sbmc_test}.cpp)
   set_target_properties(${_sbmc_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
@@ -115,11 +127,13 @@ sbmc_add_python_test(test_data python
 
 # --- Applications ---------------------------------------------------------------------------
 # sbmc_run (apps/), run from the repository root (its defaults are relative to it); its CSV files
-# go to <build>/tests/apps/.
+# go to <build>/tests/apps/; --strict-fp tells the strict presets, where C1 and C0 must give the
+# same rows.
 sbmc_add_python_test(test_sbmc_run apps WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
                      ARGS "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
                           "--trace-tool" "$<TARGET_FILE:sbmc_trace>"
-                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/apps")
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/apps"
+                          "--strict-fp" "$<BOOL:${SBMC_STRICT_FP}>")
 # sbmc_bruteforce (apps/), with absolute paths; its files go to <build>/tests/bruteforce/.
 sbmc_add_python_test(test_sbmc_bruteforce apps
                      ARGS "--tool" "$<TARGET_FILE:sbmc_bruteforce>"

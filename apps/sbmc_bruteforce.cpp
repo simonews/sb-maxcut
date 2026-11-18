@@ -4,18 +4,19 @@
 //   sbmc_bruteforce (--instance FILE | --dense N --instance-seed S) [--name NAME] [--threads T]
 //
 // Run: the instance is read (t_setup_ms), then solve_bruteforce runs with T threads (t_solve_ms;
-// T = 0, the default, means the default number of OpenMP threads). Output, the only line on
-// stdout, with the fields separated by one space:
+// T = 0, the default, means the default number of OpenMP threads; at most 1024, while the
+// library has no upper bound). Output, the only line on stdout, with the fields separated by one
+// space:
 //   BRUTEFORCE instance=<name> n=<n> m=<m> W=<W> max_cut=<C> min_energy=<E> optimal_count=<k>
 //              threads=<t> t_setup_ms=<x> t_solve_ms=<y> config=<s>
 // m is the number of edges of a rudy graph and n(n - 1)/2 for a dense instance; the times are in
 // fixed notation with three decimals; config is the canonical optimum, one '+' or '-' per spin.
 //
 // Exit status: 0 on success; 1 for errors of the library (for example n > 40 or an invalid
-// instance) and of reading; 2 for errors of the command line, with a message on stderr. A name,
-// given with --name or taken from the file name, may not be empty or contain a space, a tab,
-// '\r' or '\n' (exit status 2): the name is one field of the output line. Every message on
-// stderr starts with "sbmc_bruteforce: ".
+// instance) and of reading; 2 for errors of the command line (--threads above 1024 among them),
+// with a message on stderr. A name, given with --name or taken from the file name, may not be
+// empty or contain a space, a tab, '\r' or '\n' (exit status 2): the name is one field of the
+// output line. Every message on stderr starts with "sbmc_bruteforce: ".
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -24,7 +25,6 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
-#include <limits>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -192,11 +192,12 @@ int main(int argc, char** argv) {
                      "and extension, or dense_n<N>_s<S>); no spaces, tabs or line breaks")
           ->check([](const std::string& value) { return name_problem(value); });
   app.add_option("--threads", options.threads,
-                 "OpenMP threads of the enumeration (0: the default number of OpenMP)")
+                 "OpenMP threads of the enumeration (0: the default number of OpenMP threads; at "
+                 "most 1024)")
       ->capture_default_str()
       ->type_name("T")
       ->transform(decimal)
-      ->check(CLI::Range(0, std::numeric_limits<int>::max()));
+      ->check(CLI::Range(0, 1024));
 
   try {
     app.parse(argc, argv);

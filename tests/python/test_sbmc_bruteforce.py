@@ -4,9 +4,10 @@
 Run by CTest as:
   <python> -I -B test_sbmc_bruteforce.py --tool <sbmc_bruteforce> --data <tests/data>
                                          --workdir <build>/tests/bruteforce
-Checks, as in F05-C1, section 5.9:
+Checks, as in F05-C1, section 5.9, and F05-C2, section 5.10:
 1. exit status 2 for the errors of the command line, with an empty stdout and a message on
-   stderr that starts with "sbmc_bruteforce: ";
+   stderr that starts with "sbmc_bruteforce: " (--threads above 1024 and a default name that is
+   not valid among them);
 2. exit status 1 for the errors of the library and of reading, with an empty stdout;
 3. four_nodes.rudy with one thread: one line on stdout, empty stderr, the word BRUTEFORCE and the
    11 fields key=value in order, the values, the times in fixed notation with three decimals;
@@ -140,6 +141,9 @@ def main() -> int:
     missing.unlink(missing_ok=True)
     self_loop = workdir / "self_loop.rudy"
     self_loop.write_text("3 1\n1 1 1\n", encoding="ascii")
+    # A copy of four_nodes.rudy whose file name, the default --name, contains a space.
+    spaced = workdir / "a b.rudy"
+    spaced.write_bytes((data / "four_nodes.rudy").read_bytes())
     run = Runner(tool, workdir)
 
     # 1. Errors of the command line: exit status 2, empty stdout, prefixed message on stderr.
@@ -154,6 +158,8 @@ def main() -> int:
         ("--dense 0x10", ["--dense", "0x10", "--instance-seed", "1"]),
         ("--name 'a b'", ["--instance", four, "--name", "a b"]),
         ("--name ''", ["--instance", four, "--name", ""]),
+        ("--threads 1025", ["--instance", four, "--threads", "1025"]),
+        ("default name not valid ('a b.rudy' without --name)", ["--instance", str(spaced)]),
     ]
     for name, arguments in usage_cases:
         result = run(arguments)

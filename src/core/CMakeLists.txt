@@ -28,6 +28,7 @@ set(_sbmc_public_headers
   initial_state.hpp
   sb.hpp
   sb_sequential.hpp
+  sb_openmp.hpp
   bruteforce.hpp
   results.hpp
 )

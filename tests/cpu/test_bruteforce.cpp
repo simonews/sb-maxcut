@@ -98,6 +98,8 @@ std::vector<ReferenceRow> reference_rows() {
       {"Graph n = 2, edge (0, 1, 5)", Graph{2, {{0, 1, 5}}}, 2, 5, -5, 5, 1, "+-"},
       {"Graph n = 2, edge (0, 1, -5)", Graph{2, {{0, 1, -5}}}, 2, -5, -5, 0, 1, "++"},
       {"Graph n = 3, no edges", Graph{3, {}}, 3, 0, 0, 0, 4, "+++"},
+      {"Graph n = 10, triangle and 7 isolated nodes", Graph{10, {{0, 1, 1}, {0, 2, 2}, {1, 2, 1}}},
+       10, 4, -2, 3, 256, "++-+++++++"},
       {"DenseSpinGlass{1, 7}", DenseSpinGlass{1, 7}, 1, 0, 0, 0, 1, "+"},
       {"DenseSpinGlass{2, 0}", DenseSpinGlass{2, 0}, 2, -1, -1, 0, 1, "++"},
   };
@@ -139,11 +141,15 @@ TEST_CASE("C3: the result does not depend on the number of threads") {
     std::string name;
     Instance instance;
   };
-  // torus_4x6_pm1 has 35 optimal partitions: the counts of the intervals are summed.
+  // torus_4x6_pm1 has 35 optimal partitions and the triangle with 7 isolated nodes 256: the counts
+  // of the intervals are summed. In the second one every interval holds optimal codes that the
+  // Gray order visits before smaller ones (low bits 3 before 2): the canonical optimum needs the
+  // smallest code of every interval, not the first one found.
   const std::vector<Case> cases = {
       {"torus_4x6_pm1.rudy", rudy("torus_4x6_pm1.rudy")},
       {"weighted_isolated_13.rudy", rudy("weighted_isolated_13.rudy")},
       {"DenseSpinGlass{24, 24}", DenseSpinGlass{24, 24}},
+      {"Graph n = 10, triangle and 7 isolated nodes", Graph{10, {{0, 1, 1}, {0, 2, 2}, {1, 2, 1}}}},
   };
   const std::vector<int> requested = {1, 2, 3, 0, initial_threads};
   const std::vector<int> expected_team = {1, 2, 3, initial_threads, initial_threads};
