@@ -1,17 +1,21 @@
 // sbmc_run: runs a solver of the project on one instance and writes one CSV row per repetition,
-// with the results schema 1 (sbmc/results.hpp). Phase 04: the sequential reference C0 of
-// simulated bifurcation (variant c0), dSB or bSB.
+// with the results schema 1 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
+// sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
+// (variant c1, --threads).
 //
 //   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb --replicas R
-//            --steps M --dt X [--name NAME] [--variant c0] [--a0 X] [--c0 auto|X]
-//            [--eval-every K] [--seed S] [--reps K] [--warmup K]
+//            --steps M --dt X [--name NAME] [--variant c0|c1] [--threads T] [--a0 X]
+//            [--c0 auto|X] [--eval-every K] [--seed S] [--reps K] [--warmup K]
 //            [--target best-known|none|INTEGER] [--best-known FILE] [--out FILE] [--notes TEXT]
 //
 // Run: the instance is read (t_setup_ms); the target is resolved; --warmup runs with first
-// replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs C0 with first_replica = k*R
-// and the same seed, so different global replicas and different initial conditions (decision B7),
-// appends one row to --out and prints one line "rep <k>: ..." on stdout. t_solve_ms is the
-// duration of run_sb_sequential, its internal preparation included.
+// replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs the solver with
+// first_replica = k*R and the same seed, so different global replicas and different initial
+// conditions (decision B7), appends one row to --out and prints one line "rep <k>: ..." on
+// stdout. The solver is run_sb_sequential (c0) or run_sb_openmp with T threads (c1; T = 0, the
+// default, is the default number of OpenMP threads; --threads only with c1). t_solve_ms is the
+// duration of the call of the solver, its internal preparation and final check included; the
+// column threads is the team of the solver (1 for c0).
 //
 // Exit status: 0 on success; 1 for errors of the library (preconditions such as --replicas 0),
 // of reading or writing, and for an instance that is not in the best-known table; 2 for errors
@@ -46,6 +50,7 @@
 #include <sbmc/results.hpp>
 #include <sbmc/rudy.hpp>
 #include <sbmc/sb.hpp>
+#include <sbmc/sb_openmp.hpp>
 #include <sbmc/sb_sequential.hpp>
 
 namespace {
@@ -65,6 +70,7 @@ struct Options {
   int steps = 0;
   std::string dt;
   std::string variant = "c0";
+  int threads = 0;  // c1 only
   std::string a0 = "1";
   std::string c0 = "auto";
   int eval_every = 0;
@@ -343,10 +349,16 @@ int run(const Options& options, bool dense) {
   params.eval_every = options.eval_every;
   params.seed = options.seed;
 
+  // The solver of the variant.
+  const auto solve = [&](const sbmc::SbParams& p) {
+    return options.variant == "c1" ? sbmc::run_sb_openmp(instance, p, options.threads)
+                                   : sbmc::run_sb_sequential(instance, p);
+  };
+
   // 3. Warm-up runs, not recorded.
   for (int w = 0; w < options.warmup; ++w) {
     params.first_replica = 0;
-    static_cast<void>(sbmc::run_sb_sequential(instance, params));
+    static_cast<void>(solve(params));
   }
 
   // Columns that do not change between repetitions.
@@ -360,7 +372,7 @@ int run(const Options& options, bool dense) {
     params.first_replica = static_cast<std::int64_t>(k) * options.replicas;
     const std::string timestamp = utc_timestamp(std::chrono::system_clock::now());
     const auto solve_start = std::chrono::steady_clock::now();
-    const sbmc::SbResult result = sbmc::run_sb_sequential(instance, params);
+    const sbmc::SbResult result = solve(params);
     const double t_solve_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - solve_start)
             .count();
@@ -418,7 +430,7 @@ int run(const Options& options, bool dense) {
     row.set("a0", shortest(params.a0));
     row.set("eval_every", std::to_string(options.eval_every));
     row.set("first_replica", std::to_string(params.first_replica));
-    row.set("threads", "1");  // C0 is sequential
+    row.set("threads", std::to_string(result.threads));  // 1 for C0
     row.set("target_source", target.source);
     row.set("notes", options.notes);
     if (!options.out.empty()) {
@@ -444,16 +456,18 @@ int usage_error(std::string_view message) {
 int main(int argc, char** argv) {
   Options options;
   CLI::App app{
-      "Runs the sequential reference C0 of simulated bifurcation (dSB or bSB) on one instance and "
-      "writes one CSV row per repetition (results schema 1).",
+      "Runs simulated bifurcation (dSB or bSB) on one instance, with the sequential reference C0 "
+      "or with C1 (OpenMP over blocks of replicas), and writes one CSV row per repetition (results "
+      "schema 1).",
       "sbmc_run"};
   app.failure_message([](const CLI::App* parser, const CLI::Error& e) {
     const std::string message = CLI::FailureMessage::simple(parser, e);
     return message.starts_with("sbmc_run: ") ? message : "sbmc_run: " + message;
   });
   app.footer(
-      "Repetition k runs C0 with first_replica = k * R and the same --seed: different global "
-      "replicas, hence different initial conditions. Exit status: 0 success; 1 error of the "
+      "Repetition k runs the solver with first_replica = k * R and the same --seed: different "
+      "global replicas, hence different initial conditions. --threads only with --variant c1; the "
+      "column threads is the team of the solver (1 for c0). Exit status: 0 success; 1 error of the "
       "library, of reading or writing, or instance not in the best-known table; 2 error of the "
       "command line.");
 
@@ -501,9 +515,17 @@ int main(int argc, char** argv) {
       ->required()
       ->type_name("X")
       ->check(number);
-  app.add_option("--variant", options.variant, "Variant (phase 04: c0, the sequential reference)")
+  app.add_option("--variant", options.variant,
+                 "Variant: c0: the sequential reference; c1: OpenMP over blocks of replicas")
       ->capture_default_str()
-      ->check(CLI::IsMember({"c0"}));
+      ->check(CLI::IsMember({"c0", "c1"}));
+  CLI::Option* threads =
+      app.add_option("--threads", options.threads,
+                     "OpenMP threads of c1 (0: the default number of OpenMP threads; at most 1024)")
+          ->capture_default_str()
+          ->type_name("T")
+          ->transform(decimal)
+          ->check(CLI::Range(0, 1024));
   app.add_option("--a0", options.a0, "a0")->capture_default_str()->type_name("X")->check(number);
   app.add_option("--c0", options.c0, "c0: auto (1/(2 sigma sqrt(n))) or a finite number > 0")
       ->capture_default_str()
@@ -566,6 +588,9 @@ int main(int argc, char** argv) {
   const bool use_dense = dense->count() > 0;
   if (instance->count() == 0 && !use_dense) {
     return usage_error("an instance is required: --instance FILE, or --dense N --instance-seed S");
+  }
+  if (threads->count() > 0 && options.variant != "c1") {
+    return usage_error("--threads requires --variant c1");
   }
 
   try {

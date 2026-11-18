@@ -3,6 +3,114 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F05-R2] - 2026-11-18
+
+Phase 05, part 2 of 2: C1, simulated bifurcation with OpenMP over blocks of replicas and SIMD over
+the replicas of a block, equal to C0 bit for bit in the strict presets (T7) and part of T2;
+`sbmc_run --variant c1 --threads T`; the corrections of the review of F05-R1.
+
+### Added
+
+- `include/sbmc/sb_openmp.hpp` and `src/cpu/sb_openmp.cpp` (in `sbmc_cpu`):
+  `kSbOpenmpReplicasPerBlock` (RB = 32, the fastest of 8, 16 and 32 in the measurements) and
+  `run_sb_openmp(inst, params, threads, trace_steps)`: blocks of RB consecutive replicas
+  distributed by an OpenMP loop with `schedule(dynamic, 1)` in a region with
+  `num_threads(min(T_req, B))`; one work area per thread on 64-byte boundaries; spin-major layout
+  inside a block and `omp simd` loops over its RB lanes, padding lanes included; J dense INT8 or
+  in compressed rows, and an int16, int32 or int64 accumulator from the row norm L; the operations
+  of C0 in the same order in every lane; final check with `cut_direct` per replica inside the
+  region, errors reported after it for the smallest replica. OpenMP 4.5 constructs only, no
+  change of the global OpenMP state.
+- `tests/cpu/test_sb_openmp.cpp` (label `cpu`): T7 for C1 (the reference cases G1-G6 and GS-G1;
+  C1 equal to C0 field by field on 180 pairs of runs in the strict presets), the integer
+  accumulators at the limits of int16 and int32, independence from the number of threads and from
+  the replica split, other properties, preconditions.
+
+### Changed
+
+- `include/sbmc/sb.hpp`: `SbResult::threads`, the team of the step loop (1 for C0).
+- `apps/sbmc_run.cpp`: `--variant c0|c1` and `--threads T` (0 to 1024, only with `c1`: otherwise
+  exit status 2 with "--threads requires --variant c1"); the column `threads` from the result;
+  header comment, description and footer of the help.
+- `apps/sbmc_bruteforce.cpp`: `--threads` from 0 to 1024 (exit status 2 above); header comment.
+- `cmake/sbmc_build_info.cmake`: comment of the generated header on `dirty` (uncommitted changes
+  to tracked files outside `results/` of the repository root).
+- `src/cpu/CMakeLists.txt`: `sb_openmp.cpp` in `sbmc_cpu`; header comment.
+- `src/core/CMakeLists.txt`: `sb_openmp.hpp` in the header check (C++ and CUDA).
+- `tests/CMakeLists.txt`: header comment; `test_sb_openmp`; `test_sbmc_run` receives
+  `--strict-fp`. Tests per preset: 20 (`cpu`, `cpu-strict`), 26 (`cuda`, `cuda-strict`), 23
+  (`t4`, `t4-strict`).
+- `tests/cpu/test_t2.cpp`: T2 for C1 with three threads (strict presets: equal to C0 replica by
+  replica); header comment.
+- `tests/cpu/test_bruteforce.cpp`: the instance "Graph n = 10, triangle and 7 isolated nodes"
+  (256 optimal partitions spread over many intervals) among the reference optima and in the test
+  of the number of threads.
+- `tests/python/test_sbmc_run.py`: argument `--strict-fp`; variant `c0` or `c1` and the column
+  `threads` in the common checks; exit statuses of `--variant` and `--threads`; the checks of
+  `c1` (the column `threads`, rows independent of the number of threads, the default number of
+  threads and, in the strict presets, the same results as `c0`).
+- `tests/python/test_sbmc_bruteforce.py`: exit status 2 for `--threads 1025` and for a default
+  name taken from a file name with a space.
+- `README.md`: status (phase 05 complete in the code), section "OpenMP simulated bifurcation
+  (C1)" with the choice of RB and the preliminary scaling measurement, `sbmc_run` with
+  `--variant c1` and `--threads`, the laptop times of C3 and the extrapolation to n = 40, the
+  limit of `--threads` of `sbmc_bruteforce`, T2 for C1, tests, repository layout.
+
+### Removed
+
+- Nothing.
+
+## [F05-R1] - 2026-11-17
+
+Phase 05, part 1 of 2: the exact solution by Gray-code enumeration (C3), parallel with OpenMP,
+`sbmc_bruteforce`, the test T2 for C0, and the flag `dirty` of the build information, which now
+ignores `results/`.
+
+### Added
+
+- `include/sbmc/bruteforce.hpp` and `src/cpu/bruteforce.cpp` (in `sbmc_cpu`): `kBruteForceMaxSpins`
+  (40), `BruteForceResult` and `solve_bruteforce(inst, threads)`: s_0 = +1, the 2^(n-1) codes in
+  2^p contiguous intervals distributed by an OpenMP loop with a dynamic schedule, Gray-code order
+  inside an interval with the energy and the fields updated in O(n) in int64, exact combination of
+  the intervals (results independent of the number of threads), canonical optimum (smallest
+  code), number of optimal partitions, team size; checks in the order threads, n, whole instance;
+  final check with `cut_direct` and `ising_energy`. OpenMP 4.5 constructs only, no change of the
+  global OpenMP state.
+- `apps/sbmc_bruteforce.cpp`: runs C3 on one instance (`--instance` or `--dense` with
+  `--instance-seed`, `--name`, `--threads`) and writes the line `BRUTEFORCE instance=... config=...`
+  on stdout; exit statuses 0, 1 (library, reading) and 2 (command line).
+- `tests/cpu/test_bruteforce.cpp` (label `cpu`): reference optima of 15 instances, independence
+  from the number of threads, preconditions.
+- `tests/cpu/test_t2.cpp` (label `cpu`): T2, C0 against the exact optimum of C3 on seven cases
+  (counts of the replicas at the optimum and the best cuts of T2-3 in the strict presets).
+- `tests/python/test_sbmc_bruteforce.py` (label `apps`): command line, exit statuses and output
+  line of `sbmc_bruteforce`.
+- `tests/scripts/test_build_info.sh` (label `tools`): `cmake/sbmc_build_info.cmake` in a temporary
+  git repository, twelve cases.
+- `tests/data/sparse_24_unit.rudy` (24 nodes, 48 unit edges, maximum cut 40) and
+  `tests/data/weighted_isolated_13.rudy` (13 nodes, weights up to 2^31 - 1 of both signs, two
+  isolated nodes).
+
+### Changed
+
+- `cmake/sbmc_build_info.cmake`: `dirty` from
+  `git status --porcelain --untracked-files=no -- . ":(exclude)results"`: changes under `results/`
+  of the repository root no longer mark the build as dirty; header comment.
+- `src/cpu/CMakeLists.txt`: `bruteforce.cpp` in `sbmc_cpu`, which links `OpenMP::OpenMP_CXX`;
+  header comment.
+- `src/core/CMakeLists.txt`: `bruteforce.hpp` in the header check (C++ and CUDA).
+- `apps/CMakeLists.txt`: the executable `sbmc_bruteforce`; header comment.
+- `tests/CMakeLists.txt`: header comment; `test_bruteforce`, `test_t2`, `test_sbmc_bruteforce` and
+  `test_build_info`. Tests per preset: 19 (`cpu`, `cpu-strict`), 25 (`cuda`, `cuda-strict`), 22
+  (`t4`, `t4-strict`).
+- `README.md`: status (phase 05, part 1 of 2), section "Exact solution by brute force (C3)" with
+  `sbmc_bruteforce` and T2, the definition of `dirty`, tests and test data, origin of the reference
+  values, repository layout.
+
+### Removed
+
+- Nothing.
+
 ## [F04-R2] - 2026-11-16
 
 Phase 04, part 2 of 2: G-set and K2000, the table of best-known values, `sbmc_run` with the

@@ -28,6 +28,8 @@ set(_sbmc_public_headers
   initial_state.hpp
   sb.hpp
   sb_sequential.hpp
+  sb_openmp.hpp
+  bruteforce.hpp
   results.hpp
 )
 set(_sbmc_header_check_dir "${CMAKE_CURRENT_BINARY_DIR}/header_check")

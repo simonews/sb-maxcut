@@ -91,6 +91,7 @@ struct SbResult {
   std::vector<float> final_x, final_y;       // replica-major, R * n
   int trace_steps = 0;                       // K
   std::vector<float> trace_x, trace_y;       // [k][r][i], K * R * n: state after step k + 1
+  int threads = 1;  // OpenMP threads of the step loop: the team of C1; 1 for C0
 };
 
 }  // namespace sbmc

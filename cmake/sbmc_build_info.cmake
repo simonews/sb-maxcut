@@ -7,9 +7,16 @@
 #
 # - git_hash: "git rev-parse HEAD" (40 hexadecimal digits), or "unknown" when git is missing, the
 #   folder is not a repository or the output is not a 40-digit hash;
-# - dirty: 1 when "git status --porcelain --untracked-files=no" is not empty (changes to tracked
-#   files, staged or not), 0 when it is empty, -1 when unknown. --no-optional-locks keeps git
-#   status from rewriting the index of the repository during the build.
+# - dirty: 1 when a tracked file outside the folder results/ of the repository root has changes,
+#   staged or not; 0 when no such file has; -1 when unknown. The command is
+#     git -C <root> --no-optional-locks status --porcelain --untracked-files=no
+#         -- . ":(exclude)results"
+#   whose pathspecs are relative to the root: results/ of the root is ignored, while a results
+#   folder elsewhere (sub/results/) and the files of the root whose name starts with "results"
+#   (results_old.csv) still count. results/ holds the committed results of the measurements: a
+#   row appended to one of its CSV files does not change the sources, so it must not mark the
+#   build as dirty. --no-optional-locks keeps git status from rewriting the index of the
+#   repository during the build.
 # The header is rewritten only when its content changes: a build without changes recompiles
 # nothing, and a change to a tracked file updates dirty at the next build without a configure.
 cmake_minimum_required(VERSION 3.28)
@@ -37,7 +44,7 @@ if(SBMC_GIT)
   endif()
   execute_process(
     COMMAND "${SBMC_GIT}" -C "${SBMC_SOURCE_DIR}" --no-optional-locks status --porcelain
-            --untracked-files=no
+            --untracked-files=no -- . ":(exclude)results"
     RESULT_VARIABLE _sbmc_result
     OUTPUT_VARIABLE _sbmc_output
     ERROR_QUIET)
@@ -71,7 +78,8 @@ string(CONCAT _sbmc_content
   "\n"
   "// git rev-parse HEAD of the source tree, or \"unknown\".\n"
   "inline constexpr std::string_view git_hash = \"${_sbmc_hash}\";\n"
-  "// 1: uncommitted changes to tracked files; 0: none; -1: unknown.\n"
+  "// 1: uncommitted changes to tracked files outside results/ of the repository root; 0: none;"
+  " -1: unknown.\n"
   "inline constexpr int dirty = ${_sbmc_dirty};\n"
   "// C++ compiler, \"<id> <version>\" from the configure step.\n"
   "inline constexpr std::string_view compiler = \"${_sbmc_SBMC_COMPILER}\";\n"

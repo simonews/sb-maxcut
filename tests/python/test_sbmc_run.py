@@ -3,9 +3,9 @@
 
 Run by CTest from the repository root (the defaults of sbmc_run are relative to it) as:
   <python> -I -B test_sbmc_run.py --sbmc-run <sbmc_run> --trace-tool <sbmc_trace>
-                                  --workdir <build>/tests/apps
-Checks, as in F04-C2, section 5.9:
-1. exit status 2 for the errors of the command line;
+                                  --workdir <build>/tests/apps --strict-fp 0|1
+Checks, as in F04-C2, section 5.9, and F05-C2, section 5.9:
+1. exit status 2 for the errors of the command line (--variant and --threads included);
 2. exit status 1 for the errors of the library, of reading and of writing (a CSV with another
    header is left unchanged);
 3. tests/data/four_nodes.rudy, two recorded repetitions: the 44 columns and their values;
@@ -13,7 +13,10 @@ Checks, as in F04-C2, section 5.9:
 5. a third run on the same CSV: three rows, one header;
 6. data/gset/G1 with --target best-known, and --name G1 on another instance;
 7. a dense instance with a warm-up run: one row, no target;
-8. one line "rep <k>: ..." on stdout per recorded repetition, consistent with the CSV.
+8. one line "rep <k>: ..." on stdout per recorded repetition, consistent with the CSV;
+9. the variant c1: two repetitions with two threads; G1 with one and with three threads, equal
+   rows but the times; --threads 0; with --strict-fp 1 (strict presets) the same results as c0
+   row by row, in dSB and in bSB.
 The files of the test (CSV files and a trace) are written only in --workdir, a folder of the
 build tree; their previous versions are removed at the start.
 
@@ -57,7 +60,11 @@ TRACE_HEADER = struct.Struct("<8sqiiiiiIIIQqq")
 FOUR = "tests/data/four_nodes.rudy"
 NOTES = 'a,b "c"'
 OUTPUTS = ["runs.csv", "g1.csv", "name.csv", "dense.csv", "bad_header.csv", "unused.csv",
-           "rep1.trc"]
+           "rep1.trc", "c1_torus.csv", "c1_g1_threads1.csv", "c1_g1_threads3.csv",
+           "c1_threads0.csv", "compare_c0_dsb.csv", "compare_c1_dsb.csv", "compare_c0_bsb.csv",
+           "compare_c1_bsb.csv"]
+# Columns that may differ between two runs of the same configuration.
+TIMES = ["timestamp", "t_setup_ms", "t_solve_ms", "t_step_us"]
 
 
 class Report:
@@ -78,6 +85,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--sbmc-run", required=True, help="path of the sbmc_run executable")
     parser.add_argument("--trace-tool", required=True, help="path of the sbmc_trace executable")
     parser.add_argument("--workdir", required=True, help="build folder for the files of the test")
+    parser.add_argument("--strict-fp", required=True, choices=["0", "1"],
+                        help="1 in the strict presets (no FMA contraction), 0 otherwise")
     return parser.parse_args()
 
 
@@ -141,7 +150,10 @@ def check_row_common(row: dict[str, str]) -> list[str]:
     for column in ("variant", "ranks", "threads", "host", "os", "compiler"):
         if not row.get(column):
             wrong.append(column)
-    if row.get("variant") != "c0" or row.get("ranks") != "1" or row.get("threads") != "1":
+    threads = row.get("threads", "")
+    if (row.get("variant") not in ("c0", "c1") or row.get("ranks") != "1"
+            or not re.fullmatch(r"[0-9]+", threads) or int(threads) < 1
+            or (row.get("variant") == "c0" and threads != "1")):
         wrong.append("variant/ranks/threads")
     return wrong
 
@@ -153,6 +165,94 @@ def trace_best_cuts(path: Path, np) -> list[int]:
     offset = (TRACE_HEADER.size + 4 * steps + n * n + 4 * replicas * n
               + 8 * record * replicas * n + 8 * replicas)
     return np.frombuffer(data, dtype="<i8", count=replicas, offset=offset).tolist()
+
+
+def same_rows_but(rows_a: list[dict[str, str]], rows_b: list[dict[str, str]],
+                  ignored: list[str]) -> list[str]:
+    """Columns that differ between two lists of rows, apart from the ignored ones."""
+    if len(rows_a) != len(rows_b):
+        return ["number of rows"]
+    return sorted({c for a, b in zip(rows_a, rows_b) for c in COLUMNS
+                   if c not in ignored and a.get(c) != b.get(c)})
+
+
+def check_c1(report: Report, run: Runner, workdir: Path, strict: bool) -> None:
+    """Check 9: the variant c1 of sbmc_run."""
+    torus = ["--instance", "tests/data/torus_4x6_pm1.rudy"]
+
+    # a. Two repetitions with two threads: the common checks, variant c1, threads 2.
+    path = workdir / "c1_torus.csv"
+    result = run(torus + ["--algo", "dsb", "--replicas", "40", "--steps", "100", "--dt", "1.25",
+                          "--seed", "3", "--target", "24", "--reps", "2", "--warmup", "0",
+                          "--variant", "c1", "--threads", "2", "--notes", NOTES,
+                          "--out", str(path)])
+    _, rows, raw = read_rows(path) if path.exists() else ([], [], [])
+    wrong = [] if result.returncode == 0 and len(raw) == 2 else ["exit or rows"]
+    for k, row in enumerate(rows):
+        wrong += [f"rep {k}: {c}" for c in check_row_common(row)]
+        expected = {"variant": "c1", "threads": "2", "rep": str(k), "first_replica": str(40 * k),
+                    "instance": "torus_4x6_pm1", "replicas": "40", "notes": NOTES}
+        wrong += [f"rep {k}: {c}" for c, v in expected.items() if row.get(c) != v]
+    report.check("c1 torus_4x6_pm1.rudy, --threads 2", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else f"exit {result.returncode}, 2 rows")
+    check_stdout(report, "c1 torus_4x6_pm1.rudy", result, rows, True)
+
+    # b. G1 with one and with three threads: the same rows except threads and the times.
+    g1_rows = []
+    for threads in ("1", "3"):
+        path = workdir / f"c1_g1_threads{threads}.csv"
+        result = run(["--instance", "data/gset/G1", "--algo", "dsb", "--replicas", "96",
+                      "--steps", "20", "--dt", "0.5", "--target", "best-known", "--reps", "2",
+                      "--warmup", "1", "--variant", "c1", "--threads", threads,
+                      "--out", str(path)])
+        _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+        ok = (result.returncode == 0 and len(rows) == 2
+              and all(r.get("threads") == threads and not check_row_common(r) for r in rows))
+        report.check(f"c1 G1 --threads {threads}", ok,
+                     f"exit {result.returncode}, {len(rows)} rows, threads "
+                     f"{[r.get('threads') for r in rows]}")
+        g1_rows.append(rows)
+    differ = same_rows_but(g1_rows[0], g1_rows[1], TIMES + ["threads"])
+    report.check("c1 G1: same rows with 1 and 3 threads", not differ,
+                 "columns that differ: " + ", ".join(differ) if differ else
+                 "equal but threads and times")
+
+    # c. --threads 0: the default number of OpenMP threads.
+    path = workdir / "c1_threads0.csv"
+    result = run(torus + ["--algo", "dsb", "--replicas", "40", "--steps", "10", "--dt", "1.25",
+                          "--warmup", "0", "--variant", "c1", "--threads", "0",
+                          "--out", str(path)])
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    threads = rows[0].get("threads", "") if len(rows) == 1 else ""
+    report.check("c1 --threads 0", result.returncode == 0
+                 and re.fullmatch(r"[0-9]+", threads) is not None and int(threads) >= 1,
+                 f"exit {result.returncode}, threads '{threads}'")
+
+    # d. Strict presets: c0 and c1 give the same results row by row.
+    if not strict:
+        print("RUN c1 against c0: not compared in the production presets (FMA contraction may "
+              "change the bits)")
+        return
+    for algo, extra in (("dsb", []), ("bsb", ["--eval-every", "7"])):
+        variant_rows = {}
+        for variant, more in (("c0", []), ("c1", ["--threads", "2"])):
+            path = workdir / f"compare_{variant}_{algo}.csv"
+            result = run(torus + ["--algo", algo, "--replicas", "40", "--steps", "100", "--dt",
+                                  "1.25", "--seed", "3", "--target", "24", "--reps", "2",
+                                  "--warmup", "0", "--variant", variant] + more + extra
+                         + ["--out", str(path)])
+            _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+            variant_rows[variant] = rows if result.returncode == 0 else []
+        c0_rows, c1_rows = variant_rows["c0"], variant_rows["c1"]
+        compared = ["best_cut", "mean_cut", "n_success", "p_s", "c0"]
+        differ = sorted({c for a, b in zip(c0_rows, c1_rows) for c in compared
+                         if a.get(c) != b.get(c)})
+        ok = len(c0_rows) == 2 and len(c1_rows) == 2 and not differ
+        report.check(f"c1 against c0, {algo}{' --eval-every 7' if extra else ''}", ok,
+                     "columns that differ: " + ", ".join(differ) if differ else
+                     f"{len(c0_rows)} and {len(c1_rows)} rows, " +
+                     "; ".join(f"rep {k}: best_cut {r.get('best_cut')} n_success "
+                               f"{r.get('n_success')}" for k, r in enumerate(c1_rows)))
 
 
 def main() -> int:
@@ -193,7 +293,12 @@ def main() -> int:
         ("--steps missing", four + base[:4] + base[6:]),
         ("--dt missing", four + base[:6]),
         ("--algo foo", four + ["--algo", "foo"] + base[2:]),
-        ("--variant c1", four + base + ["--variant", "c1"]),
+        ("--variant c2", four + base + ["--variant", "c2"]),
+        ("--threads 2 with the default variant", four + base + ["--threads", "2"]),
+        ("--variant c0 --threads 1", four + base + ["--variant", "c0", "--threads", "1"]),
+        ("--variant c1 --threads 1025", four + base + ["--variant", "c1", "--threads", "1025"]),
+        ("--variant c1 --threads -1", four + base + ["--variant", "c1", "--threads", "-1"]),
+        ("--variant c1 --threads x", four + base + ["--variant", "c1", "--threads", "x"]),
         ("--c0 foo", four + base + ["--c0", "foo"]),
         ("--c0 0", four + base + ["--c0", "0"]),
         ("--target foo", four + base + ["--target", "foo"]),
@@ -217,6 +322,8 @@ def main() -> int:
          ["--dense", "20", "--instance-seed", "20"] + base + ["--target", "best-known"]),
         ("--instance on a missing file", ["--instance", "tests/data/missing.rudy"] + base),
         ("--out with another header", four + base + ["--out", str(bad_header)]),
+        ("--variant c1 --replicas 0", four + ["--algo", "dsb", "--replicas", "0", "--steps", "10",
+                                              "--dt", "1.25", "--variant", "c1"]),
     ]
     for name, arguments in error_cases:
         result = run(arguments)
@@ -324,6 +431,8 @@ def main() -> int:
                              "target": "", "n_success": "", "p_s": "",
                              "target_source": "none"}, str(got))
     check_stdout(report, "dense", result, rows, False)
+
+    check_c1(report, run, workdir, args.strict_fp == "1")
 
     verdict = "PASS" if report.failures == 0 else "FAIL"
     print(f"RUN_VERDICT: {verdict}")
