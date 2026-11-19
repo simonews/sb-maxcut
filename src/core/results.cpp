@@ -1,4 +1,4 @@
-// Results schema 1 and the table of best-known values (sbmc/results.hpp).
+// Results schema 1, the replica file and the table of best-known values (sbmc/results.hpp).
 #include <sbmc/results.hpp>
 
 #include <array>
@@ -73,19 +73,99 @@ constexpr auto kColumns = std::to_array<std::string_view>({
 });
 static_assert(kColumns.size() == 44);
 
+// Replica file, schema 1.
+constexpr auto kReplicaColumns = std::to_array<std::string_view>({
+    "schema_version",
+    "timestamp",
+    "instance",
+    "algo",
+    "variant",
+    "replicas",
+    "steps",
+    "seed",
+    "rep",
+    "replica",
+    "best_cut",
+    "best_step",
+    "final_cut",
+});
+static_assert(kReplicaColumns.size() == 13);
+
 constexpr std::string_view kBestKnownHeader =
     "instance,n,m,best_known,status,source_1,source_2,checked,notes";
 constexpr std::size_t kBestKnownFields = 9;
 
-std::string results_header() {
+std::string header_of(std::span<const std::string_view> columns) {
   std::string header;
-  for (std::size_t k = 0; k < kColumns.size(); ++k) {
+  for (std::size_t k = 0; k < columns.size(); ++k) {
     if (k > 0) {
       header.push_back(',');
     }
-    header += kColumns[k];
+    header += columns[k];
   }
   return header;
+}
+
+// The file part common to append_results_row and append_replica_rows: `lines` (CSV lines, each
+// terminated by '\n', already checked) are appended to `file`, after `header` when the file is
+// missing or empty. An existing file must start with `header` and end with '\n', otherwise
+// IoError and the file is not modified. `function` and `what` (the name of the file format) only
+// enter the messages.
+void append_lines(std::string_view function, std::string_view what,
+                  const std::filesystem::path& file, const std::string& header,
+                  const std::string& lines) {
+  const std::string prefix = std::string(function) + ": ";
+  std::error_code error;
+  const bool exists = std::filesystem::exists(file, error);
+  if (error) {
+    throw IoError(prefix + "cannot access " + file.string() + ": " + error.message());
+  }
+  std::uintmax_t size = 0;
+  if (exists) {
+    if (std::filesystem::is_directory(file, error)) {
+      throw IoError(prefix + file.string() + " is a directory");
+    }
+    size = std::filesystem::file_size(file, error);
+    if (error) {
+      throw IoError(prefix + "cannot access " + file.string() + ": " + error.message());
+    }
+  }
+  std::string text;
+  if (size == 0) {
+    text = header + '\n';
+  } else {
+    std::ifstream in(file, std::ios::binary);
+    std::string first;
+    if (!in || !std::getline(in, first)) {
+      throw IoError(prefix + "cannot read " + file.string());
+    }
+    if (first != header) {
+      throw IoError(prefix + file.string() + ": the first line is not the header of " +
+                    std::string(what) + "; the file was not modified");
+    }
+    in.clear();
+    in.seekg(-1, std::ios::end);
+    char last = '\0';
+    if (!in.get(last)) {
+      throw IoError(prefix + "cannot read " + file.string());
+    }
+    if (last != '\n') {
+      throw IoError(prefix + file.string() +
+                    " does not end with a line break (a partial last line?); the file was not "
+                    "modified");
+    }
+  }
+  text += lines;
+
+  std::ofstream out(file, std::ios::binary | std::ios::app);
+  if (!out) {
+    throw IoError(prefix + "cannot open " + file.string() + " for writing");
+  }
+  out.write(text.data(), static_cast<std::streamsize>(text.size()));
+  out.flush();
+  if (!out) {
+    throw IoError(prefix + "write error on " + file.string());
+  }
 }
 
 std::string location(const std::filesystem::path& file, std::size_t line) {
@@ -195,62 +275,31 @@ void append_results_row(const std::filesystem::path& file, std::span<const std::
                           " expected (one per column of results schema 1)");
   }
   // Everything that can be checked without the file is checked before touching it.
-  const std::string header = results_header();
-  const std::string line = csv_line(row);
+  const std::string header = header_of(kColumns);
+  const std::string line = csv_line(row) + '\n';
+  append_lines("append_results_row", "results schema 1", file, header, line);
+}
 
-  std::error_code error;
-  const bool exists = std::filesystem::exists(file, error);
-  if (error) {
-    throw IoError("append_results_row: cannot access " + file.string() + ": " + error.message());
-  }
-  std::uintmax_t size = 0;
-  if (exists) {
-    if (std::filesystem::is_directory(file, error)) {
-      throw IoError("append_results_row: " + file.string() + " is a directory");
-    }
-    size = std::filesystem::file_size(file, error);
-    if (error) {
-      throw IoError("append_results_row: cannot access " + file.string() + ": " + error.message());
-    }
-  }
-  std::string text;
-  if (size == 0) {
-    text = header + '\n';
-  } else {
-    std::ifstream in(file, std::ios::binary);
-    std::string first;
-    if (!in || !std::getline(in, first)) {
-      throw IoError("append_results_row: cannot read " + file.string());
-    }
-    if (first != header) {
-      throw IoError("append_results_row: " + file.string() +
-                    ": the first line is not the header of results schema 1; the file was not "
-                    "modified");
-    }
-    in.clear();
-    in.seekg(-1, std::ios::end);
-    char last = '\0';
-    if (!in.get(last)) {
-      throw IoError("append_results_row: cannot read " + file.string());
-    }
-    if (last != '\n') {
-      throw IoError("append_results_row: " + file.string() +
-                    " does not end with a line break (a partial last line?); the file was not "
-                    "modified");
-    }
-  }
-  text += line;
-  text += '\n';
+std::span<const std::string_view> replica_columns() noexcept {
+  return kReplicaColumns;
+}
 
-  std::ofstream out(file, std::ios::binary | std::ios::app);
-  if (!out) {
-    throw IoError("append_results_row: cannot open " + file.string() + " for writing");
+void append_replica_rows(const std::filesystem::path& file,
+                         std::span<const std::vector<std::string>> rows) {
+  // Every row is checked and converted before the file is touched.
+  std::string lines;
+  for (std::size_t k = 0; k < rows.size(); ++k) {
+    if (rows[k].size() != kReplicaColumns.size()) {
+      throw InvalidArgument("append_replica_rows: row " + std::to_string(k) + ": " +
+                            std::to_string(rows[k].size()) + " values, " +
+                            std::to_string(kReplicaColumns.size()) +
+                            " expected (one per column of the replica file, schema 1)");
+    }
+    lines += csv_line(rows[k]);
+    lines += '\n';
   }
-  out.write(text.data(), static_cast<std::streamsize>(text.size()));
-  out.flush();
-  if (!out) {
-    throw IoError("append_results_row: write error on " + file.string());
-  }
+  append_lines("append_replica_rows", "the replica file (schema 1)", file,
+               header_of(kReplicaColumns), lines);
 }
 
 std::vector<BestKnownEntry> read_best_known(const std::filesystem::path& file) {

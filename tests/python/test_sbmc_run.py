@@ -4,19 +4,25 @@
 Run by CTest from the repository root (the defaults of sbmc_run are relative to it) as:
   <python> -I -B test_sbmc_run.py --sbmc-run <sbmc_run> --trace-tool <sbmc_trace>
                                   --workdir <build>/tests/apps --strict-fp 0|1
-Checks, as in F04-C2, section 5.9, and F05-C2, section 5.9:
-1. exit status 2 for the errors of the command line (--variant and --threads included);
-2. exit status 1 for the errors of the library, of reading and of writing (a CSV with another
-   header is left unchanged);
+Checks, as in F04-C2, section 5.9, F05-C2, section 5.9, and F06-C1, section 5.11:
+1. exit status 2 for the errors of the command line (--variant, --threads, the options of --algo sa
+   and --replica-out included; the new messages are compared);
+2. exit status 1 for the errors of the library, of reading and of writing (a CSV or a replica file
+   with another header is left unchanged);
 3. tests/data/four_nodes.rudy, two recorded repetitions: the 44 columns and their values;
 4. repetition 1 against sbmc_trace with --first-replica 8 (same instance and parameters);
 5. a third run on the same CSV: three rows, one header;
-6. data/gset/G1 with --target best-known, and --name G1 on another instance;
+6. data/gset/G1 with --target best-known; --name G1 on another instance (another n and m: exit
+   status 1); a table of the test with a row of the right n and m and one with another m;
 7. a dense instance with a warm-up run: one row, no target;
 8. one line "rep <k>: ..." on stdout per recorded repetition, consistent with the CSV;
 9. the variant c1: two repetitions with two threads; G1 with one and with three threads, equal
    rows but the times; --threads 0; with --strict-fp 1 (strict presets) the same results as c0
-   row by row, in dSB and in bSB.
+   row by row, in dSB and in bSB;
+10. simulated annealing (--algo sa) with --replica-out: the rows and the replica file against the
+    values of F06-C1, section 5.8;
+11. --replica-out with dsb: the replica rows against the rows of results, and a second run that
+    appends without a second header.
 The files of the test (CSV files and a trace) are written only in --workdir, a folder of the
 build tree; their previous versions are removed at the start.
 
@@ -48,8 +54,12 @@ COLUMNS = [
     "sm_clock_avg_mhz", "temp_max_c", "power_avg_w", "a0", "eval_every", "first_replica",
     "threads", "target_source", "notes",
 ]
-ALWAYS_EMPTY = ["gpu", "driver", "cuda", "cublas", "beta0", "beta1", "tts99_ms", "t_comm_ms",
-                "sm_clock_avg_mhz", "temp_max_c", "power_avg_w"]
+ALWAYS_EMPTY = ["gpu", "driver", "cuda", "cublas", "tts99_ms", "t_comm_ms", "sm_clock_avg_mhz",
+                "temp_max_c", "power_avg_w"]
+SB_ONLY = ["dt", "c0", "a0", "eval_every"]  # empty in the rows of SA
+SA_ONLY = ["beta0", "beta1"]  # empty in the rows of SB
+REPLICA_COLUMNS = ["schema_version", "timestamp", "instance", "algo", "variant", "replicas",
+                   "steps", "seed", "rep", "replica", "best_cut", "best_step", "final_cut"]
 REP_LINE = re.compile(r"^rep (\d+): best_cut (-?\d+) mean_cut (-?\d+\.\d{3})"
                       r"(?: n_success (\d+)/(\d+))? t_solve_ms (\d+\.\d{3})$")
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -60,9 +70,14 @@ TRACE_HEADER = struct.Struct("<8sqiiiiiIIIQqq")
 FOUR = "tests/data/four_nodes.rudy"
 NOTES = 'a,b "c"'
 OUTPUTS = ["runs.csv", "g1.csv", "name.csv", "dense.csv", "bad_header.csv", "unused.csv",
-           "rep1.trc", "c1_torus.csv", "c1_g1_threads1.csv", "c1_g1_threads3.csv",
-           "c1_threads0.csv", "compare_c0_dsb.csv", "compare_c1_dsb.csv", "compare_c0_bsb.csv",
-           "compare_c1_bsb.csv"]
+           "unused_replicas.csv", "rep1.trc", "c1_torus.csv", "c1_g1_threads1.csv",
+           "c1_g1_threads3.csv", "c1_threads0.csv", "compare_c0_dsb.csv", "compare_c1_dsb.csv",
+           "compare_c0_bsb.csv", "compare_c1_bsb.csv", "sa.csv", "sa_replicas.csv",
+           "dsb_replicas_runs.csv", "dsb_replicas.csv", "bad_replicas.csv", "toy_runs.csv",
+           "toy_best_known.csv"]
+# F06-C1, section 5.8: sbmc_run on four_nodes.rudy, --algo sa --replicas 8 --sweeps 10
+# --beta0 0.1 --beta1 3 --seed 2 --target 4 --reps 2 (rep 0: SA-1; rep 1: global replicas 8-15).
+SA_BEST_SWEEP = [6, 0, 2, 1, 0, 3, 0, 1, 1, 3, 5, 7, 6, 1, 1, 1]
 # Columns that may differ between two runs of the same configuration.
 TIMES = ["timestamp", "t_setup_ms", "t_solve_ms", "t_step_us"]
 
@@ -147,6 +162,9 @@ def check_row_common(row: dict[str, str]) -> list[str]:
     for column in ALWAYS_EMPTY:
         if row.get(column) != "":
             wrong.append(column)
+    empty, filled = (SB_ONLY, SA_ONLY) if row.get("algo") == "sa" else (SA_ONLY, SB_ONLY[:2])
+    wrong += [c for c in empty if row.get(c) != ""]
+    wrong += [c for c in filled if row.get(c) == ""]
     for column in ("variant", "ranks", "threads", "host", "os", "compiler"):
         if not row.get(column):
             wrong.append(column)
@@ -255,6 +273,125 @@ def check_c1(report: Report, run: Runner, workdir: Path, strict: bool) -> None:
                                f"{r.get('n_success')}" for k, r in enumerate(c1_rows)))
 
 
+def check_toy_table(report: Report, run: Runner, workdir: Path) -> None:
+    """Check 6: a table of the test, one row with the n and m of four_nodes.rudy, one without."""
+    table = workdir / "toy_best_known.csv"
+    header = Path("data/best_known.csv").read_text(encoding="utf-8").splitlines()[0]
+    table.write_text(f"{header}\ntoy,4,5,4,best_known,test,,2026-11-18,\n"
+                     "toy_bad,4,6,4,best_known,test,,2026-11-18,\n", encoding="utf-8")
+    path = workdir / "toy_runs.csv"
+    common = ["--instance", FOUR, "--algo", "dsb", "--replicas", "2", "--steps", "10", "--dt",
+              "1.25", "--target", "best-known", "--best-known", str(table), "--out", str(path)]
+    result = run(common + ["--name", "toy"])
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    row = rows[0] if len(rows) == 1 else {}
+    got = {c: row.get(c) for c in ("instance", "target", "target_source")}
+    report.check("--name toy (n and m of the instance)",
+                 result.returncode == 0 and got == {"instance": "toy", "target": "4",
+                                                    "target_source": "best_known"},
+                 f"exit {result.returncode}, {got}")
+    result = run(common + ["--name", "toy_bad"])
+    first = result.stderr.strip().splitlines()[0:1]
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    report.check("--name toy_bad (another m)",
+                 result.returncode == 1 and len(rows) == 1 and not rep_lines(result.stdout)
+                 and first == [f"sbmc_run: --target best-known: toy_bad in {table} has n 4 and "
+                               "m 6, the instance has n 4 and 5 edges"],
+                 f"exit {result.returncode}: {first}")
+
+
+def check_replica_rows(rows: list[dict[str, str]], replicas: list[dict[str, str]],
+                       r: int, target: int) -> list[str]:
+    """The replica rows of every repetition against its row of results; returns what is wrong."""
+    wrong = []
+    if len(replicas) != r * len(rows):
+        return [f"{len(replicas)} replica rows for {len(rows)} rows of {r} replicas"]
+    for k, row in enumerate(rows):
+        block = replicas[k * r:(k + 1) * r]
+        first = int(row["first_replica"])
+        keys = ("timestamp", "instance", "algo", "variant", "replicas", "steps", "seed", "rep")
+        if any(rr.get(c) != row.get(c) for rr in block for c in keys):
+            wrong.append(f"rep {k}: key columns")
+        if [int(rr["replica"]) for rr in block] != list(range(first, first + r)):
+            wrong.append(f"rep {k}: replica indices")
+        if any(rr.get("schema_version") != "1" for rr in block):
+            wrong.append(f"rep {k}: schema_version")
+        cuts = [int(rr["best_cut"]) for rr in block]
+        if str(max(cuts)) != row["best_cut"]:
+            wrong.append(f"rep {k}: maximum")
+        if str(sum(c >= target for c in cuts)) != row["n_success"]:
+            wrong.append(f"rep {k}: successes")
+        if f"{sum(cuts) / r:.3f}" != row["mean_cut"]:
+            wrong.append(f"rep {k}: mean")
+        steps = int(row["steps"])
+        if any(not 0 <= int(rr["best_step"]) <= steps for rr in block):
+            wrong.append(f"rep {k}: best_step outside [0, steps]")
+        if any(int(rr["final_cut"]) > int(rr["best_cut"]) for rr in block):
+            wrong.append(f"rep {k}: final_cut > best_cut")
+    return wrong
+
+
+def check_sa(report: Report, run: Runner, workdir: Path) -> None:
+    """Check 10: --algo sa with --replica-out, against F06-C1, section 5.8."""
+    path, replica_path = workdir / "sa.csv", workdir / "sa_replicas.csv"
+    result = run(["--instance", FOUR, "--algo", "sa", "--replicas", "8", "--sweeps", "10",
+                  "--beta0", "0.1", "--beta1", "3", "--seed", "2", "--target", "4", "--reps", "2",
+                  "--notes", NOTES, "--out", str(path), "--replica-out", str(replica_path)])
+    _, rows, raw = read_rows(path) if path.exists() else ([], [], [])
+    wrong = [] if result.returncode == 0 and len(raw) == 2 else ["exit or rows"]
+    for k, row in enumerate(rows):
+        wrong += [f"rep {k}: {c}" for c in check_row_common(row)]
+        expected = {"algo": "sa", "variant": "c0", "instance": "four_nodes", "n": "4", "nnz": "5",
+                    "replicas": "8", "steps": "10", "dt": "", "c0": "", "a0": "",
+                    "eval_every": "", "beta0": "0.1", "beta1": "3", "seed": "2", "rep": str(k),
+                    "first_replica": str(8 * k), "threads": "1", "best_cut": "4",
+                    "mean_cut": "4.000", "n_success": "8", "p_s": "1", "target": "4",
+                    "target_source": "user", "notes": NOTES}
+        wrong += [f"rep {k}: {c}" for c, v in expected.items() if row.get(c) != v]
+        # t_step_us = t_solve_ms * 1000 / S from the unrounded time: t_solve_ms has 3 decimals.
+        if abs(float(row["t_step_us"]) - float(row["t_solve_ms"]) * 100.0) > 0.0506:
+            wrong.append(f"rep {k}: t_step_us")
+    report.check("sa four_nodes.rudy, rows", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else "2 rows with the values of 5.8")
+    check_stdout(report, "sa", result, rows, True)
+    header, replicas, _ = read_rows(replica_path) if replica_path.exists() else ([], [], [])
+    wrong = [] if header == REPLICA_COLUMNS else ["header"]
+    wrong += check_replica_rows(rows, replicas, 8, 4) if len(rows) == 2 else ["rows"]
+    got = [(int(r["replica"]), int(r["best_step"]), int(r["final_cut"])) for r in replicas]
+    if got != [(g, SA_BEST_SWEEP[g], 4) for g in range(16)]:
+        wrong.append("replica, best_step, final_cut")
+    report.check("sa four_nodes.rudy, replica file", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else
+                 "16 rows, best_step " + " ".join(str(b) for _, b, _ in got))
+
+
+def check_replica_out(report: Report, run: Runner, workdir: Path) -> None:
+    """Check 11: --replica-out with dsb, and a second run on the same two files."""
+    path, replica_path = workdir / "dsb_replicas_runs.csv", workdir / "dsb_replicas.csv"
+    arguments = ["--instance", FOUR, "--algo", "dsb", "--replicas", "8", "--steps", "100", "--dt",
+                 "1.25", "--seed", "5", "--target", "4", "--reps", "2", "--warmup", "0",
+                 "--out", str(path), "--replica-out", str(replica_path)]
+    result = run(arguments)
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    header, replicas, _ = read_rows(replica_path) if replica_path.exists() else ([], [], [])
+    wrong = [] if result.returncode == 0 and len(rows) == 2 else ["exit or rows"]
+    wrong += [] if header == REPLICA_COLUMNS else ["header"]
+    wrong += check_replica_rows(rows, replicas, 8, 4)
+    report.check("--replica-out with dsb", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else f"{len(replicas)} replica rows")
+    result = run(arguments)
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    _, replicas, _ = read_rows(replica_path) if replica_path.exists() else ([], [], [])
+    header_lines = replica_path.read_text(encoding="utf-8").splitlines().count(
+        ",".join(REPLICA_COLUMNS)) if replica_path.exists() else 0
+    wrong = [] if result.returncode == 0 and len(rows) == 4 and header_lines == 1 else [
+        f"exit {result.returncode}, {len(rows)} rows, {header_lines} header lines"]
+    wrong += check_replica_rows(rows, replicas, 8, 4)
+    report.check("--replica-out, second run on the same files", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else
+                 f"{len(replicas)} replica rows, {header_lines} header line")
+
+
 def main() -> int:
     args = parse_arguments()
     print(f"python: {platform.python_version()} ({sys.executable})")
@@ -312,6 +449,39 @@ def main() -> int:
         report.check(f"exit 2: {name}", ok,
                      f"exit {result.returncode}: {result.stderr.strip().splitlines()[0:1]}")
 
+    # The messages of F06-C1, section 5.6, each compared with the first line of stderr.
+    sa = ["--algo", "sa", "--replicas", "4", "--sweeps", "10", "--beta0", "0.1", "--beta1", "3"]
+    out = ["--out", str(workdir / "unused.csv")]
+    replica_out = ["--replica-out", str(workdir / "unused_replicas.csv")]
+    sa_usage_cases = [
+        ("--sweeps missing with sa", four + sa[:4] + sa[6:], "--sweeps is required with --algo sa"),
+        ("--beta0 missing with sa", four + sa[:6] + sa[8:], "--beta0 is required with --algo sa"),
+        ("--beta1 missing with sa", four + sa[:8], "--beta1 is required with --algo sa"),
+        ("--steps with sa", four + sa + ["--steps", "10"], "--steps is not used with --algo sa"),
+        ("--dt with sa", four + sa + ["--dt", "1.25"], "--dt is not used with --algo sa"),
+        ("--c0 with sa", four + sa + ["--c0", "auto"], "--c0 is not used with --algo sa"),
+        ("--a0 with sa", four + sa + ["--a0", "1"], "--a0 is not used with --algo sa"),
+        ("--eval-every with sa", four + sa + ["--eval-every", "0"],
+         "--eval-every is not used with --algo sa"),
+        ("--sweeps with dsb", four + base + ["--sweeps", "10"], "--sweeps requires --algo sa"),
+        ("--beta0 with dsb", four + base + ["--beta0", "0.1"], "--beta0 requires --algo sa"),
+        ("--beta1 with dsb", four + base + ["--beta1", "3"], "--beta1 requires --algo sa"),
+        ("--variant c1 with sa", four + sa + ["--variant", "c1"],
+         "--variant c1 is not available with --algo sa"),
+        ("--beta1 < --beta0", four + sa[:6] + ["--beta0", "3", "--beta1", "0.1"],
+         "--beta1 must be >= --beta0"),
+        ("--beta0 0", four + sa[:6] + ["--beta0", "0", "--beta1", "3"],
+         "--beta0: expected a finite number > 0, got '0'"),
+        ("--replica-out without --out", four + base + replica_out, "--replica-out requires --out"),
+    ]
+    for name, arguments, message in sa_usage_cases:
+        result = run(arguments + (out if "--replica-out" not in arguments else []))
+        first = result.stderr.strip().splitlines()[0:1]
+        ok = (result.returncode == 2 and first == [f"sbmc_run: {message}"]
+              and not rep_lines(result.stdout) and not (workdir / "unused.csv").exists()
+              and not (workdir / "unused_replicas.csv").exists())
+        report.check(f"exit 2: {name}", ok, f"exit {result.returncode}: {first}")
+
     # 2. Errors of the library, of reading and of writing: exit status 1.
     bad_header = workdir / "bad_header.csv"
     bad_header.write_text("a,b,c\n1,2,3\n", encoding="ascii")
@@ -324,7 +494,11 @@ def main() -> int:
         ("--out with another header", four + base + ["--out", str(bad_header)]),
         ("--variant c1 --replicas 0", four + ["--algo", "dsb", "--replicas", "0", "--steps", "10",
                                               "--dt", "1.25", "--variant", "c1"]),
+        ("--replica-out with another header",
+         four + base + ["--out", str(workdir / "unused.csv"),
+                        "--replica-out", str(workdir / "bad_replicas.csv")]),
     ]
+    (workdir / "bad_replicas.csv").write_text("a,b,c\n1,2,3\n", encoding="ascii")
     for name, arguments in error_cases:
         result = run(arguments)
         ok = result.returncode == 1 and result.stderr.strip() != "" and not rep_lines(result.stdout)
@@ -332,6 +506,9 @@ def main() -> int:
                      f"exit {result.returncode}: {result.stderr.strip().splitlines()[0:1]}")
     report.check("--out with another header: file unchanged",
                  bad_header.read_text(encoding="ascii") == "a,b,c\n1,2,3\n")
+    report.check("--replica-out with another header: file unchanged, no CSV",
+                 (workdir / "bad_replicas.csv").read_text(encoding="ascii") == "a,b,c\n1,2,3\n"
+                 and not (workdir / "unused.csv").exists())
 
     # 3. Two recorded repetitions on the 4-node graph.
     runs = workdir / "runs.csv"
@@ -409,13 +586,13 @@ def main() -> int:
     named = workdir / "name.csv"
     result = run(["--instance", FOUR, "--name", "G1", "--algo", "dsb", "--replicas", "2",
                   "--steps", "10", "--dt", "0.5", "--target", "best-known", "--out", str(named)])
-    _, rows, _ = read_rows(named) if named.exists() else ([], [], [])
-    row = rows[0] if len(rows) == 1 else {}
-    got = {c: row.get(c) for c in ("instance", "target", "n_success", "target_source")}
+    first = result.stderr.strip().splitlines()[0:1]
+    expected = ["sbmc_run: --target best-known: G1 in data/best_known.csv has n 800 and m 19176, "
+                "the instance has n 4 and 5 edges"]
     report.check("--name G1 on four_nodes.rudy",
-                 result.returncode == 0 and got == {"instance": "G1", "target": "11624",
-                                                    "n_success": "0",
-                                                    "target_source": "best_known"}, str(got))
+                 result.returncode == 1 and first == expected and not named.exists()
+                 and not rep_lines(result.stdout), f"exit {result.returncode}: {first}")
+    check_toy_table(report, run, workdir)
 
     # 7. Dense instance, one warm-up run (not recorded), no target.
     dense = workdir / "dense.csv"
@@ -433,6 +610,8 @@ def main() -> int:
     check_stdout(report, "dense", result, rows, False)
 
     check_c1(report, run, workdir, args.strict_fp == "1")
+    check_sa(report, run, workdir)
+    check_replica_out(report, run, workdir)
 
     verdict = "PASS" if report.failures == 0 else "FAIL"
     print(f"RUN_VERDICT: {verdict}")

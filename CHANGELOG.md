@@ -3,6 +3,66 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F06-R1] - 2026-11-18
+
+Phase 06, part 1 of 2: the sequential reference of simulated annealing and T2 for it,
+`sbmc_run --algo sa`, the replica file, the tool of the time to solution, and an error when the row
+of `--target best-known` has another n or m.
+
+### Added
+
+- `include/sbmc/sa.hpp` and `src/core/sa.cpp` (in `sbmc_core`): `SaParams`, `SaReplicaResult`,
+  `SaResult`; `sa_beta` (geometric schedule of beta) and `sa_threshold` (acceptance threshold in
+  [0, 2^32]), defined once with the formulas of F06-C1; `sa_initial_spin` and
+  `sa_acceptance_word`, `constexpr` and `SBMC_HD`, from the domains 3 and 4 of Philox.
+- `include/sbmc/sa_sequential.hpp` and `src/cpu/sa_sequential.cpp` (in `sbmc_cpu`):
+  `run_sa_sequential`, single-spin Metropolis with sequential sweeps, local fields in int64,
+  incremental energy, one acceptance word consumed per proposal, best state with strict
+  improvement, final check of the best and of the final spins with `cut_direct`; compressed rows
+  or dense INT8 J as in C0; no OpenMP.
+- `tests/cpu/test_sa_sequential.cpp` (label `cpu`): the reference cases SA-1 to SA-7, properties,
+  replica split, the helper functions, instances with one spin, the acceptance rule at its
+  boundary (a word equal to the threshold rejects the uphill move), preconditions; exact values in
+  every preset.
+- `python/sbmc_tts.py`: TTS99 per group of runs and per fraction of the target, with the Wilson
+  interval, the bootstrap, the relaxed targets from the replica file and the gaps; summary CSV.
+- `tests/python/test_sbmc_tts.py` (label `python`): the fixture of F06-C1 and its expected values,
+  reproducibility, every exit status of the tool, a group with skewed times (median, not mean),
+  the bootstrap intervals of one group against the procedure written again in the test.
+
+### Changed
+
+- `include/sbmc/philox.hpp`: documentation of the domains 3 and 4 (word k of `sa_acceptance`:
+  sweep * n + spin; their use). No change to the code.
+- `include/sbmc/results.hpp`, `src/core/results.cpp`: the replica file, schema 1 (13 columns,
+  `kReplicaSchemaVersion`, `replica_columns`, `append_replica_rows`); the file part common to
+  `append_results_row` and `append_replica_rows` is an internal function, without change of
+  behaviour for `append_results_row`.
+- `src/core/CMakeLists.txt`: `sa.cpp` in `sbmc_core`; `sa.hpp` and `sa_sequential.hpp` in the
+  header check (C++ and CUDA); header comment.
+- `src/cpu/CMakeLists.txt`: `sa_sequential.cpp` in `sbmc_cpu`; header comment.
+- `apps/sbmc_run.cpp`: `--algo sa` with `--sweeps`, `--beta0` and `--beta1` (required with `sa`,
+  not used with `dsb` and `bsb`); `--steps`, `--dt`, `--c0`, `--a0`, `--eval-every` and
+  `--variant c1` not used with `sa`; `--steps` and `--dt` checked after the parsing with the same
+  messages; the rows of SA (steps = sweeps, beta0 and beta1, empty dt, c0, a0 and eval_every);
+  `--replica-out FILE` (requires `--out`, checked before the runs); with `--target best-known`, a
+  row with another n or m is an error (exit status 1) instead of a warning; header comment,
+  description and footer of the help.
+- `tests/CMakeLists.txt`: `test_sa_sequential` and `test_sbmc_tts`; header comment. Tests per
+  preset: 22 (`cpu`, `cpu-strict`), 28 (`cuda`, `cuda-strict`), 25 (`t4`, `t4-strict`).
+- `tests/core/test_results.cpp`: a case for `replica_columns` and `append_replica_rows`.
+- `tests/cpu/test_t2.cpp`: T2 for the SA reference (table SA-T2); header comment.
+- `tests/python/test_sbmc_run.py`: the rows of SA and their replica file, `--replica-out` with
+  dSB, the new messages of the command line, a replica file with another header, the error on n
+  and m (`--name G1` on `four_nodes.rudy`, a table of the test with a right and a wrong row).
+- `README.md`: status, the domains 3 and 4, the sections "Simulated annealing (reference)" (with
+  T2 for SA) and "Time to solution (python/sbmc_tts.py)", `sbmc_run` with `--algo sa`, the replica
+  file and the error on n and m, tests, repository layout.
+
+### Removed
+
+- Nothing.
+
 ## [F05-R2] - 2026-11-18
 
 Phase 05, part 2 of 2: C1, simulated bifurcation with OpenMP over blocks of replicas and SIMD over
