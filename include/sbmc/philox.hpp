@@ -78,11 +78,13 @@ SBMC_HD constexpr U32x4 philox4x32_10(U32x4 ctr, U32x2 key) noexcept {
 // | couplings            | 1     | instance seed     | min(i, j)           | max(i, j)         |
 // | sb_initial_positions | 2     | run seed          | global replica r    | spin index i      |
 // | sa_initial_spins     | 3     | run seed          | r                   | i                 |
-// | sa_acceptance        | 4     | run seed          | r                   | fixed in phase 06 |
+// | sa_acceptance        | 4     | run seed          | r                   | sweep * n + spin  |
 //
 // Uses: couplings, J_ij = coupling_from_word(word); sb_initial_positions,
-// x0 = position_from_word(word); sa_initial_spins and sa_acceptance are reserved for phase 06
-// and not used yet.
+// x0 = position_from_word(word); sa_initial_spins, initial spin s_i = coupling_from_word(word)
+// (sa_initial_spin of sbmc/sa.hpp); sa_acceptance, word of the proposal of spin i in sweep k,
+// consumed by every proposal, accepted or not: an uphill move is accepted when the word is below
+// sa_threshold(beta_k, delta_e) (sa_acceptance_word and sa_threshold of sbmc/sa.hpp).
 enum class RngDomain : std::uint32_t {
   couplings = 1,
   sb_initial_positions = 2,

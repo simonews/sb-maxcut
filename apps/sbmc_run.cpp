@@ -1,25 +1,35 @@
 // sbmc_run: runs a solver of the project on one instance and writes one CSV row per repetition,
 // with the results schema 1 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
 // sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
-// (variant c1, --threads).
+// (variant c1, --threads). Simulated annealing (--algo sa), phase 06: the sequential reference
+// (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads).
 //
-//   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb --replicas R
-//            --steps M --dt X [--name NAME] [--variant c0|c1] [--threads T] [--a0 X]
-//            [--c0 auto|X] [--eval-every K] [--seed S] [--reps K] [--warmup K]
-//            [--target best-known|none|INTEGER] [--best-known FILE] [--out FILE] [--notes TEXT]
+//   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
+//            [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
+//            [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
+//            [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
+//            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT]
 //
-// Run: the instance is read (t_setup_ms); the target is resolved; --warmup runs with first
-// replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs the solver with
-// first_replica = k*R and the same seed, so different global replicas and different initial
-// conditions (decision B7), appends one row to --out and prints one line "rep <k>: ..." on
-// stdout. The solver is run_sb_sequential (c0) or run_sb_openmp with T threads (c1; T = 0, the
-// default, is the default number of OpenMP threads; --threads only with c1). t_solve_ms is the
-// duration of the call of the solver, its internal preparation and final check included; the
-// column threads is the team of the solver (1 for c0).
+// --steps and --dt are required with dsb and bsb, which take the variants c0 and c1; --sweeps,
+// --beta0 and --beta1 with sa, which takes the variants c0 and c2 and where --steps, --dt, --c0,
+// --a0 and --eval-every are not used. --threads only with c1 or c2. --replica-out needs --out and
+// another file (compared with std::filesystem::weakly_canonical).
+//
+// Run: the instance is read (t_setup_ms); the target is resolved (with --target best-known the
+// row of the table must have the n and m of the instance); --warmup runs with first replica 0 are
+// not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica = k*R and the
+// same seed, so different global replicas and different initial conditions (decision B7), appends
+// one row to --out and, with --replica-out, R rows to the replica file, and prints one line
+// "rep <k>: ..." on stdout. The solver is run_sb_sequential (dsb or bsb, c0), run_sb_openmp with T
+// threads (dsb or bsb, c1; T = 0, the default, is the default number of OpenMP threads),
+// run_sa_sequential (sa, c0) or run_sa_openmp with T threads (sa, c2). t_solve_ms is the duration
+// of the call of the solver, its internal preparation and final check included; the column threads
+// is the team of the solver (1 for c0).
 //
 // Exit status: 0 on success; 1 for errors of the library (preconditions such as --replicas 0),
-// of reading or writing, and for an instance that is not in the best-known table; 2 for errors
-// of the command line, with a message on stderr.
+// of reading or writing, for an instance that is not in the best-known table or that has
+// another n or m than its row, and when the paths of --out and --replica-out cannot be compared;
+// 2 for errors of the command line, with a message on stderr.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -49,6 +59,9 @@
 #include <sbmc/instance.hpp>
 #include <sbmc/results.hpp>
 #include <sbmc/rudy.hpp>
+#include <sbmc/sa.hpp>
+#include <sbmc/sa_openmp.hpp>
+#include <sbmc/sa_sequential.hpp>
 #include <sbmc/sb.hpp>
 #include <sbmc/sb_openmp.hpp>
 #include <sbmc/sb_sequential.hpp>
@@ -67,10 +80,13 @@ struct Options {
   std::string name;
   std::string algo;
   int replicas = 0;
-  int steps = 0;
+  int steps = 0;  // dsb and bsb
   std::string dt;
+  int sweeps = 0;     // sa
+  std::string beta0;  // sa
+  std::string beta1;  // sa
   std::string variant = "c0";
-  int threads = 0;  // c1 only
+  int threads = 0;  // c1 and c2 only
   std::string a0 = "1";
   std::string c0 = "auto";
   int eval_every = 0;
@@ -80,12 +96,24 @@ struct Options {
   std::string target = "none";
   std::string best_known = "data/best_known.csv";
   std::string out;
+  std::string replica_out;
   std::string notes;
 };
 
 // Float over the whole text, as std::from_chars reads it (shortest round trip, no locale).
 std::optional<float> to_float(std::string_view text) {
   float value = 0.0f;
+  const char* const last = text.data() + text.size();
+  const auto [end, error] = std::from_chars(text.data(), last, value);
+  if (text.empty() || error != std::errc{} || end != last) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+// Double over the whole text, as std::from_chars reads it (no locale).
+std::optional<double> to_double(std::string_view text) {
+  double value = 0.0;
   const char* const last = text.data() + text.size();
   const auto [end, error] = std::from_chars(text.data(), last, value);
   if (text.empty() || error != std::errc{} || end != last) {
@@ -133,6 +161,17 @@ CLI::Validator float_value() {
             return to_float(value) ? std::string{} : "'" + value + "' is not a number";
           },
           "", "FLOAT"};
+}
+
+// A double, finite and > 0 (the inverse temperatures of SA).
+CLI::Validator finite_positive_double() {
+  return {[](std::string& value) -> std::string {
+            const std::optional<double> number = to_double(value);
+            return number && std::isfinite(*number) && *number > 0.0
+                       ? std::string{}
+                       : "expected a finite number > 0, got '" + value + "'";
+          },
+          "", "X"};
 }
 
 // Formats a float in the shortest form that reads back as the same float.
@@ -237,43 +276,42 @@ class ResultsRow {
   std::vector<std::string> values_;
 };
 
-// The checks of sbmc::append_results_row done before any run, so that a wrong --out does not waste
-// a run: an existing non-empty file must start with the header of schema 1 and end with '\n'; a new
-// file needs an existing folder.
-void check_results_file(const std::filesystem::path& file) {
+// The checks of sbmc::append_results_row and sbmc::append_replica_rows done before any run, so
+// that a wrong --out or --replica-out does not waste a run: an existing non-empty file must start
+// with the header of its schema (`columns`, named `what` in the messages) and end with '\n'; a
+// new file needs an existing folder.
+void check_output_file(const std::filesystem::path& file, std::string_view option,
+                       std::span<const std::string_view> columns, std::string_view what) {
+  const std::string name = std::string(option) + " " + file.string();
   std::error_code error;
   if (!std::filesystem::exists(file, error)) {
     const std::filesystem::path folder = file.parent_path();
     if (!folder.empty() && !std::filesystem::is_directory(folder, error)) {
-      throw sbmc::IoError("--out " + file.string() + ": the folder " + folder.string() +
-                          " does not exist");
+      throw sbmc::IoError(name + ": the folder " + folder.string() + " does not exist");
     }
     return;
   }
   if (std::filesystem::is_directory(file, error)) {
-    throw sbmc::IoError("--out " + file.string() + " is a directory");
+    throw sbmc::IoError(name + " is a directory");
   }
   std::ifstream in(file, std::ios::binary);
   std::string first;
   if (!in) {
-    throw sbmc::IoError("--out " + file.string() + ": cannot read the file");
+    throw sbmc::IoError(name + ": cannot read the file");
   }
   if (!std::getline(in, first)) {
-    return;  // empty file: append_results_row writes the header first
+    return;  // empty file: the header is written first
   }
-  const std::span<const std::string_view> columns = sbmc::results_columns();
   const std::vector<std::string> names(columns.begin(), columns.end());
   if (first != sbmc::csv_line(names)) {
-    throw sbmc::IoError("--out " + file.string() +
-                        ": the first line is not the header of results schema 1; the file was "
-                        "not modified");
+    throw sbmc::IoError(name + ": the first line is not the header of " + std::string(what) +
+                        "; the file was not modified");
   }
   in.clear();
   in.seekg(-1, std::ios::end);
   char last = '\0';
   if (!in.get(last) || last != '\n') {
-    throw sbmc::IoError("--out " + file.string() +
-                        " does not end with a line break; the file was not modified");
+    throw sbmc::IoError(name + " does not end with a line break; the file was not modified");
   }
 }
 
@@ -282,7 +320,24 @@ struct Target {
   std::string source = "none";  // best_known | user | none
 };
 
+// What a call of the solver gives to the rows: per replica best_cut, best_step (best_sweep of SA)
+// and final_cut; the team of the solver; the c0 actually used (SB only); t_solve_ms.
+struct ReplicaOutcome {
+  std::int64_t best_cut = 0;
+  std::int64_t best_step = 0;
+  std::int64_t final_cut = 0;
+};
+
+struct SolveOutcome {
+  std::vector<ReplicaOutcome> replicas;
+  int threads = 1;
+  std::string c0;
+  double t_solve_ms = 0.0;
+};
+
 int run(const Options& options, bool dense) {
+  const bool sa = options.algo == "sa";
+
   // 1. Instance; t_setup_ms is the time of this phase.
   const auto setup_start = std::chrono::steady_clock::now();
   sbmc::Instance instance;
@@ -319,9 +374,10 @@ int run(const Options& options, bool dense) {
                         options.best_known + " (choose the row with --name)");
     }
     if (entry->n != n || entry->m != nnz) {
-      std::cerr << "sbmc_run: warning: " << name << " in " << options.best_known << " has n "
-                << entry->n << " and m " << entry->m << ", the instance has n " << n << " and "
-                << nnz << " edges\n";
+      throw sbmc::Error("--target best-known: " + name + " in " + options.best_known + " has n " +
+                        std::to_string(entry->n) + " and m " + std::to_string(entry->m) +
+                        ", the instance has n " + std::to_string(n) + " and " +
+                        std::to_string(nnz) + " edges");
     }
     target = {entry->best_known, "best_known"};
   } else if (options.target != "none") {
@@ -330,7 +386,11 @@ int run(const Options& options, bool dense) {
 
   // The checks that need no run.
   if (!options.out.empty()) {
-    check_results_file(options.out);
+    check_output_file(options.out, "--out", sbmc::results_columns(), "results schema 1");
+  }
+  if (!options.replica_out.empty()) {
+    check_output_file(options.replica_out, "--replica-out", sbmc::replica_columns(),
+                      "the replica file (schema 1)");
   }
   if (static_cast<std::int64_t>(options.reps) * options.replicas > (std::int64_t{1} << 32)) {
     throw sbmc::InvalidArgument("--reps " + std::to_string(options.reps) + " with --replicas " +
@@ -338,27 +398,65 @@ int run(const Options& options, bool dense) {
                                 " needs global replicas beyond 2^32");
   }
 
-  sbmc::SbParams params;
-  params.algorithm =
-      options.algo == "dsb" ? sbmc::SbAlgorithm::discrete : sbmc::SbAlgorithm::ballistic;
-  params.replicas = options.replicas;
-  params.steps = options.steps;
-  params.dt = *to_float(options.dt);
-  params.a0 = *to_float(options.a0);
-  params.c0 = options.c0 == "auto" ? 0.0f : *to_float(options.c0);
-  params.eval_every = options.eval_every;
-  params.seed = options.seed;
+  // Parameters of the solver: SB (dsb, bsb) or SA.
+  sbmc::SbParams sb_params;
+  sbmc::SaParams sa_params;
+  if (sa) {
+    sa_params.replicas = options.replicas;
+    sa_params.sweeps = options.sweeps;
+    sa_params.beta0 = *to_double(options.beta0);
+    sa_params.beta1 = *to_double(options.beta1);
+    sa_params.seed = options.seed;
+  } else {
+    sb_params.algorithm =
+        options.algo == "dsb" ? sbmc::SbAlgorithm::discrete : sbmc::SbAlgorithm::ballistic;
+    sb_params.replicas = options.replicas;
+    sb_params.steps = options.steps;
+    sb_params.dt = *to_float(options.dt);
+    sb_params.a0 = *to_float(options.a0);
+    sb_params.c0 = options.c0 == "auto" ? 0.0f : *to_float(options.c0);
+    sb_params.eval_every = options.eval_every;
+    sb_params.seed = options.seed;
+  }
+  const int steps = sa ? options.sweeps : options.steps;  // the column steps: M or S
 
-  // The solver of the variant.
-  const auto solve = [&](const sbmc::SbParams& p) {
-    return options.variant == "c1" ? sbmc::run_sb_openmp(instance, p, options.threads)
-                                   : sbmc::run_sb_sequential(instance, p);
+  // The solver of the algorithm and of the variant; t_solve_ms is the duration of its call.
+  const auto solve = [&](std::int64_t first_replica) {
+    SolveOutcome outcome;
+    if (sa) {
+      sa_params.first_replica = first_replica;
+      const auto start = std::chrono::steady_clock::now();
+      const sbmc::SaResult result = options.variant == "c2"
+                                        ? sbmc::run_sa_openmp(instance, sa_params, options.threads)
+                                        : sbmc::run_sa_sequential(instance, sa_params);
+      outcome.t_solve_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+              .count();
+      outcome.threads = result.threads;  // 1 for C0
+      for (const sbmc::SaReplicaResult& r : result.per_replica) {
+        outcome.replicas.push_back({r.best_cut, r.best_sweep, r.final_cut});
+      }
+    } else {
+      sb_params.first_replica = first_replica;
+      const auto start = std::chrono::steady_clock::now();
+      const sbmc::SbResult result = options.variant == "c1"
+                                        ? sbmc::run_sb_openmp(instance, sb_params, options.threads)
+                                        : sbmc::run_sb_sequential(instance, sb_params);
+      outcome.t_solve_ms =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+              .count();
+      outcome.threads = result.threads;  // 1 for C0
+      outcome.c0 = shortest(result.c0);
+      for (const sbmc::SbReplicaResult& r : result.per_replica) {
+        outcome.replicas.push_back({r.best_cut, r.best_step, r.final_cut});
+      }
+    }
+    return outcome;
   };
 
   // 3. Warm-up runs, not recorded.
   for (int w = 0; w < options.warmup; ++w) {
-    params.first_replica = 0;
-    static_cast<void>(solve(params));
+    static_cast<void>(solve(0));
   }
 
   // Columns that do not change between repetitions.
@@ -369,18 +467,15 @@ int run(const Options& options, bool dense) {
 
   // 4. Recorded repetitions.
   for (int k = 0; k < options.reps; ++k) {
-    params.first_replica = static_cast<std::int64_t>(k) * options.replicas;
+    const std::int64_t first_replica = static_cast<std::int64_t>(k) * options.replicas;
     const std::string timestamp = utc_timestamp(std::chrono::system_clock::now());
-    const auto solve_start = std::chrono::steady_clock::now();
-    const sbmc::SbResult result = solve(params);
-    const double t_solve_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - solve_start)
-            .count();
+    const SolveOutcome outcome = solve(first_replica);
+    const double t_solve_ms = outcome.t_solve_ms;
 
     std::int64_t best_cut = std::numeric_limits<std::int64_t>::min();
     std::int64_t sum = 0;
     std::int64_t successes = 0;
-    for (const sbmc::SbReplicaResult& replica : result.per_replica) {
+    for (const ReplicaOutcome& replica : outcome.replicas) {
       best_cut = std::max(best_cut, replica.best_cut);
       if ((replica.best_cut > 0 &&
            sum > std::numeric_limits<std::int64_t>::max() - replica.best_cut) ||
@@ -410,14 +505,19 @@ int run(const Options& options, bool dense) {
     row.set("n", std::to_string(n));
     row.set("nnz", std::to_string(nnz));
     row.set("replicas", std::to_string(options.replicas));
-    row.set("steps", std::to_string(options.steps));
-    row.set("dt", shortest(params.dt));
-    row.set("c0", shortest(result.c0));
+    row.set("steps", std::to_string(steps));
+    if (sa) {
+      row.set("beta0", shortest(sa_params.beta0));
+      row.set("beta1", shortest(sa_params.beta1));
+    } else {
+      row.set("dt", shortest(sb_params.dt));
+      row.set("c0", outcome.c0);
+    }
     row.set("seed", std::to_string(options.seed));
     row.set("rep", std::to_string(k));
     row.set("t_setup_ms", fixed3(t_setup_ms));
     row.set("t_solve_ms", fixed3(t_solve_ms));
-    row.set("t_step_us", fixed3(t_solve_ms * 1000.0 / static_cast<double>(options.steps)));
+    row.set("t_step_us", fixed3(t_solve_ms * 1000.0 / static_cast<double>(steps)));
     row.set("best_cut", std::to_string(best_cut));
     row.set("mean_cut", mean_cut);
     if (target.value) {
@@ -427,14 +527,31 @@ int run(const Options& options, bool dense) {
       row.set("target", std::to_string(*target.value));
     }
     row.set("ranks", "1");
-    row.set("a0", shortest(params.a0));
-    row.set("eval_every", std::to_string(options.eval_every));
-    row.set("first_replica", std::to_string(params.first_replica));
-    row.set("threads", std::to_string(result.threads));  // 1 for C0
+    if (!sa) {
+      row.set("a0", shortest(sb_params.a0));
+      row.set("eval_every", std::to_string(options.eval_every));
+    }
+    row.set("first_replica", std::to_string(first_replica));
+    row.set("threads", std::to_string(outcome.threads));  // 1 for c0
     row.set("target_source", target.source);
     row.set("notes", options.notes);
     if (!options.out.empty()) {
       sbmc::append_results_row(options.out, row.values());
+    }
+    if (!options.replica_out.empty()) {
+      std::vector<std::vector<std::string>> replica_rows;
+      replica_rows.reserve(outcome.replicas.size());
+      for (std::size_t r = 0; r < outcome.replicas.size(); ++r) {
+        const ReplicaOutcome& replica = outcome.replicas[r];
+        replica_rows.push_back({std::to_string(sbmc::kReplicaSchemaVersion), timestamp, name,
+                                options.algo, options.variant, std::to_string(options.replicas),
+                                std::to_string(steps), std::to_string(options.seed),
+                                std::to_string(k),
+                                std::to_string(first_replica + static_cast<std::int64_t>(r)),
+                                std::to_string(replica.best_cut), std::to_string(replica.best_step),
+                                std::to_string(replica.final_cut)});
+      }
+      sbmc::append_replica_rows(options.replica_out, replica_rows);
     }
 
     std::cout << "rep " << k << ": best_cut " << best_cut << " mean_cut " << mean_cut;
@@ -456,23 +573,30 @@ int usage_error(std::string_view message) {
 int main(int argc, char** argv) {
   Options options;
   CLI::App app{
-      "Runs simulated bifurcation (dSB or bSB) on one instance, with the sequential reference C0 "
-      "or with C1 (OpenMP over blocks of replicas), and writes one CSV row per repetition (results "
-      "schema 1).",
+      "Runs simulated bifurcation (dsb or bsb: the sequential reference C0, or C1 with OpenMP over "
+      "blocks of replicas) or simulated annealing (sa: the sequential reference C0, or C2 with "
+      "OpenMP over blocks of replicas) on one instance, and writes one CSV row per repetition "
+      "(results schema 1) and, with --replica-out, one row per replica (replica file, schema 1).",
       "sbmc_run"};
   app.failure_message([](const CLI::App* parser, const CLI::Error& e) {
     const std::string message = CLI::FailureMessage::simple(parser, e);
     return message.starts_with("sbmc_run: ") ? message : "sbmc_run: " + message;
   });
   app.footer(
-      "Repetition k runs the solver with first_replica = k * R and the same --seed: different "
-      "global replicas, hence different initial conditions. --threads only with --variant c1; the "
-      "column threads is the team of the solver (1 for c0). Exit status: 0 success; 1 error of the "
-      "library, of reading or writing, or instance not in the best-known table; 2 error of the "
-      "command line.");
+      "dsb and bsb need --steps and --dt and take the variants c0 and c1; sa needs --sweeps, "
+      "--beta0 and --beta1, takes the variants c0 and c2, and takes neither --steps, --dt, --c0, "
+      "--a0 nor --eval-every. Repetition k runs the solver with first_replica = k * R and the same "
+      "--seed: different global replicas, hence different initial conditions. --threads only with "
+      "--variant c1 or c2; the column threads is the team of the solver (1 for c0). --replica-out "
+      "(with --out, on another file) appends one row per replica of every repetition. --target "
+      "best-known needs a row of the table with the n and m of the instance. Exit status: 0 "
+      "success; 1 error of the library, of reading or writing, instance not in the best-known "
+      "table or with another n or m, paths of --out and --replica-out that cannot be compared; 2 "
+      "error of the command line.");
 
   const CLI::Validator decimal = decimal_integer();
   const CLI::Validator number = float_value();
+  const CLI::Validator positive = finite_positive_double();
   const auto no_line_break = [](const std::string& value) -> std::string {
     return has_line_break(value) ? "line breaks are not allowed (one CSV row per line)"
                                  : std::string{};
@@ -502,51 +626,76 @@ int main(int argc, char** argv) {
         }
         return has_line_break(value) ? "line breaks are not allowed" : std::string{};
       });
-  app.add_option("--algo", options.algo, "Algorithm")
+  app.add_option("--algo", options.algo,
+                 "Algorithm: dsb or bsb (simulated bifurcation), sa (simulated annealing)")
       ->required()
-      ->check(CLI::IsMember({"dsb", "bsb"}));
+      ->check(CLI::IsMember({"dsb", "bsb", "sa"}));
   app.add_option("--replicas", options.replicas, "Replicas R per repetition")
       ->required()
       ->transform(decimal);
-  app.add_option("--steps", options.steps, "Steps M")->required()->transform(decimal);
-  app.add_option("--dt", options.dt,
-                 "Time step (no default: 1.25 suits random +-1 matrices and fails on graphs "
-                 "with positive weights; automatic choice in phase 07)")
-      ->required()
-      ->type_name("X")
-      ->check(number);
+  CLI::Option* steps =
+      app.add_option("--steps", options.steps, "dsb and bsb: steps M")->transform(decimal);
+  CLI::Option* dt =
+      app.add_option("--dt", options.dt,
+                     "dsb and bsb: time step (no default: 1.25 suits random +-1 matrices and "
+                     "fails on graphs with positive weights; automatic choice in phase 07)")
+          ->type_name("X")
+          ->check(number);
+  CLI::Option* sweeps = app.add_option("--sweeps", options.sweeps, "sa: sweeps S")
+                            ->type_name("S")
+                            ->transform(decimal)
+                            ->check(CLI::Range(1, std::numeric_limits<int>::max()));
+  CLI::Option* beta0 =
+      app.add_option("--beta0", options.beta0,
+                     "sa: inverse temperature of the first sweep, a finite number > 0")
+          ->check(positive);
+  CLI::Option* beta1 =
+      app.add_option("--beta1", options.beta1,
+                     "sa: inverse temperature of the last sweep, finite and >= --beta0 "
+                     "(geometric schedule in between)")
+          ->check(positive);
   app.add_option("--variant", options.variant,
-                 "Variant: c0: the sequential reference; c1: OpenMP over blocks of replicas")
+                 "Variant: c0: the sequential reference; c1: OpenMP over blocks of replicas (dsb "
+                 "and bsb); c2: OpenMP over blocks of replicas (sa)")
       ->capture_default_str()
-      ->check(CLI::IsMember({"c0", "c1"}));
+      ->check(CLI::IsMember({"c0", "c1", "c2"}));
   CLI::Option* threads =
       app.add_option("--threads", options.threads,
-                     "OpenMP threads of c1 (0: the default number of OpenMP threads; at most 1024)")
+                     "OpenMP threads of c1 and c2 (0: the default number of OpenMP threads; at "
+                     "most 1024)")
           ->capture_default_str()
           ->type_name("T")
           ->transform(decimal)
           ->check(CLI::Range(0, 1024));
-  app.add_option("--a0", options.a0, "a0")->capture_default_str()->type_name("X")->check(number);
-  app.add_option("--c0", options.c0, "c0: auto (1/(2 sigma sqrt(n))) or a finite number > 0")
-      ->capture_default_str()
-      ->type_name("auto|X")
-      ->check([](const std::string& value) -> std::string {
-        if (value == "auto") {
-          return {};
-        }
-        const std::optional<float> c0 = to_float(value);
-        if (!c0 || !std::isfinite(*c0) || !(*c0 > 0.0f)) {
-          return "expected auto or a finite number > 0, got '" + value +
-                 "' (0 is not accepted: in the library c0 = 0 means automatic)";
-        }
-        return {};
-      });
-  app.add_option("--eval-every", options.eval_every,
-                 "bSB: evaluate the signs every K steps (0: only the final configuration)")
-      ->capture_default_str()
-      ->type_name("K")
-      ->transform(decimal);
-  app.add_option("--seed", options.seed, "Seed of the initial positions")
+  CLI::Option* a0 = app.add_option("--a0", options.a0, "dsb and bsb: a0")
+                        ->capture_default_str()
+                        ->type_name("X")
+                        ->check(number);
+  CLI::Option* c0 =
+      app.add_option("--c0", options.c0,
+                     "dsb and bsb: c0, auto (1/(2 sigma sqrt(n))) or a finite number > 0")
+          ->capture_default_str()
+          ->type_name("auto|X")
+          ->check([](const std::string& value) -> std::string {
+            if (value == "auto") {
+              return {};
+            }
+            const std::optional<float> c0 = to_float(value);
+            if (!c0 || !std::isfinite(*c0) || !(*c0 > 0.0f)) {
+              return "expected auto or a finite number > 0, got '" + value +
+                     "' (0 is not accepted: in the library c0 = 0 means automatic)";
+            }
+            return {};
+          });
+  CLI::Option* eval_every =
+      app.add_option("--eval-every", options.eval_every,
+                     "bsb: evaluate the signs every K steps (0: only the final configuration)")
+          ->capture_default_str()
+          ->type_name("K")
+          ->transform(decimal);
+  app.add_option("--seed", options.seed,
+                 "Seed of the initial positions (dsb, bsb) or of the initial spins and of the "
+                 "acceptance words (sa)")
       ->capture_default_str()
       ->type_name("S")
       ->transform(decimal);
@@ -576,6 +725,11 @@ int main(int argc, char** argv) {
   app.add_option("--out", options.out,
                  "CSV file of the results: one row appended per repetition (default: no CSV)")
       ->type_name("FILE");
+  CLI::Option* replica_out =
+      app.add_option("--replica-out", options.replica_out,
+                     "CSV file of the replicas: R rows appended per repetition (replica file, "
+                     "schema 1); requires --out")
+          ->type_name("FILE");
   app.add_option("--notes", options.notes, "Free text of the notes column")
       ->type_name("TEXT")
       ->check(no_line_break);
@@ -585,12 +739,74 @@ int main(int argc, char** argv) {
   } catch (const CLI::ParseError& e) {
     return app.exit(e) == kExitOk ? kExitOk : kExitUsage;
   }
+  // The rules of the algorithms, after the parsing and before the other checks of the command line
+  // (until phase 05 --steps and --dt were required options of CLI11, checked at this point of the
+  // order, with the same messages).
+  if (options.algo == "sa") {
+    for (const auto& [option, name] : {std::pair{sweeps, "--sweeps"}, std::pair{beta0, "--beta0"},
+                                       std::pair{beta1, "--beta1"}}) {
+      if (option->count() == 0) {
+        return usage_error(std::string(name) + " is required with --algo sa");
+      }
+    }
+    for (const auto& [option, name] :
+         {std::pair{steps, "--steps"}, std::pair{dt, "--dt"}, std::pair{c0, "--c0"},
+          std::pair{a0, "--a0"}, std::pair{eval_every, "--eval-every"}}) {
+      if (option->count() > 0) {
+        return usage_error(std::string(name) + " is not used with --algo sa");
+      }
+    }
+    if (options.variant == "c1") {
+      return usage_error("--variant c1 is not available with --algo sa");
+    }
+    if (*to_double(options.beta1) < *to_double(options.beta0)) {
+      return usage_error("--beta1 must be >= --beta0");
+    }
+  } else {
+    for (const auto& [option, name] : {std::pair{steps, "--steps"}, std::pair{dt, "--dt"}}) {
+      if (option->count() == 0) {
+        return usage_error(std::string(name) + " is required");
+      }
+    }
+    for (const auto& [option, name] : {std::pair{sweeps, "--sweeps"}, std::pair{beta0, "--beta0"},
+                                       std::pair{beta1, "--beta1"}}) {
+      if (option->count() > 0) {
+        return usage_error(std::string(name) + " requires --algo sa");
+      }
+    }
+    if (options.variant == "c2") {
+      return usage_error("--variant c2 requires --algo sa");
+    }
+  }
   const bool use_dense = dense->count() > 0;
   if (instance->count() == 0 && !use_dense) {
     return usage_error("an instance is required: --instance FILE, or --dense N --instance-seed S");
   }
-  if (threads->count() > 0 && options.variant != "c1") {
-    return usage_error("--threads requires --variant c1");
+  if (threads->count() > 0 && options.variant == "c0") {
+    return usage_error("--threads requires --variant c1 or c2");
+  }
+  if (replica_out->count() > 0 && options.out.empty()) {
+    return usage_error("--replica-out requires --out");
+  }
+  if (replica_out->count() > 0) {
+    // The same file written in two ways ("x.csv", "./x.csv", an absolute path) is the same file.
+    // The paths are made absolute first: weakly_canonical leaves a relative path whose first
+    // element does not exist (a new file in the current folder) relative.
+    std::error_code error;
+    const auto canonical = [&error](const std::string& file) {
+      std::filesystem::path path = std::filesystem::absolute(file, error);
+      return error ? path : std::filesystem::weakly_canonical(path, error);
+    };
+    const std::filesystem::path out = canonical(options.out);
+    const std::filesystem::path replicas = error ? out : canonical(options.replica_out);
+    if (error) {
+      std::cerr << "sbmc_run: --out " << options.out << " and --replica-out " << options.replica_out
+                << ": cannot compare the two paths: " << error.message() << '\n';
+      return kExitError;
+    }
+    if (out == replicas) {
+      return usage_error("--replica-out must differ from --out");
+    }
   }
 
   try {

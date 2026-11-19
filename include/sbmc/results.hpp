@@ -8,6 +8,13 @@
 // Schema 1 has 44 columns (results_columns()): the columns of section 10.4 of the reference
 // document, in the same order, preceded by schema_version; a0, eval_every, first_replica, threads
 // and target_source are added before notes, which stays the last column.
+//
+// The replica file (schema 1, 13 columns, replica_columns()) has one row per replica of a recorded
+// repetition, for the relaxed targets and the bootstrap of the time to solution: schema_version
+// (1); timestamp, instance, algo, variant, replicas, steps, seed and rep, equal to the values of
+// the row of results of the same repetition (steps: M for SB, S for SA); replica, the global index
+// first_replica + r; best_cut, best_step (best_step of SB, best_sweep of SA) and final_cut of the
+// replica. The rows of a repetition are in increasing replica order.
 #pragma once
 
 #include <cstdint>
@@ -42,6 +49,21 @@ std::vector<std::string> csv_split(std::string_view line);
 // before the file is touched. A non-empty file that does not end with '\n' (a partial last line):
 // IoError, and the file is not modified.
 void append_results_row(const std::filesystem::path& file, std::span<const std::string> row);
+
+inline constexpr int kReplicaSchemaVersion = 1;
+
+// The 13 column names of the replica file, schema 1, in order:
+// schema_version, timestamp, instance, algo, variant, replicas, steps, seed, rep, replica,
+// best_cut, best_step, final_cut
+std::span<const std::string_view> replica_columns() noexcept;
+
+// Appends rows (one value per column of replica_columns() each) with the same rules as
+// append_results_row: header first in a missing or empty file; another header or a partial last
+// line: IoError and the file is not modified; a wrong number of values or a line break in a
+// value: InvalidArgument before the file is touched; write errors: IoError. With no rows the file
+// is checked, and gets the header when it is missing or empty.
+void append_replica_rows(const std::filesystem::path& file,
+                         std::span<const std::vector<std::string>> rows);
 
 // One row of data/best_known.csv.
 struct BestKnownEntry {

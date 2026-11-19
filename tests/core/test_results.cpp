@@ -1,4 +1,5 @@
-// Results schema 1, CSV helpers and the table of best-known values (sbmc/results.hpp).
+// Results schema 1, the replica file, CSV helpers and the table of best-known values
+// (sbmc/results.hpp).
 //
 // The files written by the tests go to a fresh folder under the temporary directory of the
 // system, removed at the end; data/best_known.csv is only read.
@@ -238,6 +239,87 @@ TEST_CASE("RES: append_results_row writes the header once and appends the rows")
   }
   SUBCASE("a folder that does not exist: IoError") {
     CHECK_THROWS_AS(sbmc::append_results_row(dir.path() / "missing" / "runs.csv", first), IoError);
+  }
+}
+
+TEST_CASE("RES: replica_columns and append_replica_rows (replica file, schema 1)") {
+  const std::vector<std::string_view> expected = {
+      "schema_version", "timestamp", "instance", "algo",     "variant",   "replicas", "steps",
+      "seed",           "rep",       "replica",  "best_cut", "best_step", "final_cut"};
+  const std::span<const std::string_view> columns = sbmc::replica_columns();
+  REQUIRE(columns.size() == 13);
+  CHECK(std::vector<std::string_view>(columns.begin(), columns.end()) == expected);
+  CHECK(sbmc::kReplicaSchemaVersion == 1);
+
+  const TempDir dir;
+  const std::filesystem::path file = dir.path() / "replicas.csv";
+  std::string header;
+  for (std::size_t k = 0; k < expected.size(); ++k) {
+    header += (k > 0 ? "," : "") + std::string(expected[k]);
+  }
+  header += "\n";
+  const auto replica_row = [](int replica) {
+    return std::vector<std::string>{
+        "1", "2026-11-18T00:00:00Z",  "G1, \"copy\"", "sa", "c0", "2", "10", "3",
+        "0", std::to_string(replica), "40",           "7",  "39"};
+  };
+  const std::vector<std::vector<std::string>> first = {replica_row(0), replica_row(1)};
+  const std::vector<std::vector<std::string>> second = {replica_row(2), replica_row(3)};
+  const auto lines = [](const std::vector<std::vector<std::string>>& rows) {
+    std::string text;
+    for (const std::vector<std::string>& row : rows) {
+      text += sbmc::csv_line(row) + "\n";
+    }
+    return text;
+  };
+
+  SUBCASE("new file: the header and the rows; a second append without the header") {
+    sbmc::append_replica_rows(file, first);
+    CHECK(read_file(file) == header + lines(first));
+    sbmc::append_replica_rows(file, second);
+    CHECK(read_file(file) == header + lines(first) + lines(second));
+  }
+  SUBCASE("an existing empty file gets the header first") {
+    write_file(file, "");
+    sbmc::append_replica_rows(file, first);
+    CHECK(read_file(file) == header + lines(first));
+  }
+  SUBCASE("another header (results schema 1 included): IoError, file unchanged") {
+    for (const std::string& other : {std::string("a,b,c\n1,2,3\n"), header_line() + "\n"}) {
+      write_file(file, other);
+      CHECK_THROWS_AS(sbmc::append_replica_rows(file, first), IoError);
+      CHECK(read_file(file) == other);
+    }
+  }
+  SUBCASE("the header but a partial last line: IoError, file unchanged") {
+    const std::string partial = header + "1,2,3";
+    write_file(file, partial);
+    CHECK_THROWS_AS(sbmc::append_replica_rows(file, first), IoError);
+    CHECK(read_file(file) == partial);
+  }
+  SUBCASE("a wrong number of values or a line break, in any row: InvalidArgument, untouched") {
+    std::vector<std::vector<std::string>> rows = first;
+    rows[1].pop_back();
+    CHECK_THROWS_AS(sbmc::append_replica_rows(file, rows), InvalidArgument);
+    rows = first;
+    rows[0].emplace_back("extra");
+    CHECK_THROWS_AS(sbmc::append_replica_rows(file, rows), InvalidArgument);
+    rows = first;
+    rows[1][10] = "4\n0";
+    CHECK_THROWS_AS(sbmc::append_replica_rows(file, rows), InvalidArgument);
+    CHECK_FALSE(std::filesystem::exists(file));
+    const std::string existing = header + lines(first);
+    write_file(file, existing);
+    CHECK_THROWS_AS(sbmc::append_replica_rows(file, rows), InvalidArgument);
+    CHECK(read_file(file) == existing);
+  }
+  SUBCASE("no rows: the header only in a new file") {
+    sbmc::append_replica_rows(file, std::span<const std::vector<std::string>>());
+    CHECK(read_file(file) == header);
+  }
+  SUBCASE("a folder that does not exist: IoError") {
+    CHECK_THROWS_AS(sbmc::append_replica_rows(dir.path() / "missing" / "replicas.csv", first),
+                    IoError);
   }
 }
 
