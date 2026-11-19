@@ -33,6 +33,7 @@ set(_sbmc_public_headers
   sb_openmp.hpp
   sa.hpp
   sa_sequential.hpp
+  sa_openmp.hpp
   bruteforce.hpp
   results.hpp
 )

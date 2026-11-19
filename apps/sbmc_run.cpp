@@ -2,16 +2,18 @@
 // with the results schema 1 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
 // sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
 // (variant c1, --threads). Simulated annealing (--algo sa), phase 06: the sequential reference
-// (variant c0).
+// (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads).
 //
 //   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
-//            [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME] [--variant c0|c1]
-//            [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K] [--seed S] [--reps K]
-//            [--warmup K] [--target best-known|none|INTEGER] [--best-known FILE] [--out FILE]
-//            [--replica-out FILE] [--notes TEXT]
+//            [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
+//            [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
+//            [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
+//            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT]
 //
-// --steps and --dt are required with dsb and bsb; --sweeps, --beta0 and --beta1 with sa, where
-// --steps, --dt, --c0, --a0, --eval-every and --variant c1 are not used.
+// --steps and --dt are required with dsb and bsb, which take the variants c0 and c1; --sweeps,
+// --beta0 and --beta1 with sa, which takes the variants c0 and c2 and where --steps, --dt, --c0,
+// --a0 and --eval-every are not used. --threads only with c1 or c2. --replica-out needs --out and
+// another file (compared with std::filesystem::weakly_canonical).
 //
 // Run: the instance is read (t_setup_ms); the target is resolved (with --target best-known the
 // row of the table must have the n and m of the instance); --warmup runs with first replica 0 are
@@ -19,14 +21,15 @@
 // same seed, so different global replicas and different initial conditions (decision B7), appends
 // one row to --out and, with --replica-out, R rows to the replica file, and prints one line
 // "rep <k>: ..." on stdout. The solver is run_sb_sequential (dsb or bsb, c0), run_sb_openmp with T
-// threads (dsb or bsb, c1; T = 0, the default, is the default number of OpenMP threads; --threads
-// only with c1) or run_sa_sequential (sa, c0). t_solve_ms is the duration of the call of the
-// solver, its internal preparation and final check included; the column threads is the team of
-// the solver (1 for c0).
+// threads (dsb or bsb, c1; T = 0, the default, is the default number of OpenMP threads),
+// run_sa_sequential (sa, c0) or run_sa_openmp with T threads (sa, c2). t_solve_ms is the duration
+// of the call of the solver, its internal preparation and final check included; the column threads
+// is the team of the solver (1 for c0).
 //
 // Exit status: 0 on success; 1 for errors of the library (preconditions such as --replicas 0),
-// of reading or writing, and for an instance that is not in the best-known table or that has
-// another n or m than its row; 2 for errors of the command line, with a message on stderr.
+// of reading or writing, for an instance that is not in the best-known table or that has
+// another n or m than its row, and when the paths of --out and --replica-out cannot be compared;
+// 2 for errors of the command line, with a message on stderr.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -57,6 +60,7 @@
 #include <sbmc/results.hpp>
 #include <sbmc/rudy.hpp>
 #include <sbmc/sa.hpp>
+#include <sbmc/sa_openmp.hpp>
 #include <sbmc/sa_sequential.hpp>
 #include <sbmc/sb.hpp>
 #include <sbmc/sb_openmp.hpp>
@@ -82,7 +86,7 @@ struct Options {
   std::string beta0;  // sa
   std::string beta1;  // sa
   std::string variant = "c0";
-  int threads = 0;  // c1 only
+  int threads = 0;  // c1 and c2 only
   std::string a0 = "1";
   std::string c0 = "auto";
   int eval_every = 0;
@@ -422,11 +426,13 @@ int run(const Options& options, bool dense) {
     if (sa) {
       sa_params.first_replica = first_replica;
       const auto start = std::chrono::steady_clock::now();
-      const sbmc::SaResult result = sbmc::run_sa_sequential(instance, sa_params);
+      const sbmc::SaResult result = options.variant == "c2"
+                                        ? sbmc::run_sa_openmp(instance, sa_params, options.threads)
+                                        : sbmc::run_sa_sequential(instance, sa_params);
       outcome.t_solve_ms =
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count();
-      outcome.threads = result.threads;
+      outcome.threads = result.threads;  // 1 for C0
       for (const sbmc::SaReplicaResult& r : result.per_replica) {
         outcome.replicas.push_back({r.best_cut, r.best_sweep, r.final_cut});
       }
@@ -568,23 +574,25 @@ int main(int argc, char** argv) {
   Options options;
   CLI::App app{
       "Runs simulated bifurcation (dsb or bsb: the sequential reference C0, or C1 with OpenMP over "
-      "blocks of replicas) or simulated annealing (sa: the sequential reference) on one instance, "
-      "and writes one CSV row per repetition (results schema 1) and, with --replica-out, one row "
-      "per replica (replica file, schema 1).",
+      "blocks of replicas) or simulated annealing (sa: the sequential reference C0, or C2 with "
+      "OpenMP over blocks of replicas) on one instance, and writes one CSV row per repetition "
+      "(results schema 1) and, with --replica-out, one row per replica (replica file, schema 1).",
       "sbmc_run"};
   app.failure_message([](const CLI::App* parser, const CLI::Error& e) {
     const std::string message = CLI::FailureMessage::simple(parser, e);
     return message.starts_with("sbmc_run: ") ? message : "sbmc_run: " + message;
   });
   app.footer(
-      "dsb and bsb need --steps and --dt; sa needs --sweeps, --beta0 and --beta1, and takes "
-      "neither --steps, --dt, --c0, --a0, --eval-every nor --variant c1. Repetition k runs the "
-      "solver with first_replica = k * R and the same --seed: different global replicas, hence "
-      "different initial conditions. --threads only with --variant c1; the column threads is the "
-      "team of the solver (1 for c0). --replica-out (with --out) appends one row per replica of "
-      "every repetition. --target best-known needs a row of the table with the n and m of the "
-      "instance. Exit status: 0 success; 1 error of the library, of reading or writing, instance "
-      "not in the best-known table or with another n or m; 2 error of the command line.");
+      "dsb and bsb need --steps and --dt and take the variants c0 and c1; sa needs --sweeps, "
+      "--beta0 and --beta1, takes the variants c0 and c2, and takes neither --steps, --dt, --c0, "
+      "--a0 nor --eval-every. Repetition k runs the solver with first_replica = k * R and the same "
+      "--seed: different global replicas, hence different initial conditions. --threads only with "
+      "--variant c1 or c2; the column threads is the team of the solver (1 for c0). --replica-out "
+      "(with --out, on another file) appends one row per replica of every repetition. --target "
+      "best-known needs a row of the table with the n and m of the instance. Exit status: 0 "
+      "success; 1 error of the library, of reading or writing, instance not in the best-known "
+      "table or with another n or m, paths of --out and --replica-out that cannot be compared; 2 "
+      "error of the command line.");
 
   const CLI::Validator decimal = decimal_integer();
   const CLI::Validator number = float_value();
@@ -648,12 +656,13 @@ int main(int argc, char** argv) {
           ->check(positive);
   app.add_option("--variant", options.variant,
                  "Variant: c0: the sequential reference; c1: OpenMP over blocks of replicas (dsb "
-                 "and bsb)")
+                 "and bsb); c2: OpenMP over blocks of replicas (sa)")
       ->capture_default_str()
-      ->check(CLI::IsMember({"c0", "c1"}));
+      ->check(CLI::IsMember({"c0", "c1", "c2"}));
   CLI::Option* threads =
       app.add_option("--threads", options.threads,
-                     "OpenMP threads of c1 (0: the default number of OpenMP threads; at most 1024)")
+                     "OpenMP threads of c1 and c2 (0: the default number of OpenMP threads; at "
+                     "most 1024)")
           ->capture_default_str()
           ->type_name("T")
           ->transform(decimal)
@@ -765,16 +774,39 @@ int main(int argc, char** argv) {
         return usage_error(std::string(name) + " requires --algo sa");
       }
     }
+    if (options.variant == "c2") {
+      return usage_error("--variant c2 requires --algo sa");
+    }
   }
   const bool use_dense = dense->count() > 0;
   if (instance->count() == 0 && !use_dense) {
     return usage_error("an instance is required: --instance FILE, or --dense N --instance-seed S");
   }
-  if (threads->count() > 0 && options.variant != "c1") {
-    return usage_error("--threads requires --variant c1");
+  if (threads->count() > 0 && options.variant == "c0") {
+    return usage_error("--threads requires --variant c1 or c2");
   }
   if (replica_out->count() > 0 && options.out.empty()) {
     return usage_error("--replica-out requires --out");
+  }
+  if (replica_out->count() > 0) {
+    // The same file written in two ways ("x.csv", "./x.csv", an absolute path) is the same file.
+    // The paths are made absolute first: weakly_canonical leaves a relative path whose first
+    // element does not exist (a new file in the current folder) relative.
+    std::error_code error;
+    const auto canonical = [&error](const std::string& file) {
+      std::filesystem::path path = std::filesystem::absolute(file, error);
+      return error ? path : std::filesystem::weakly_canonical(path, error);
+    };
+    const std::filesystem::path out = canonical(options.out);
+    const std::filesystem::path replicas = error ? out : canonical(options.replica_out);
+    if (error) {
+      std::cerr << "sbmc_run: --out " << options.out << " and --replica-out " << options.replica_out
+                << ": cannot compare the two paths: " << error.message() << '\n';
+      return kExitError;
+    }
+    if (out == replicas) {
+      return usage_error("--replica-out must differ from --out");
+    }
   }
 
   try {

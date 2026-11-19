@@ -4,11 +4,14 @@
 Run by CTest from the repository root (the defaults of sbmc_run are relative to it) as:
   <python> -I -B test_sbmc_run.py --sbmc-run <sbmc_run> --trace-tool <sbmc_trace>
                                   --workdir <build>/tests/apps --strict-fp 0|1
-Checks, as in F04-C2, section 5.9, F05-C2, section 5.9, and F06-C1, section 5.11:
+Checks, as in F04-C2, section 5.9, F05-C2, section 5.9, F06-C1, section 5.11, and F06-C2,
+section 5.10:
 1. exit status 2 for the errors of the command line (--variant, --threads, the options of --algo sa
-   and --replica-out included; the new messages are compared);
+   and --replica-out included; the messages of phase 06 are compared: --variant c2 with dsb and
+   bsb, --threads with c0, --replica-out on the same file as --out, written in four ways);
 2. exit status 1 for the errors of the library, of reading and of writing (a CSV or a replica file
-   with another header is left unchanged);
+   with another header is left unchanged), and for paths of --out and --replica-out that cannot be
+   compared (a loop of symbolic links);
 3. tests/data/four_nodes.rudy, two recorded repetitions: the 44 columns and their values;
 4. repetition 1 against sbmc_trace with --first-replica 8 (same instance and parameters);
 5. a third run on the same CSV: three rows, one header;
@@ -22,7 +25,10 @@ Checks, as in F04-C2, section 5.9, F05-C2, section 5.9, and F06-C1, section 5.11
 10. simulated annealing (--algo sa) with --replica-out: the rows and the replica file against the
     values of F06-C1, section 5.8;
 11. --replica-out with dsb: the replica rows against the rows of results, and a second run that
-    appends without a second header.
+    appends without a second header;
+12. the variant c2 of --algo sa: the run of check 10 with --variant c2 --threads 2 (one block,
+    threads 1, the results and the replica file of c0), and data/gset/G1 with R 133 (several
+    blocks, the last one partial, for every RB) and --threads 3 against c0.
 The files of the test (CSV files and a trace) are written only in --workdir, a folder of the
 build tree; their previous versions are removed at the start.
 
@@ -35,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import platform
 import re
 import struct
@@ -74,7 +81,8 @@ OUTPUTS = ["runs.csv", "g1.csv", "name.csv", "dense.csv", "bad_header.csv", "unu
            "c1_g1_threads3.csv", "c1_threads0.csv", "compare_c0_dsb.csv", "compare_c1_dsb.csv",
            "compare_c0_bsb.csv", "compare_c1_bsb.csv", "sa.csv", "sa_replicas.csv",
            "dsb_replicas_runs.csv", "dsb_replicas.csv", "bad_replicas.csv", "toy_runs.csv",
-           "toy_best_known.csv"]
+           "toy_best_known.csv", "c2.csv", "c2_replicas.csv", "c2_g1.csv", "c0_g1.csv",
+           "loop", "q4.csv"]
 # F06-C1, section 5.8: sbmc_run on four_nodes.rudy, --algo sa --replicas 8 --sweeps 10
 # --beta0 0.1 --beta1 3 --seed 2 --target 4 --reps 2 (rep 0: SA-1; rep 1: global replicas 8-15).
 SA_BEST_SWEEP = [6, 0, 2, 1, 0, 3, 0, 1, 1, 3, 5, 7, 6, 1, 1, 1]
@@ -169,7 +177,7 @@ def check_row_common(row: dict[str, str]) -> list[str]:
         if not row.get(column):
             wrong.append(column)
     threads = row.get("threads", "")
-    if (row.get("variant") not in ("c0", "c1") or row.get("ranks") != "1"
+    if (row.get("variant") not in ("c0", "c1", "c2") or row.get("ranks") != "1"
             or not re.fullmatch(r"[0-9]+", threads) or int(threads) < 1
             or (row.get("variant") == "c0" and threads != "1")):
         wrong.append("variant/ranks/threads")
@@ -392,6 +400,61 @@ def check_replica_out(report: Report, run: Runner, workdir: Path) -> None:
                  f"{len(replicas)} replica rows, {header_lines} header line")
 
 
+def check_c2(report: Report, run: Runner, workdir: Path) -> None:
+    """Check 12: the variant c2 of --algo sa, against c0 (C2 equals the reference in every preset).
+    """
+    # a. The run of check 10 with --variant c2 --threads 2: one block of replicas, threads 1.
+    path, replica_path = workdir / "c2.csv", workdir / "c2_replicas.csv"
+    result = run(["--instance", FOUR, "--algo", "sa", "--variant", "c2", "--threads", "2",
+                  "--replicas", "8", "--sweeps", "10", "--beta0", "0.1", "--beta1", "3", "--seed",
+                  "2", "--target", "4", "--reps", "2", "--notes", NOTES, "--out", str(path),
+                  "--replica-out", str(replica_path)])
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    sa_path, sa_replica_path = workdir / "sa.csv", workdir / "sa_replicas.csv"
+    _, c0_rows, _ = read_rows(sa_path) if sa_path.exists() else ([], [], [])
+    wrong = [] if result.returncode == 0 and len(rows) == 2 and len(c0_rows) == 2 else [
+        f"exit {result.returncode}, {len(rows)} rows of c2, {len(c0_rows)} rows of c0"]
+    for k, (row, c0_row) in enumerate(zip(rows, c0_rows)):
+        wrong += [f"rep {k}: {c}" for c in check_row_common(row)]
+        if row.get("variant") != "c2" or row.get("threads") != "1":
+            wrong.append(f"rep {k}: variant {row.get('variant')} threads {row.get('threads')}")
+        wrong += [f"rep {k}: {c}" for c in ("best_cut", "mean_cut", "n_success")
+                  if row.get(c) != c0_row.get(c)]
+    report.check("c2 four_nodes.rudy, rows against c0", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else "2 rows, variant c2, threads 1")
+    check_stdout(report, "c2", result, rows, True)
+    _, replicas, _ = read_rows(replica_path) if replica_path.exists() else ([], [], [])
+    _, c0_replicas, _ = read_rows(sa_replica_path) if sa_replica_path.exists() else ([], [], [])
+    differ = sorted({c for a, b in zip(replicas, c0_replicas) for c in REPLICA_COLUMNS
+                     if c not in ("timestamp", "variant") and a.get(c) != b.get(c)})
+    ok = (len(replicas) == 16 and len(c0_replicas) == 16 and not differ
+          and all(r.get("variant") == "c2" for r in replicas))
+    report.check("c2 four_nodes.rudy, replica file against c0", ok,
+                 "columns that differ: " + ", ".join(differ) if differ else
+                 f"{len(replicas)} and {len(c0_replicas)} rows, equal but timestamp and variant")
+
+    # b. G1 with R 133 (several blocks, the last one partial, for every RB) and three threads.
+    g1 = ["--instance", "data/gset/G1", "--algo", "sa", "--replicas", "133", "--sweeps", "20",
+          "--beta0", "0.1", "--beta1", "3", "--seed", "4", "--reps", "2", "--target",
+          "best-known"]
+    variant_rows = {}
+    for variant, more in (("c0", []), ("c2", ["--threads", "3"])):
+        path = workdir / f"{variant}_g1.csv"
+        result = run(g1 + ["--variant", variant] + more + ["--out", str(path)])
+        _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+        variant_rows[variant] = rows if result.returncode == 0 else []
+    c0_rows, c2_rows = variant_rows["c0"], variant_rows["c2"]
+    differ = same_rows_but(c0_rows, c2_rows,
+                           TIMES + ["git_hash", "dirty", "variant", "threads"])
+    ok = (len(c0_rows) == 2 and len(c2_rows) == 2 and not differ
+          and all(r.get("threads") == "3" and r.get("variant") == "c2" for r in c2_rows)
+          and not any(check_row_common(r) for r in c2_rows))
+    report.check("c2 G1, R 133, --threads 3, against c0", ok,
+                 "columns that differ: " + ", ".join(differ) if differ else
+                 f"{len(c0_rows)} and {len(c2_rows)} rows, threads of c2 "
+                 f"{[r.get('threads') for r in c2_rows]}")
+
+
 def main() -> int:
     args = parse_arguments()
     print(f"python: {platform.python_version()} ({sys.executable})")
@@ -430,9 +493,7 @@ def main() -> int:
         ("--steps missing", four + base[:4] + base[6:]),
         ("--dt missing", four + base[:6]),
         ("--algo foo", four + ["--algo", "foo"] + base[2:]),
-        ("--variant c2", four + base + ["--variant", "c2"]),
-        ("--threads 2 with the default variant", four + base + ["--threads", "2"]),
-        ("--variant c0 --threads 1", four + base + ["--variant", "c0", "--threads", "1"]),
+        ("--variant c3", four + base + ["--variant", "c3"]),
         ("--variant c1 --threads 1025", four + base + ["--variant", "c1", "--threads", "1025"]),
         ("--variant c1 --threads -1", four + base + ["--variant", "c1", "--threads", "-1"]),
         ("--variant c1 --threads x", four + base + ["--variant", "c1", "--threads", "x"]),
@@ -452,6 +513,8 @@ def main() -> int:
     # The messages of F06-C1, section 5.6, each compared with the first line of stderr.
     sa = ["--algo", "sa", "--replicas", "4", "--sweeps", "10", "--beta0", "0.1", "--beta1", "3"]
     out = ["--out", str(workdir / "unused.csv")]
+    # The same file relative to the repository root, where sbmc_run runs.
+    out_relative = ["--out", os.path.relpath(workdir / "unused.csv", root)]
     replica_out = ["--replica-out", str(workdir / "unused_replicas.csv")]
     sa_usage_cases = [
         ("--sweeps missing with sa", four + sa[:4] + sa[6:], "--sweeps is required with --algo sa"),
@@ -473,6 +536,25 @@ def main() -> int:
         ("--beta0 0", four + sa[:6] + ["--beta0", "0", "--beta1", "3"],
          "--beta0: expected a finite number > 0, got '0'"),
         ("--replica-out without --out", four + base + replica_out, "--replica-out requires --out"),
+        # F06-C2, section 5.5.
+        ("--variant c2 with dsb", four + base + ["--variant", "c2"],
+         "--variant c2 requires --algo sa"),
+        ("--variant c2 with bsb", four + ["--algo", "bsb"] + base[2:] + ["--variant", "c2"],
+         "--variant c2 requires --algo sa"),
+        ("--threads 2 with the default variant", four + base + ["--threads", "2"],
+         "--threads requires --variant c1 or c2"),
+        ("--variant c0 --threads 1", four + base + ["--variant", "c0", "--threads", "1"],
+         "--threads requires --variant c1 or c2"),
+        ("--threads 2 with sa and the default variant", four + sa + ["--threads", "2"],
+         "--threads requires --variant c1 or c2"),
+        ("--variant c3 with sa", four + sa + ["--variant", "c3"],
+         "--variant: c3 not in {c0,c1,c2}"),
+        ("--replica-out on the --out file", four + sa + out + ["--replica-out", out[1]],
+         "--replica-out must differ from --out"),
+        ("--replica-out on the --out file, with ./", four + sa + out_relative
+         + ["--replica-out", "./" + out_relative[1]], "--replica-out must differ from --out"),
+        ("--replica-out on the --out file, absolute", four + sa + out_relative
+         + ["--replica-out", out[1]], "--replica-out must differ from --out"),
     ]
     for name, arguments, message in sa_usage_cases:
         result = run(arguments + (out if "--replica-out" not in arguments else []))
@@ -504,6 +586,24 @@ def main() -> int:
         ok = result.returncode == 1 and result.stderr.strip() != "" and not rep_lines(result.stdout)
         report.check(f"exit 1: {name}", ok,
                      f"exit {result.returncode}: {result.stderr.strip().splitlines()[0:1]}")
+    # The same new file named "q4.csv" and "./q4.csv" from the folder of the test: the first
+    # element of "q4.csv" does not exist, so the paths are compared only once made absolute.
+    q4 = subprocess.run([args.sbmc_run, "--instance", str(root / FOUR)] + sa
+                        + ["--out", "q4.csv", "--replica-out", "./q4.csv"], cwd=workdir,
+                        capture_output=True, text=True, timeout=600, check=False)
+    first = q4.stderr.strip().splitlines()[0:1]
+    report.check("exit 2: --replica-out on the --out file, a new file in the current folder",
+                 q4.returncode == 2 and first == ["sbmc_run: --replica-out must differ from --out"]
+                 and not (workdir / "q4.csv").exists(), f"exit {q4.returncode}: {first}")
+    loop = workdir / "loop"
+    os.symlink("loop", loop)  # a symbolic link to itself: the path cannot be resolved
+    result = run(four + sa + out + ["--replica-out", str(loop / "replicas.csv")])
+    first = result.stderr.strip().splitlines()[0:1]
+    report.check("exit 1: --replica-out in a loop of symbolic links",
+                 result.returncode == 1 and bool(first) and "--out" in first[0]
+                 and "--replica-out" in first[0] and "cannot compare" in first[0]
+                 and not rep_lines(result.stdout) and not (workdir / "unused.csv").exists(),
+                 f"exit {result.returncode}: {first}")
     report.check("--out with another header: file unchanged",
                  bad_header.read_text(encoding="ascii") == "a,b,c\n1,2,3\n")
     report.check("--replica-out with another header: file unchanged, no CSV",
@@ -612,6 +712,7 @@ def main() -> int:
     check_c1(report, run, workdir, args.strict_fp == "1")
     check_sa(report, run, workdir)
     check_replica_out(report, run, workdir)
+    check_c2(report, run, workdir)
 
     verdict = "PASS" if report.failures == 0 else "FAIL"
     print(f"RUN_VERDICT: {verdict}")

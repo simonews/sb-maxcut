@@ -28,12 +28,15 @@ simulated bifurcation (C1)"); the exact enumeration C3 with Gray code, parallel 
 `sbmc_bruteforce`, which runs it on one instance; T2, C0 and C1 against the exact optimum on small
 graphs (see "Exact solution by brute force (C3)"); the flag `dirty` of the build information
 ignores `results/` (see "sbmc_run and the results CSV").
-Phase 06, part 1 of 2: the sequential reference of simulated annealing, with T2 (see "Simulated
-annealing (reference)"); `sbmc_run --algo sa`, the replica file of `--replica-out` and an error
-when the row of `--target best-known` has another n or m (see "sbmc_run and the results CSV");
-the time to solution with `python/sbmc_tts.py` (see "Time to solution (python/sbmc_tts.py)").
-Part 2 adds C2, simulated annealing with OpenMP over blocks of replicas, equal to the reference
-bit for bit.
+Phase 06 complete in the code (the closure follows the measurement on the laptop). Part 1: the
+sequential reference of simulated annealing, with T2 (see "Simulated annealing (reference)");
+`sbmc_run --algo sa`, the replica file of `--replica-out` and an error when the row of
+`--target best-known` has another n or m (see "sbmc_run and the results CSV"); the time to
+solution with `python/sbmc_tts.py` (see "Time to solution (python/sbmc_tts.py)"). Part 2: C2,
+simulated annealing with OpenMP over blocks of replicas and SIMD over the replicas of a block,
+equal to the reference bit for bit in every preset, with T2, and `sbmc_run --variant c2` (see "C2:
+simulated annealing with OpenMP"); `--replica-out` must name another file than `--out`; without
+`--replicas` and `--targets`, `python/sbmc_tts.py` uses the target 1000 alone.
 
 ## Requirements
 
@@ -463,10 +466,10 @@ its meaning, the whole call of the solver.
 
 `run_sa_sequential(inst, params)` (`sbmc/sa_sequential.hpp`, in `sbmc::cpu`) is the sequential
 reference of simulated annealing (reference document, section 7): the variant `c0` of
-`sbmc_run --algo sa`, and the oracle of C2 (phase 06, part 2), which must give the same results
-bit for bit. The parts common to every variant are in `sbmc/sa.hpp` (functions in `sbmc::core`):
-`SaParams`, `SaReplicaResult`, `SaResult`, `sa_beta`, `sa_threshold`, `sa_initial_spin` and
-`sa_acceptance_word`.
+`sbmc_run --algo sa`, and the oracle of C2 (see "C2: simulated annealing with OpenMP"), which gives
+the same results bit for bit. The parts common to every variant are in `sbmc/sa.hpp` (functions
+in `sbmc::core`): `SaParams`, `SaReplicaResult`, `SaResult`, `sa_beta`, `sa_threshold`,
+`sa_initial_spin` and `sa_acceptance_word`.
 
 - Algorithm: single-spin Metropolis on E(s) = sum_{i<j} w_ij s_i s_j, with sequential sweeps.
   For every local replica r, with global index g = first_replica + r:
@@ -538,6 +541,126 @@ two independent emulators of the reference and are compared in every preset.
 | SA-T2-5 | `DenseSpinGlass{22, 22}` | 20 | 65 | 34 | 15 |
 | SA-T2-6 | `DenseSpinGlass{22, 22}` | 100 | 66 | 34 | 16 |
 | SA-T2-7 | `torus_4x6_pm1.rudy` | 20 | 67 | 24 | 16 |
+
+## C2: simulated annealing with OpenMP
+
+`run_sa_openmp(inst, params, threads = 0)` (`sbmc/sa_openmp.hpp`, in `sbmc::cpu`) is C2, the
+parallel variant of simulated annealing (reference document, section 7; decision S2 (b)): OpenMP
+over blocks of replicas and SIMD over the replicas of a block, with the results of the reference
+`run_sa_sequential` bit for bit. Its parameters, preconditions and result are those of the
+reference, plus `threads`, checked first (`threads >= 0`); the messages start with
+"run_sa_openmp: ", except the errors of `total_weight`, and `SaResult::threads` is the team.
+
+- Threads, as C1. The R replicas form B = ceil(R / RB) blocks of RB = `kSaOpenmpReplicasPerBlock`
+  = 32 consecutive replicas. T_req is `threads` when it is positive, otherwise
+  `omp_get_max_threads()` read at the entry; the region of the sweeps gets
+  `num_threads(min(T_req, B))`, and `result.threads` is the size of its team (min(T_req, B) when
+  `omp_get_dynamic()` is 0). The library never changes the global OpenMP state.
+- Organization, as C1. A loop with `schedule(dynamic, 1)` gives the blocks to the threads; a block
+  runs all S sweeps on one thread, without barriers between blocks, in the work area of its thread
+  (allocated before the region, 64-byte aligned, whole cache lines: the signs, the local fields,
+  the signs at the start of the sweep and those kept for the best state, n * RB elements each, and
+  the table of the thresholds). The arrays are spin-major, element (spin i, lane l) at i * RB + l;
+  every loop over the lanes has exactly RB iterations. The lanes of the last block beyond R are
+  padding: they follow the Philox streams of lane 0 of the block (no global index beyond
+  2^32 - 1), take the same decisions and are discarded. After its sweeps a block writes its rows of
+  the outputs and checks the best and the final cut of each of its replicas with `cut_direct`, in
+  the same region; a mismatch or an exception (also one of the sweeps) is recorded, and after the
+  region the one of the smallest replica is reported (`sbmc::Error` with "internal"). Inside the
+  region no public function of the instance is called (B5) and nothing is allocated.
+- One proposal of spin i for all the lanes of a block: the acceptance words, one Philox block for
+  four consecutive proposals of a lane, in a vector loop over the lanes; the RB decisions in one
+  lane loop, m = s_i h_i, accepted when m <= 0 or w < threshold(beta_k, 2m), every lane consuming
+  the word of every proposal; then, only when at least one lane accepted, the masked update of the
+  fields of the neighbours of i, h_c += J_ic d_l with d_l = -2 s_i in the lanes that accepted and 0
+  in the others, in modular unsigned arithmetic (the exact result is in [-L, L] and fits the
+  accumulator). Energy, best energy and accepted moves of every lane are int64; the improvement is
+  strict, as in the reference. Each lane follows the trajectory of its replica in the reference
+  whatever the other lanes do.
+- Format of J and accumulator, the rule of C1 (see "OpenMP simulated bifurcation (C1)"): dense INT8
+  for a `DenseSpinGlass` and for a `Graph` with n <= 32768, |w| <= 127 and 8m >= n(n - 1),
+  compressed rows with int32 values otherwise; int16 when L = max_i sum_j |J_ij| <= 32767, int32
+  when L <= 2^31 - 1, int64 otherwise.
+- Thresholds. beta_k comes only from `sa_beta`, computed once for every sweep before the region,
+  and every threshold only from `sa_threshold`. With L <= L_tab = 4096 = 2^12 a table of L + 1
+  entries in the work area, filled at the start of every sweep of every block by calling
+  `sa_threshold(beta_k, 2m)` for m = 1, ..., L, with entry 0 = 2^32 (accepted: every word is
+  below it), read with the index max(m, 0) (a vector gather); with L > L_tab a call of
+  `sa_threshold` for every uphill proposal of every lane (a scalar loop). A table per block and
+  sweep rather than one S x L table shared before the region: it takes L + 1 entries per thread
+  whatever S (a shared table takes 8 S (L + 1) bytes, 32 MB with L = 4096 and S = 1000, and grows
+  with S), at the cost of B S L calls of 6.4 ns (measured): about 0.4% of the time of the G1 case
+  below and 0.2% of the K2000 case. L_tab is the lowest value allowed: the table costs L calls per
+  block and sweep whatever happens, the direct path at most one call per uphill proposal of a lane
+  (n RB per block and sweep), so a large L with few spins is cheaper without the table.
+- Best signs: no copy at every improvement. Every lane records the sweep and the spin of its last
+  improvement; the block keeps the signs at the start of the current sweep and, for the lanes that
+  improved during a sweep, copies them at its end into the kept states (one masked copy per sweep
+  with an improvement). At the end of the block the fields of the kept states are computed for all
+  the lanes at once, and every lane is replayed from its kept state, with the same words and the
+  thresholds of `sa_threshold`, up to the proposal of its last improvement; `best_sweep = 0` gives
+  the initial state, recomputed from its stream. The final check compares these signs with
+  `cut_direct`.
+- Guarantees. In every preset, strict or not, every field of the result except `threads` is equal
+  to `run_sa_sequential(inst, params)` (the bits of beta0 and beta1 included), for every number of
+  threads: there is no floating-point operation outside `sa_beta` and `sa_threshold`. So the
+  result depends neither on `threads`, nor on the size of the team, nor on the order of the
+  blocks, nor on how the replicas are split with `first_replica`.
+
+The paths of the test instances, checked in phase 06 with a temporary diagnostic print (removed):
+
+| Instance | J | L | Accumulator | Thresholds |
+|----------|---|---|-------------|------------|
+| `data/gset/G1` | compressed | 67 | int16 | table |
+| `torus_4x6_pm1.rudy` | compressed | 4 | int16 | table |
+| heavy_torus (`torus_4x6_unit.rudy`, weights x 10000) | compressed | 40,000 | int32 | direct |
+| huge_torus (`torus_4x6_unit.rudy`, weights x 500000) | compressed | 2,000,000 | int32 | direct |
+| `weighted_isolated_13.rudy` | compressed | 4,294,969,294 | int64 | direct |
+| dense_graph_40 (see `test_sb_openmp`) | dense | 117 | int16 | table |
+| dense_graph_40_heavy (the edge (0, 1) with weight 200) | compressed | 268 | int16 | table |
+| `DenseSpinGlass{200, 7}`, `DenseSpinGlass{300, 9}` | dense | 199, 299 | int16 | table |
+| `Graph{1, {}}`, `DenseSpinGlass{1, 3}` | dense | 0 | int16 | table |
+| mid_torus (`torus_4x6_unit.rudy`, weights x 2000) | compressed | 8,000 | int16 | direct |
+| K2000 (`data/raw/k2000/WK2000_1.rud`) | dense | 1,999 | int16 | table |
+
+Choice of RB and of the best signs: C2 with one and two threads on G1 (R = 256, S = 1000,
+beta0 = 0.1, beta1 = 3) and on K2000 (R = 64, S = 100, beta0 = 0.01, beta1 = 3), `sbmc_run
+--algo sa --variant c2 --reps 3 --warmup 1`, median of `t_solve_ms`, for RB = 8, 16, 32 and 64
+and two ways of keeping the best signs: "copy", a masked copy of the whole block at every
+improvement of a lane, and "replay", the one above. Measurements of cldExecutor's sandbox (Intel
+Xeon Processor @ 2.30GHz, 2 cores, preset `cpu`), not of the laptop, with variations of about 10%
+between rounds:
+
+| RB | Best signs | G1, 1 thread | G1, 2 threads | K2000, 1 thread | K2000, 2 threads |
+|----|------------|--------------|---------------|-----------------|------------------|
+| 8  | copy   | 1289 ms | 659 ms | 1384 ms | 775 ms |
+| 8  | replay | 1191 ms | 643 ms | 1613 ms | 747 ms |
+| 16 | copy   | 875 ms | 447 ms | 1287 ms | 654 ms |
+| 16 | replay | 841 ms | 435 ms | 1442 ms | 793 ms |
+| 32 | copy   | 832 ms | 428 ms | 1210 ms | 852 ms |
+| 32 | replay | 882 ms | 445 ms | 1150 ms | 836 ms |
+| 64 | copy   | 852 ms | 434 ms | 1364 ms | 1784 ms (team 1) |
+| 64 | replay | 827 ms | 419 ms | 1173 ms | 1527 ms (team 1) |
+
+RB = 8 is slower on G1 (about 40%); 16, 32 and 64 tie on G1, and on K2000 with one thread 32 and
+64 are the fastest; 64 leaves a run with R = 64 a single block, hence a single thread. RB = 32 it
+is, as in C1. The two ways of keeping the best signs tie on G1; on K2000, three more rounds with
+RB = 32 and one thread give 1380 to 1672 ms for "copy" and 1172 to 1197 ms for "replay" (median
+1439 against 1196 ms, 17% less): on a dense instance a copy of the block costs n * RB elements
+and improvements are frequent. With these choices, in the same sandbox, C2 takes 940 ms on G1 with
+one thread (489 ms with two) and 1338 ms on K2000 (712 ms with two); C0 (`--variant c0 --reps 1
+--warmup 0`) takes 2762 ms on G1 and 3760 ms on K2000, about 2.9 and 2.8 times C2 with one thread.
+Per replica and proposal, C2 with one thread costs about 4.6 ns on G1 and 105 ns on K2000, where
+every accepted move of any lane updates the fields of the whole block (n * RB elements).
+
+Measurement on the laptop: to be filled at the closure of phase 06 (scaling of C2 on G1 and K2000
+with T = 1, 2, 4, 6, 8, 12 and 16 threads, `results/f06/scaling_sa_G1.csv` and
+`results/f06/scaling_sa_K2000.csv`; C0 against C2 with one thread, `results/f06/c0_vs_c2.csv`).
+
+### T2 for C2
+
+`test_t2` runs the table of "T2 for SA" with C2 and three threads: the same optima, counts at the
+optimum and sequences of best cuts, in every preset.
 
 ## Exact solution by brute force (C3)
 
@@ -721,16 +844,17 @@ in `data/README.md`.
 
 `sbmc_run` (`apps/`, built in `build/<preset>/apps/`) runs simulated bifurcation (dSB or bSB,
 with the sequential reference C0 or with C1, `--variant c1`) or simulated annealing (`--algo sa`,
-the sequential reference) on one instance, and appends one row per repetition to a CSV with the
-results schema 1 (`sbmc/results.hpp`) and, with `--replica-out`, one row per replica to the
-replica file. The command line is parsed with CLI11 (`third_party/CLI11`).
+with the sequential reference or with C2, `--variant c2`) on one instance, and appends one row
+per repetition to a CSV with the results schema 1 (`sbmc/results.hpp`) and, with
+`--replica-out`, one row per replica to the replica file. The command line is parsed with CLI11
+(`third_party/CLI11`).
 
 ```
 sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
-         [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME] [--variant c0|c1]
-         [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K] [--seed S] [--reps K]
-         [--warmup K] [--target best-known|none|INTEGER] [--best-known FILE] [--out FILE]
-         [--replica-out FILE] [--notes TEXT]
+         [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
+         [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
+         [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
+         [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT]
 ```
 
 | Option | Meaning |
@@ -740,31 +864,35 @@ sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --rep
 | `--algo dsb\|bsb\|sa`, `--replicas R` | required: dSB, bSB or simulated annealing; R |
 | `--steps M`, `--dt X` | required with `dsb` and `bsb`, not used with `sa`: M and the time step (no default for dt, see "Sequential simulated bifurcation") |
 | `--sweeps S`, `--beta0 X`, `--beta1 X` | required with `sa`, not used with `dsb` and `bsb`, no default: the sweeps (an integer >= 1) and the inverse temperatures of the first and of the last sweep, finite numbers > 0 with `--beta1` >= `--beta0` (see "Simulated annealing (reference)") |
-| `--variant c0\|c1` | the implementation: `c0` (default), the sequential reference; `c1`, OpenMP over blocks of replicas (see "OpenMP simulated bifurcation (C1)"), only with `dsb` and `bsb` |
-| `--threads T` | OpenMP threads of `c1`, an integer from 0 to 1024; default 0, the default number of OpenMP threads. Only with `--variant c1` |
+| `--variant c0\|c1\|c2` | the implementation: `c0` (default), the sequential reference; `c1`, OpenMP over blocks of replicas, only with `dsb` and `bsb` (see "OpenMP simulated bifurcation (C1)"); `c2`, OpenMP over blocks of replicas, only with `sa` (see "C2: simulated annealing with OpenMP") |
+| `--threads T` | OpenMP threads of `c1` and `c2`, an integer from 0 to 1024; default 0, the default number of OpenMP threads. Only with `--variant c1` or `c2` |
 | `--a0 X`, `--c0 auto\|X` | `dsb` and `bsb`: a0 (default 1); c0 automatic (default) or a finite number > 0 (`--c0 0` is an error: in the library c0 = 0 means automatic, and the CSV would record another value) |
 | `--eval-every K` | bSB: evaluate the signs every K steps (default 0: only the final configuration); not with `sa` |
 | `--seed S` | seed of the initial positions (`dsb`, `bsb`) or of the initial spins and of the acceptance words (`sa`); default 0 |
 | `--reps K`, `--warmup K` | recorded repetitions (default 1) and warm-up runs, not recorded (default 1) |
 | `--target` | `best-known` (the row `--name` of `--best-known`, default `data/best_known.csv` relative to the current folder), an integer, or `none` (default) |
 | `--out FILE` | CSV of the results: header written when the file is new or empty, one row appended per repetition (no CSV without `--out`) |
-| `--replica-out FILE` | replica file: header written when the file is new or empty, R rows appended per repetition after its row of results (see "Replica file"); requires `--out` |
+| `--replica-out FILE` | replica file: header written when the file is new or empty, R rows appended per repetition after its row of results (see "Replica file"); requires `--out`, and another file |
 | `--notes TEXT` | free text of the `notes` column (no line breaks) |
 
 Integers are decimal only (CLI11 alone would read `010` as octal). Exit status: 0 success; 1
 error of the library (for example `--replicas 0`: the preconditions of C0, C1 and of the SA
 reference stay with the library, as in `sbmc_trace`), of reading or writing, a `--out` or
 `--replica-out` with another header or a partial last line (checked before the runs, the file
-is not modified), an instance that is not in the best-known table, or a row of the table whose
-n or m differs from the instance; 2 error of the command line (unknown, missing or repeated
+is not modified), an instance that is not in the best-known table, a row of the table whose n or
+m differs from the instance, or paths of `--out` and `--replica-out` that cannot be compared (the
+message names both options); 2 error of the command line (unknown, missing or repeated
 option, value that cannot be converted or is not in the list or in its range, missing or double
 instance, and the rules of the algorithms, checked after the parsing in this order: "--steps is
 required" and "--dt is required" with `dsb` and `bsb`; with `sa`, "--sweeps is required with
 --algo sa" (and so for `--beta0`, `--beta1`), "--steps is not used with --algo sa" (and so for
 `--dt`, `--c0`, `--a0`, `--eval-every`), "--variant c1 is not available with --algo sa", "--beta1
-must be >= --beta0"; "--sweeps requires --algo sa" (and so for `--beta0`, `--beta1`) with `dsb`
-and `bsb`; then a missing instance, "--threads requires --variant c1" (`--threads` without
-`--variant c1`, explicit or by default) and "--replica-out requires --out"). Until phase 05
+must be >= --beta0"; with `dsb` and `bsb`, "--sweeps requires --algo sa" (and so for `--beta0`,
+`--beta1`) and "--variant c2 requires --algo sa"; then a missing instance, "--threads requires
+--variant c1 or c2" (`--threads` with `--variant c0`, explicit or by default), "--replica-out
+requires --out" and "--replica-out must differ from --out", when the two paths name the same file
+once made absolute and passed to `std::filesystem::weakly_canonical`: `x.csv`, `./x.csv` and
+`/abs/x.csv` are the same file, before any run). Until phase 05
 `--steps` and `--dt` were required options of CLI11; the messages and their place among the
 checks of `sbmc_run` are unchanged, but an error that CLI11 finds during the parsing (a value
 that cannot be converted, an unexpected argument) now comes before them. On stdout every
@@ -780,9 +908,10 @@ Repetitions (decision B7): repetition k runs the solver with `first_replica = k 
 repetition, each one reproducible on its own (the replicas of a repetition are the same whatever
 the number of repetitions). The warm-up runs use `first_replica = 0` and are not recorded.
 `t_solve_ms` is the duration of the call of the solver, `run_sb_sequential` (dsb and bsb, c0),
-`run_sb_openmp` (c1) or `run_sa_sequential` (sa), including its internal preparation (check of
-the instance, internal copy of J, automatic c0, initial positions or spins; for c1 also the work
-areas and the start of the parallel region) and its final check; `t_setup_ms` is the time to read
+`run_sb_openmp` (c1), `run_sa_sequential` (sa, c0) or `run_sa_openmp` (sa, c2), including its
+internal preparation (check of the instance, internal copy of J, automatic c0, initial positions
+or spins; for c1 and c2 also the work areas and the start of the parallel region) and its final
+check; `t_setup_ms` is the time to read
 the rudy file (or to set up the dense instance), the same in every row of a run.
 
 Example: G1 with the parameters of GS-G1, five repetitions, target the best-known value:
@@ -812,6 +941,14 @@ build/cpu/apps/sbmc_run --instance data/gset/G1 --algo sa --replicas 32 --sweeps
     --out results/f06/sa_G1_example.csv --replica-out results/f06/sa_G1_example_replicas.csv
 ```
 
+The same with C2 and 1024 replicas on 8 threads (one row per repetition, `threads` 8):
+
+```bash
+build/cpu/apps/sbmc_run --instance data/gset/G1 --algo sa --variant c2 --threads 8 \
+    --replicas 1024 --sweeps 1000 --beta0 0.1 --beta1 3 --seed 1 --reps 3 --target best-known \
+    --out results/f06/sa_G1_c2_example.csv
+```
+
 K2000: the file is `data/raw/k2000/WK2000_1.rud` and its row in the table is `K2000`, so a run with
 `--target best-known` needs `--name K2000`.
 
@@ -830,7 +967,7 @@ preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
 | `gpu`, `driver`, `cuda`, `cublas` | GPU, driver, CUDA runtime and cuBLAS versions | empty (CPU) |
 | `compiler` | C++ compiler, `<id> <version>` | for example `GNU 13.3.0` |
 | `algo` | `dsb`, `bsb`, `sa` | |
-| `variant` | implementation | `c0` or `c1` (SB); `c0` (SA) |
+| `variant` | implementation | `c0` or `c1` (SB); `c0` or `c2` (SA) |
 | `instance` | `--name` | |
 | `n`, `nnz` | spins; edges (a dense instance has n(n - 1)/2) | |
 | `replicas`, `steps` | R; M (SB) or S, the sweeps (SA) | |
@@ -844,7 +981,7 @@ preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
 | `ranks`, `t_comm_ms` | MPI processes, communication time | 1; empty (multi-GPU only) |
 | `sm_clock_avg_mhz`, `temp_max_c`, `power_avg_w` | GPU clock, temperature and power during the run | empty (CPU) |
 | `eval_every`, `first_replica` | bSB evaluation period (empty for SA); global index of the first replica, k R | |
-| `threads` | CPU threads | 1 for `c0` (sequential, SB and SA); for `c1` the team of the steps, min(T_req, B) |
+| `threads` | CPU threads | 1 for `c0` (sequential, SB and SA); for `c1` the team of the steps, for `c2` the team of the sweeps, min(T_req, B) |
 | `target_source` | origin of the target: `best_known`, `user`, `none` | |
 | `notes` | `--notes` | |
 
@@ -869,7 +1006,8 @@ a temporary repository.
 
 `--replica-out FILE` (with `--out`) writes one row per replica of every recorded repetition, after
 the row of results of the repetition, for the relaxed targets and the bootstrap of
-`python/sbmc_tts.py`; the results schema does not change. The file is checked before the runs
+`python/sbmc_tts.py`; the results schema does not change. It must be another file than `--out`
+(exit status 2 before any run). The file is checked before the runs
 like `--out` (another header or a partial last line: exit status 1, file not modified) and gets
 its header when it is new or empty. Schema 1 of the replica file (`replica_columns()` and
 `append_replica_rows` of `sbmc/results.hpp`), 13 columns:
@@ -899,7 +1037,7 @@ python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,
 |--------|---------|
 | `--results FILE` | CSV of results schema 1 (exact header) |
 | `--replicas FILE` | replica file of the same runs (exact header) |
-| `--targets` | fractions of the target in thousandths, distinct integers in [1, 1000]; default 1000,995,990; without `--replicas` only 1000 is allowed ("relaxed targets need --replicas") |
+| `--targets` | fractions of the target in thousandths, distinct integers in [1, 1000]; default 1000,995,990 with `--replicas` and 1000 alone without it (decision Q3 of F06-R1); an explicit list without `--replicas` may only be 1000 ("relaxed targets need --replicas") |
 | `--bootstrap B` | bootstrap resamples: 0 (none) or at least 1000; default 1000 |
 | `--seed S` | seed of the bootstrap, an integer >= 0; default 1 |
 | `--out FILE` | CSV of the summary, overwritten |
@@ -958,7 +1096,7 @@ Example, on the runs of the example of "Replica file":
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_bruteforce`, `test_t2` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2` | `tests/`, `tests/core/`, `tests/cpu/` |
 | `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`                                   | `tests/python/`, `tests/tools/`       |
 | `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`                                              | `tests/python/`                       |
 | `tools`  | `test_sync_from_zip`, `test_build_info`; `test_cuda_rpath` (CUDA presets)                                         | `tests/scripts/`                      |
@@ -980,8 +1118,9 @@ between 2 and 6, like the random graphs of the G-set (maximum cut 40, the instan
 T2-2); `weighted_isolated_13.rudy`, 13 nodes and 19 edges with weights of both signs up to
 2^31 - 1 and two isolated nodes (maximum cut 6,442,452,014, 4 optimal partitions), which tests the
 int64 sums of C3 (only C3: `auto_c0` rejects it, because Q overflows int64). `test_gset`,
-`test_data`, `test_results`, the case GS-G1 and the case SA-5 read `data/`. Number of tests: 22
-with `cpu` and `cpu-strict`, 28 with `cuda` and `cuda-strict`, 25 with `t4` and `t4-strict`. A
+`test_data`, `test_results`, the case GS-G1, the cases SA-5 and SA-9 read `data/`. Number of
+tests: 23 with `cpu` and `cpu-strict`, 29 with `cuda` and `cuda-strict`, 26 with `t4` and
+`t4-strict`. A
 test that cannot run on the current machine (no GPU, no NumPy, missing tool, missing data) exits
 with 77 and CTest reports it as skipped (for example `ctest --preset cuda -L tile` runs only the
 Tile tests): `test_k2000` needs `scripts/fetch_data.sh --k2000` first.
@@ -1038,6 +1177,16 @@ Tests in detail (the C++ ones use doctest):
   with `first_replica`, the c0 actually used, instances with one spin, `trace_steps = 0`, every
   precondition (`threads = -1`, those of C0, a `DenseSpinGlass` with n = 32769 rejected before
   `total_weight`) and the last valid global replica index;
+- `test_sa_openmp` (C2): the constants SA-1 to SA-7 with one thread and with the default number
+  of threads, SA-8 and SA-9 of F06-C2 (sums over 70 replicas, maximum and minimum, fingerprint,
+  four replicas; SA-9 on the last 70 global indices) with the reference and with C2; C2 equal to
+  C0 field by field on 50 pairs of runs (ten instances that cover both formats of J, the three
+  accumulators and both paths of the thresholds, five configurations of replicas, first replica
+  and threads), plus the int16 accumulator with direct thresholds; the same result with 1, 2, 3
+  and the default number of threads (the team in `threads`, the OpenMP settings unchanged); the
+  replica split; the last global indices (2^32 - 69 replicas: equal to C0; one more: rejected);
+  RB; every precondition (`threads = -1` first, those of the reference, a `DenseSpinGlass` with
+  n = 32769 before `total_weight`, the errors of `total_weight`). Exact values in every preset;
 - `test_bruteforce` (C3): n, W, minimum energy, maximum cut, number of optimal partitions and
   canonical optimum of 16 instances (the five files of `tests/data/`, dense instances with 1 to 24
   spins, graphs with 1 to 3 nodes, a triangle with 7 isolated nodes, whose 256 optimal partitions
@@ -1047,8 +1196,8 @@ Tests in detail (the C++ ones use doctest):
   `DenseSpinGlass` with n = 2^31 - 1, rejected at once because n is checked before `total_weight`;
 - `test_t2` (T2): the seven cases of "T2: C0 and C1 against the exact optimum", the optimum from
   C3, the replicas of C0 and of C1 at the optimum (counts and the best cuts of T2-3 in the strict
-  presets, where C1 also equals C0 replica by replica); the seven cases of "T2 for SA" (counts and
-  three sequences of best cuts in every preset);
+  presets, where C1 also equals C0 replica by replica); the seven cases of "T2 for SA" with the
+  reference and with C2 (counts and three sequences of best cuts in every preset);
 - `test_p0` and `test_t8` (label `python`): P0 alone and T8, C0 against P0 (section "Python
   reference P0 and T8"), with the lines `P0 ...` and `T8 ...` and the final `P0_VERDICT` and
   `T8_VERDICT`;
@@ -1061,12 +1210,13 @@ Tests in detail (the C++ ones use doctest):
   computed by cldArchitect (successes, P_s and its Wilson interval, the batch time and its
   quartiles, TTS99 and its interval, best and mean cut, gaps), the SKIP line, the bootstrap
   interval (around TTS99, infinite, or inside the times), the same summary byte for byte on a
-  second call, `--bootstrap 0`, the run without `--replicas`, every exit status 1 (data) and 2
+  second call, `--bootstrap 0`, the runs without `--replicas` (with `--targets 1000`, and
+  without `--targets`: the three groups at 1000 alone), every exit status 1 (data) and 2
   (command line), a group with skewed times (the batch time is their median, not their mean), the
   bootstrap intervals of one group against the procedure of "Time to solution", written again in
   the test; one line `TTS <check>: PASS|FAIL` per check and the final line `TTS_VERDICT`;
 - `test_sbmc_run` (label `apps`): `sbmc_run` run from the repository root, its exit statuses (2 for
-  the command line, among them `--threads` without `--variant c1` and out of [0, 1024]; 1 for the
+  the command line, among them `--threads` with `--variant c0` and out of [0, 1024]; 1 for the
   library and for reading and writing), the 44 columns and their values on the 4-node graph, a
   repetition against `sbmc_trace` on the same global replicas, appending to an existing CSV,
   `--target best-known` on G1, `--name G1` on another instance (exit status 1: another n and m)
@@ -1077,7 +1227,11 @@ Tests in detail (the C++ ones use doctest):
   and bSB; with `--algo sa`: the rows and the replica file against the values of F06-C1, every
   new message of the command line (compared word for word), `--replica-out` with dSB against the
   rows of results and a second run on the same files, a replica file with another header left
-  unchanged; final line `RUN_VERDICT`;
+  unchanged; with `--variant c2`: the run of `--algo sa` with two threads (one block: `threads`
+  1, the rows and the replica file of `c0`), G1 with R = 133 and three threads against `c0`, the
+  messages of `--variant c2` with dSB and bSB, of `--threads` with `c0`, of `--variant c3`, of
+  `--replica-out` on the `--out` file written in four ways, and exit status 1 for a loop of
+  symbolic links in the path of `--replica-out`; final line `RUN_VERDICT`;
 - `test_sbmc_bruteforce` (label `apps`, standard library only): `sbmc_bruteforce` with absolute
   paths, its exit statuses (2 for the command line, among them `--threads 1025` and a default
   name taken from a file name with a space; 1 for the library and for reading; always with an
@@ -1186,23 +1340,24 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 CMakeLists.txt, CMakePresets.json, cmake/   build system (cmake/sbmc_build_info.cmake: build
                      information of the results rows)
 include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
-                     sb, sb_sequential, sb_openmp, sa, sa_sequential, bruteforce, results
+                     sb, sb_sequential, sb_openmp, sa, sa_sequential, sa_openmp, bruteforce,
+                     results
 src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, initial
                      positions, pressure schedule and automatic c0, schedule of beta and
                      acceptance threshold of SA, results schema, replica file and CSV, table of
                      best-known values
 src/cpu/             sequential reference C0 (phase 04), OpenMP simulated bifurcation C1 and
                      exact enumeration C3 with OpenMP (phase 05), sequential reference of
-                     simulated annealing (phase 06); C2 later
+                     simulated annealing and OpenMP simulated annealing C2 (phase 06)
 src/gpu/             cuBLAS, cuBLASLt, bitwise and cuSPARSE products, update kernels
 src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
-apps/                command-line programs: sbmc_run (phase 04, C1 from phase 05, SA and the
-                     replica file from phase 06), sbmc_bruteforce (phase 05)
+apps/                command-line programs: sbmc_run (phase 04, C1 from phase 05, SA, C2 and
+                     the replica file from phase 06), sbmc_bruteforce (phase 05)
 tests/               unit, integration and smoke tests (ctest)
 tests/core/          unit tests of the core library (doctest)
-tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C3) and T2
-                     (doctest)
+tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C2, C3) and
+                     T2 (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
 tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run

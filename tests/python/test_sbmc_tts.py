@@ -13,14 +13,17 @@ tolerance of 1e-9, integers exactly. Checks:
    interval around TTS99;
 2. the same call again: the same summary byte for byte; --bootstrap 0: the bootstrap columns
    empty, the other columns equal;
-3. without --replicas and with --targets 1000: fx from the columns n_success and mean_cut;
+3. without --replicas and with --targets 1000: fx from the columns n_success and mean_cut; since
+   F06-R2 (decision Q3) also without --replicas and without --targets: exit status 0, the three
+   groups at 1000 only, fx with the same values;
 4. exit status 1: a replica row removed, a replica row without its row of results, (seed, rep)
    twice in a group, a wrong n_success, a wrong mean_cut, a wrong header, a missing file; added
    in F06-R1, so that every error has a test: a replica row repeated, a row of results repeated,
    a wrong best_cut, the replica file with another header, --out in a missing folder;
-5. exit status 2: --targets 995 without --replicas (also the default targets), --bootstrap 10,
-   --targets 0, --targets 1001, --targets 1000,1000, no --results; added in F06-R1: --seed -1,
-   --bootstrap x, --targets 1000,x;
+5. exit status 2: --targets 995 and (since F06-R2) --targets 1000,995 without --replicas, with
+   the message of the relaxed targets; --bootstrap 10, --targets 0, --targets 1001,
+   --targets 1000,1000, no --results; added in F06-R1: --seed -1, --bootstrap x,
+   --targets 1000,x;
 6. (added in F06-R1) a group with the times 1, 2 and 9 ms: t_batch is their median, 2, not their
    mean, and the quartiles are those of numpy.percentile (the times of the fixture are
    symmetric, where the median and the mean coincide);
@@ -59,7 +62,8 @@ REPLICA_COLUMNS = [
 ]
 BOOTSTRAP_COLUMNS = ["bootstrap", "bootstrap_seed", "tts99_boot_lo_ms", "tts99_boot_hi_ms"]
 OUTPUTS = ["results.csv", "replicas.csv", "summary.csv", "summary_again.csv",
-           "summary_no_boot.csv", "summary_no_replicas.csv", "bad.csv", "bad_replicas.csv",
+           "summary_no_boot.csv", "summary_no_replicas.csv", "summary_default_no_replicas.csv",
+           "bad.csv", "bad_replicas.csv",
            "skewed.csv", "summary_skewed.csv"]
 
 
@@ -346,6 +350,18 @@ def main() -> int:
                  result.returncode == 0 and len(rows_plain) == 3 and not wrong,
                  f"exit {result.returncode}, {len(rows_plain)} lines" +
                  (": " + "; ".join(wrong) if wrong else ""))
+    # Q3 (F06-R2): without --replicas and without --targets, the target 1000 alone.
+    default_plain = workdir / "summary_default_no_replicas.csv"
+    result = run(["--results", str(results_csv), "--out", str(default_plain)])
+    rows_default = read_summary(default_plain)
+    lines = [(r.get("instance"), r.get("target_permille")) for r in rows_default]
+    fx = next((r for r in rows_default if r.get("instance") == "fx"), {})
+    wrong = compare(fx, {**EXPECTED[("fx", 1000)], **COMMON["fx"]})
+    report.check("the default targets without --replicas: 1000 only",
+                 result.returncode == 0 and lines == [("fx", "1000"), ("fy", "1000"),
+                                                      ("fz", "1000")] and not wrong,
+                 f"exit {result.returncode}, lines {lines}" +
+                 (": " + "; ".join(wrong) if wrong else ""))
 
     # 4. Errors in the data: exit status 1.
     bad, bad_replicas = workdir / "bad.csv", workdir / "bad_replicas.csv"
@@ -403,7 +419,8 @@ def main() -> int:
     # 5. Errors of the command line: exit status 2.
     usage_cases = [
         ("--targets 995 without --replicas", ["--results", str(results_csv), "--targets", "995"]),
-        ("the default targets without --replicas", ["--results", str(results_csv)]),
+        ("--targets 1000,995 without --replicas",
+         ["--results", str(results_csv), "--targets", "1000,995"]),
         ("--bootstrap 10", both + ["--bootstrap", "10"]),
         ("--targets 0", both + ["--targets", "0"]),
         ("--targets 1001", both + ["--targets", "1001"]),
@@ -416,9 +433,11 @@ def main() -> int:
     for name, arguments in usage_cases:
         result = run(arguments)
         first = result.stderr.strip().splitlines()[0:1]
+        relaxed = "without --replicas" not in name or (
+            bool(first) and "relaxed targets need --replicas" in first[0])
         report.check(f"exit 2: {name}",
                      result.returncode == 2 and bool(first) and first[0].startswith("sbmc_tts: ")
-                     and result.stdout == "", f"exit {result.returncode}: {first}")
+                     and result.stdout == "" and relaxed, f"exit {result.returncode}: {first}")
 
     # 6. Skewed times: the median, not the mean.
     skewed, skewed_summary = workdir / "skewed.csv", workdir / "summary_skewed.csv"

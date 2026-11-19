@@ -7,12 +7,13 @@ Usage:
 
 --results is a CSV of results schema 1 (sbmc/results.hpp); --replicas is the replica file of the
 same runs (sbmc_run --replica-out), needed for the relaxed targets (995 and 990 thousandths of the
-target) and used by the bootstrap. The rows of results are grouped by the 21 columns of GROUP_KEY,
-in the order of first appearance; groups without a target are skipped. For every group and every
-target fraction f (in thousandths): the successes over all repetitions, P_s with its Wilson
-interval at 95%, the batch time (median of t_solve_ms), TTS99 and its interval from the Wilson
-bounds, a bootstrap interval of TTS99 (B resamples with a fixed seed), the best and the mean cut,
-and their gaps from the target.
+target) and used by the bootstrap. Without --targets the fractions are 1000, 995 and 990 with
+--replicas and 1000 alone without it; an explicit --targets without --replicas accepts only 1000.
+The rows of results are grouped by the 21 columns of GROUP_KEY, in the order of first appearance;
+groups without a target are skipped. For every group and every target fraction f (in
+thousandths): the successes over all repetitions, P_s with its Wilson interval at 95%, the batch
+time (median of t_solve_ms), TTS99 and its interval from the Wilson bounds, a bootstrap interval of
+TTS99 (B resamples with a fixed seed), the best and the mean cut, and their gaps from the target.
 
 Until results schema 2 (phase 07) t_solve_ms includes the preparation and the final check of the
 solver: the TTS of these runs is slightly pessimistic.
@@ -300,15 +301,19 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser = Parser(prog="sbmc_tts", description="Time to solution TTS99 of sbmc_run results.")
     parser.add_argument("--results", required=True, help="CSV of results schema 1")
     parser.add_argument("--replicas", help="replica file of the same runs (sbmc_run --replica-out)")
-    parser.add_argument("--targets", default=",".join(map(str, DEFAULT_TARGETS)),
+    parser.add_argument("--targets",
                         help="target fractions in thousandths, distinct integers in [1, 1000] "
-                             "(default 1000,995,990; without --replicas only 1000)")
+                             "(default: 1000,995,990 with --replicas, 1000 without it; without "
+                             "--replicas only 1000 is accepted)")
     parser.add_argument("--bootstrap", default="1000",
                         help="bootstrap resamples: 0 (none) or at least 1000 (default 1000)")
     parser.add_argument("--seed", default="1", help="seed of the bootstrap, >= 0 (default 1)")
     parser.add_argument("--out", help="CSV of the summary (overwritten)")
     args = parser.parse_args(list(argv))
-    args.targets = parse_targets(args.targets)
+    if args.targets is None:  # the default depends on --replicas (decision Q3 of F06-R1)
+        args.targets = list(DEFAULT_TARGETS) if args.replicas is not None else [1000]
+    else:
+        args.targets = parse_targets(args.targets)
     if args.replicas is None and args.targets != [1000]:
         raise UsageError("relaxed targets need --replicas (without it use --targets 1000)")
     try:

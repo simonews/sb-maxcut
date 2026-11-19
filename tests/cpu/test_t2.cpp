@@ -2,9 +2,10 @@
 // optimum of the enumeration C3 and never exceed it. Phase 05: the sequential reference C0
 // (sbmc/sb_sequential.hpp) and C1, simulated bifurcation with OpenMP over blocks of replicas
 // (sbmc/sb_openmp.hpp, three threads). Phase 06: the sequential reference of simulated annealing
-// (sbmc/sa_sequential.hpp), with its own table SA-T2: R = 16, beta0 = 0.1, beta1 = 3,
-// first_replica = 0. SA has no floating-point sum, so its counts and best cuts are compared in
-// every preset.
+// (sbmc/sa_sequential.hpp) and C2, simulated annealing with OpenMP over blocks of replicas
+// (sbmc/sa_openmp.hpp, three threads), with their own table SA-T2: R = 16, beta0 = 0.1,
+// beta1 = 3, first_replica = 0. SA has no floating-point sum, so its counts and best cuts are
+// compared in every preset.
 //
 // Every case first computes the optimum with solve_bruteforce, which must equal the value of the
 // table, then runs the solver with R = 16, a0 = 1, automatic c0 (c0 = 0), first_replica = 0 and
@@ -30,6 +31,7 @@
 #include <sbmc/instance.hpp>
 #include <sbmc/rudy.hpp>
 #include <sbmc/sa.hpp>
+#include <sbmc/sa_openmp.hpp>
 #include <sbmc/sa_sequential.hpp>
 #include <sbmc/sb.hpp>
 #include <sbmc/sb_openmp.hpp>
@@ -208,18 +210,22 @@ TEST_CASE("T2: C1 reaches the exact optimum and never exceeds it") {
 }
 
 // SA-T2 (F06-C1, section 5.8): optima from C3, replicas at the optimum and three sequences of best
-// cuts computed by cldArchitect with two independent emulators of the SA reference.
-TEST_CASE("T2: the SA reference reaches the exact optimum and never exceeds it") {
-  struct SaT2Case {
-    std::string name;
-    Instance instance;
-    int sweeps;
-    std::uint64_t seed;
-    std::int64_t optimum;
-    int at_optimum;
-    std::vector<std::int64_t> best_cuts;  // empty: not given
-  };
-  const std::vector<SaT2Case> cases = {
+// cuts computed by cldArchitect with two independent emulators of the SA reference. The same table
+// holds for C2, which gives the results of the reference bit for bit.
+namespace {
+
+struct SaT2Case {
+  std::string name;
+  Instance instance;
+  int sweeps;
+  std::uint64_t seed;
+  std::int64_t optimum;
+  int at_optimum;
+  std::vector<std::int64_t> best_cuts;  // empty: not given
+};
+
+std::vector<SaT2Case> sa_t2_cases() {
+  return {
       {"SA-T2-1 sparse_24_unit.rudy S 20",
        rudy("sparse_24_unit.rudy"),
        20,
@@ -246,7 +252,12 @@ TEST_CASE("T2: the SA reference reaches the exact optimum and never exceeds it")
       {"SA-T2-6 DenseSpinGlass{22, 22} S 100", DenseSpinGlass{22, 22}, 100, 66, 34, 16, {}},
       {"SA-T2-7 torus_4x6_pm1.rudy S 20", rudy("torus_4x6_pm1.rudy"), 20, 67, 24, 16, {}},
   };
-  for (const SaT2Case& c : cases) {
+}
+
+// The table SA-T2 with a solver of simulated annealing: solve(instance, params) -> SaResult.
+template <typename Solver>
+void check_sa_t2(Solver solve) {
+  for (const SaT2Case& c : sa_t2_cases()) {
     INFO(c.name);
     const sbmc::BruteForceResult exact = sbmc::solve_bruteforce(c.instance);
     CHECK(exact.max_cut == c.optimum);
@@ -258,7 +269,7 @@ TEST_CASE("T2: the SA reference reaches the exact optimum and never exceeds it")
     p.beta1 = 3.0;
     p.seed = c.seed;
     p.first_replica = 0;
-    const sbmc::SaResult result = sbmc::run_sa_sequential(c.instance, p);
+    const sbmc::SaResult result = solve(c.instance, p);
     REQUIRE(result.per_replica.size() == static_cast<std::size_t>(kReplicas));
     std::vector<std::int64_t> best_cuts;
     for (const sbmc::SaReplicaResult& replica : result.per_replica) {
@@ -272,4 +283,19 @@ TEST_CASE("T2: the SA reference reaches the exact optimum and never exceeds it")
       CHECK(best_cuts == c.best_cuts);
     }
   }
+}
+
+}  // namespace
+
+TEST_CASE("T2: the SA reference reaches the exact optimum and never exceeds it") {
+  check_sa_t2([](const Instance& inst, const sbmc::SaParams& p) {
+    return sbmc::run_sa_sequential(inst, p);
+  });
+}
+
+// C2 (sbmc/sa_openmp.hpp) with three threads: the same table.
+TEST_CASE("T2: C2 reaches the exact optimum and never exceeds it") {
+  check_sa_t2([](const Instance& inst, const sbmc::SaParams& p) {
+    return sbmc::run_sa_openmp(inst, p, 3);
+  });
 }
