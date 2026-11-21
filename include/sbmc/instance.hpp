@@ -86,4 +86,26 @@ void dense_rows_int8(const Instance& inst, std::int64_t row_begin, std::int64_t 
 // Symmetric by construction.
 std::int8_t coupling(const DenseSpinGlass& g, std::int64_t i, std::int64_t j);
 
+// Internal to the solvers (run_sb_sequential, run_sb_openmp, run_sa_sequential, run_sa_openmp):
+// the cut of their final check, after the instance has been checked once at their entry
+// (decision B5). Unlike every function above, these check nothing, never throw, never allocate
+// and never use OpenMP, so that they can run inside the parallel regions of the solvers. Their
+// results are equal to cut_direct for the same instance and the same spins.
+namespace detail {
+
+// Cut C = sum over the edges of g of w_uv [s_u != s_v], in int64, without any check: the caller
+// has checked g (for example with total_weight) and guarantees s.size() == g.n and s_i in
+// {-1, +1}. For the final check of the solvers (decision L3 of phase 07); elsewhere use
+// cut_direct.
+std::int64_t cut_edges_unchecked(const Graph& g, std::span<const Spin> s) noexcept;
+
+// Cut C = -sum_{i<j} J_ij [s_i != s_j] from dense INT8 rows of J: element (i, j) at
+// rows[i * ld + j] for 0 <= i, j < n, symmetric with a zero diagonal, as written by
+// dense_rows_int8; the columns j >= n are never read. No check: the caller guarantees n >= 1,
+// ld >= n, rows.size() >= n * ld, s.size() == n and s_i in {-1, +1}.
+std::int64_t cut_dense_rows_unchecked(std::span<const std::int8_t> rows, std::int64_t n,
+                                      std::int64_t ld, std::span<const Spin> s) noexcept;
+
+}  // namespace detail
+
 }  // namespace sbmc

@@ -1,4 +1,4 @@
-// Results schema 1, the replica file and the table of best-known values (sbmc/results.hpp).
+// Results schema 2, the replica file and the table of best-known values (sbmc/results.hpp).
 #include <sbmc/results.hpp>
 
 #include <array>
@@ -23,8 +23,11 @@
 namespace sbmc {
 namespace {
 
-// Schema 1: schema_version, the columns of section 10.4 of the reference document in the same
-// order, then the additions a0, eval_every, first_replica, threads and target_source, and notes.
+// Schema 2: columns 1-43 are the first 43 of schema 1 (schema_version, the columns of section 10.4
+// of the reference document in the same order, then a0, eval_every, first_replica, threads and
+// target_source); columns 44-55 are the additions of phase 07 (the times of the solvers, the
+// rules of dt and c0, the extremes of the spectrum of J, the affinity and the OpenMP settings of
+// the process, the tag of the run); notes stays the last column.
 constexpr auto kColumns = std::to_array<std::string_view>({
     "schema_version",
     "timestamp",
@@ -69,9 +72,21 @@ constexpr auto kColumns = std::to_array<std::string_view>({
     "first_replica",
     "threads",
     "target_source",
+    "t_prep_ms",
+    "t_run_ms",
+    "t_check_ms",
+    "dt_rule",
+    "c0_rule",
+    "lambda_min",
+    "lambda_max",
+    "cpu_affinity",
+    "cpu_classes",
+    "omp_places",
+    "omp_proc_bind",
+    "run_tag",
     "notes",
 });
-static_assert(kColumns.size() == 44);
+static_assert(kColumns.size() == 56);
 
 // Replica file, schema 1.
 constexpr auto kReplicaColumns = std::to_array<std::string_view>({
@@ -272,12 +287,12 @@ void append_results_row(const std::filesystem::path& file, std::span<const std::
   if (row.size() != kColumns.size()) {
     throw InvalidArgument("append_results_row: " + std::to_string(row.size()) + " values, " +
                           std::to_string(kColumns.size()) +
-                          " expected (one per column of results schema 1)");
+                          " expected (one per column of results schema 2)");
   }
   // Everything that can be checked without the file is checked before touching it.
   const std::string header = header_of(kColumns);
   const std::string line = csv_line(row) + '\n';
-  append_lines("append_results_row", "results schema 1", file, header, line);
+  append_lines("append_results_row", "results schema 2", file, header, line);
 }
 
 std::span<const std::string_view> replica_columns() noexcept {

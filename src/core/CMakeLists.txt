@@ -1,11 +1,12 @@
 # Core library: public headers (include/sbmc/) and sbmc_core (rudy reader, Ising model in int64,
 # dense INT8 rows of J, Philox streams, initial positions, parts of simulated bifurcation common
 # to every variant: pressure schedule and automatic c0; parts of simulated annealing common to
-# every variant: schedule of beta and acceptance threshold; results schema 1, the replica file,
-# CSV helpers and the table of best-known values). Standard C++20 and OpenMP only: the public
-# headers contain no CUDA type and include no CUDA header; the only CUDA-related element is the
-# macro SBMC_HD of sbmc/philox.hpp, active under __CUDACC__ only (sb_sign and sb_update of
-# sbmc/sb.hpp, sa_initial_spin and sa_acceptance_word of sbmc/sa.hpp use it).
+# every variant: schedule of beta and acceptance threshold; the times of the solvers; results
+# schema 2, the replica file, CSV helpers and the table of best-known values). Standard C++20 and
+# OpenMP only: the public headers contain no CUDA type and include no CUDA header; the only
+# CUDA-related element is the macro SBMC_HD of sbmc/philox.hpp, active under __CUDACC__ only
+# (sb_sign and sb_update of sbmc/sb.hpp, sa_initial_spin and sa_acceptance_word of sbmc/sa.hpp
+# use it).
 
 add_library(sbmc_headers INTERFACE)
 add_library(sbmc::headers ALIAS sbmc_headers)
@@ -28,6 +29,7 @@ set(_sbmc_public_headers
   instance.hpp
   rudy.hpp
   initial_state.hpp
+  solve_times.hpp
   sb.hpp
   sb_sequential.hpp
   sb_openmp.hpp

@@ -2,13 +2,23 @@
 //
 // The replicas are independent and run one after the other, each for all M steps. The step loop
 // works only on internal copies (couplings, positions, momenta, signs): the instance is checked
-// once at the entry, and the public cut_direct is called once per replica at the end (B5). No
-// OpenMP here: the library functions called at the entry (total_weight, auto_c0,
-// dense_rows_int8, make_initial_state) may use it, with results that do not depend on the
-// number of threads.
+// once at the entry, by total_weight, and never again (B5). The final check recomputes the best
+// cut of every replica directly, without any check of the instance (decision L3 of phase 07):
+// on the edges for a Graph (detail::cut_edges_unchecked), on the internal INT8 rows of J with
+// ld = n for a DenseSpinGlass (detail::cut_dense_rows_unchecked); no public function of the
+// instance is called after the entry. No OpenMP here: the library functions called in the
+// preparation (total_weight, auto_c0, dense_rows_int8, make_initial_state) may use it, with
+// results that do not depend on the number of threads.
+//
+// Times (sbmc/solve_times.hpp): t0 is the first instruction of run_sb_sequential; the
+// preparation [t0, t1) covers the preconditions, total_weight, c0, the internal J, the pressure
+// schedule, the outputs, the trace, the work areas and x0 of every replica in final_x
+// (make_initial_state); the run [t1, t2) is the replica loop; the check [t2, t3) is the final
+// check loop.
 #include <sbmc/sb_sequential.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -27,6 +37,12 @@ namespace {
 
 constexpr std::int64_t kMaxDenseSpins = 32768;                      // dense INT8 J: at most 1 GiB
 constexpr std::int64_t kReplicaIndexLimit = std::int64_t{1} << 32;  // global replica indices
+
+using Clock = std::chrono::steady_clock;
+
+double milliseconds(Clock::time_point from, Clock::time_point to) {
+  return std::chrono::duration<double, std::milli>(to - from).count();
+}
 
 [[noreturn]] void invalid(const std::string& reason) {
   throw InvalidArgument("run_sb_sequential: " + reason);
@@ -169,6 +185,18 @@ DenseCouplings make_couplings(const DenseSpinGlass& g) {
   return c;
 }
 
+// The cut of the final check, computed directly and without any check (decision L3 of phase 07):
+// on the edges of a Graph, on the internal dense rows (ld = n) of a DenseSpinGlass.
+std::int64_t direct_cut(const Graph& g, const SparseCouplings& /*c*/,
+                        std::span<const Spin> s) noexcept {
+  return detail::cut_edges_unchecked(g, s);
+}
+
+std::int64_t direct_cut(const DenseSpinGlass& /*g*/, const DenseCouplings& c,
+                        std::span<const Spin> s) noexcept {
+  return detail::cut_dense_rows_unchecked(c.j, c.n, c.n, s);
+}
+
 // E(s) = -(sum_i s_i F_i) / 2 with F = J s, exact in int64 (the sum is even).
 template <typename Couplings>
 std::int64_t energy(const Couplings& c, const Spin* s) {
@@ -179,9 +207,9 @@ std::int64_t energy(const Couplings& c, const Spin* s) {
   return -sum / 2;
 }
 
-template <typename Couplings>
-SbResult run(const Instance& inst, const Couplings& c, std::int64_t total, float c0,
-             const SbParams& params, int trace_steps) {
+template <typename G, typename Couplings>
+SbResult run(const G& g, const Couplings& c, std::int64_t total, float c0, const SbParams& params,
+             int trace_steps, Clock::time_point t0) {
   const std::int64_t n = c.n;
   const int replicas = params.replicas;
   const int steps = params.steps;
@@ -209,6 +237,8 @@ SbResult run(const Instance& inst, const Couplings& c, std::int64_t total, float
 
   std::vector<Spin> s(un);
   std::vector<float> field(un);
+
+  const Clock::time_point t1 = Clock::now();
   for (int r = 0; r < replicas; ++r) {
     const std::size_t offset = static_cast<std::size_t>(r) * un;
     float* const x = result.final_x.data() + offset;
@@ -271,24 +301,39 @@ SbResult run(const Instance& inst, const Couplings& c, std::int64_t total, float
     out.final_cut = (total - final_energy) / 2;
   }
 
-  // Final check with the public functions, one call per replica.
+  const Clock::time_point t2 = Clock::now();
+
+  // Final check: the direct cut of the best configuration of every replica against its best_cut.
+  // The first mismatch (the smallest replica) is thrown after t3.
+  int mismatch = -1;
+  std::int64_t mismatch_cut = 0;
   for (int r = 0; r < replicas; ++r) {
     const std::span<const Spin> spins(result.best_spins.data() + static_cast<std::size_t>(r) * un,
                                       un);
-    const std::int64_t cut = cut_direct(inst, spins);
-    const SbReplicaResult& out = result.per_replica[static_cast<std::size_t>(r)];
-    if (cut != out.best_cut) {
-      throw Error("run_sb_sequential: internal error: replica " + std::to_string(r) +
-                  ": cut_direct gives " + std::to_string(cut) + ", (W - best_energy) / 2 gives " +
-                  std::to_string(out.best_cut));
+    const std::int64_t cut = direct_cut(g, c, spins);
+    if (cut != result.per_replica[static_cast<std::size_t>(r)].best_cut) {
+      mismatch = r;
+      mismatch_cut = cut;
+      break;
     }
   }
+  const Clock::time_point t3 = Clock::now();
+  if (mismatch >= 0) {
+    throw Error("run_sb_sequential: internal error: replica " + std::to_string(mismatch) +
+                ": the direct cut gives " + std::to_string(mismatch_cut) +
+                ", (W - best_energy) / 2 gives " +
+                std::to_string(result.per_replica[static_cast<std::size_t>(mismatch)].best_cut));
+  }
+  result.times.prep_ms = milliseconds(t0, t1);
+  result.times.run_ms = milliseconds(t1, t2);
+  result.times.check_ms = milliseconds(t2, t3);
   return result;
 }
 
 }  // namespace
 
 SbResult run_sb_sequential(const Instance& inst, const SbParams& params, int trace_steps) {
+  const Clock::time_point t0 = Clock::now();
   check_params(params, trace_steps);
   if (const auto* dense = std::get_if<DenseSpinGlass>(&inst);
       dense != nullptr && dense->n > kMaxDenseSpins) {
@@ -298,7 +343,7 @@ SbResult run_sb_sequential(const Instance& inst, const SbParams& params, int tra
   const std::int64_t total = total_weight(inst);  // full check of the instance
   const float c0 = params.c0 > 0.0f ? params.c0 : auto_c0(inst);
   return std::visit(
-      [&](const auto& g) { return run(inst, make_couplings(g), total, c0, params, trace_steps); },
+      [&](const auto& g) { return run(g, make_couplings(g), total, c0, params, trace_steps, t0); },
       inst);
 }
 

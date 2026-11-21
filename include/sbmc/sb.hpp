@@ -16,6 +16,7 @@
 
 #include <sbmc/instance.hpp>
 #include <sbmc/philox.hpp>
+#include <sbmc/solve_times.hpp>
 
 namespace sbmc {
 
@@ -74,7 +75,7 @@ SBMC_HD constexpr void sb_update(float& x, float& y, float field, float p, float
 
 struct SbReplicaResult {
   std::int64_t best_energy = 0;  // minimum E over the evaluated configurations
-  std::int64_t best_cut = 0;     // (W - best_energy) / 2, checked with cut_direct
+  std::int64_t best_cut = 0;     // (W - best_energy) / 2, checked with the direct cut
   int best_step = 0;             // m of the configuration s(m) with best_energy; ties: smallest m
   std::int64_t final_cut = 0;    // cut of s(M), the signs after the last step
 };
@@ -91,7 +92,8 @@ struct SbResult {
   std::vector<float> final_x, final_y;       // replica-major, R * n
   int trace_steps = 0;                       // K
   std::vector<float> trace_x, trace_y;       // [k][r][i], K * R * n: state after step k + 1
-  int threads = 1;  // OpenMP threads of the step loop: the team of C1; 1 for C0
+  int threads = 1;   // OpenMP threads of the step loop: the team of C1; 1 for C0
+  SolveTimes times;  // preparation, run and final check of the call (sbmc/solve_times.hpp)
 };
 
 }  // namespace sbmc

@@ -1,5 +1,6 @@
 // sbmc/instance.hpp: T1 (Ising-cut mapping on the 4-node example), int64 sums and validation, T5
-// (dense INT8 rows of a Graph) and T12 (implicit dense instances).
+// (dense INT8 rows of a Graph), T12 (implicit dense instances) and, since phase 07, the unchecked
+// cut of the final check of the solvers (sbmc::detail), against cut_direct as the oracle.
 //
 // The T12 reference values were computed by cldArchitect with an independent implementation,
 // checked on the Random123 vectors. Random inputs come from std::mt19937_64 with fixed seeds and
@@ -21,6 +22,15 @@
 
 #include <sbmc/error.hpp>
 #include <sbmc/instance.hpp>
+#include <sbmc/rudy.hpp>
+#include <sbmc/sa.hpp>
+
+#ifndef SBMC_TEST_DATA_DIR
+#error "SBMC_TEST_DATA_DIR must be defined by CMake (absolute path of tests/data)"
+#endif
+#ifndef SBMC_DATA_DIR
+#error "SBMC_DATA_DIR must be defined by CMake (absolute path of data/)"
+#endif
 
 namespace {
 
@@ -667,4 +677,114 @@ TEST_CASE("T12: the Instance versions give the same values as the DenseSpinGlass
         all.subspan(index(first_row, 0, kLd), index(last_row - first_row, 0, kLd)));
   }
   CHECK(pieces == from_dense);
+}
+
+// --- sbmc::detail: the cut of the final check of the solvers (phase 07) ----------------------
+
+namespace {
+
+Graph test_rudy(const char* name) {
+  return sbmc::read_rudy(std::string(SBMC_TEST_DATA_DIR) + "/" + name);
+}
+
+// Spin vector r of the detail cases: s_i = sa_initial_spin(9, r, i).
+std::vector<Spin> stream_spins(std::int64_t n, std::uint32_t r) {
+  std::vector<Spin> s(static_cast<std::size_t>(n));
+  for (std::int64_t i = 0; i < n; ++i) {
+    s[static_cast<std::size_t>(i)] = sbmc::sa_initial_spin(9, r, static_cast<std::uint32_t>(i));
+  }
+  return s;
+}
+
+// Rows [0, n) of J with stride ld, from dense_rows_int8.
+template <typename G>
+std::vector<std::int8_t> rows_of(const G& g, std::int64_t ld) {
+  std::vector<std::int8_t> rows(static_cast<std::size_t>(g.n * ld));
+  sbmc::dense_rows_int8(g, 0, g.n, ld, rows);
+  return rows;
+}
+
+}  // namespace
+
+TEST_CASE("detail: cut_edges_unchecked equals cut_direct") {
+  SUBCASE("four_nodes.rudy, all 16 spin vectors") {
+    const Graph g = test_rudy("four_nodes.rudy");
+    REQUIRE(g.n == 4);
+    for (unsigned mask = 0; mask < 16u; ++mask) {
+      std::vector<Spin> s(4);
+      for (unsigned i = 0; i < 4u; ++i) {
+        s[i] = ((mask >> i) & 1u) != 0 ? Spin{-1} : Spin{1};
+      }
+      INFO("mask = " << mask);
+      CHECK(sbmc::detail::cut_edges_unchecked(g, s) == sbmc::cut_direct(g, s));
+    }
+    const std::vector<Spin> alternating = {1, -1, 1, -1};
+    const std::vector<Spin> halves = {1, 1, -1, -1};
+    CHECK(sbmc::detail::cut_edges_unchecked(g, alternating) == 4);
+    CHECK(sbmc::detail::cut_edges_unchecked(g, halves) == 3);
+  }
+  SUBCASE("data/gset/G1, 20 spin vectors") {
+    const Graph g = sbmc::read_rudy(std::string(SBMC_DATA_DIR) + "/gset/G1");
+    for (std::uint32_t r = 0; r < 20; ++r) {
+      const std::vector<Spin> s = stream_spins(g.n, r);
+      INFO("r = " << r);
+      CHECK(sbmc::detail::cut_edges_unchecked(g, s) == sbmc::cut_direct(g, s));
+    }
+  }
+  SUBCASE("weighted_isolated_13.rudy, 64 spin vectors (sums beyond 2^31)") {
+    const Graph g = test_rudy("weighted_isolated_13.rudy");
+    bool beyond = false;
+    for (std::uint32_t r = 0; r < 64; ++r) {
+      const std::vector<Spin> s = stream_spins(g.n, r);
+      const std::int64_t expected = sbmc::cut_direct(g, s);
+      beyond = beyond || expected >= kTwoTo31 || expected < -kTwoTo31;
+      INFO("r = " << r);
+      CHECK(sbmc::detail::cut_edges_unchecked(g, s) == expected);
+    }
+    CHECK(beyond);
+  }
+  SUBCASE("graphs without edges") {
+    const std::vector<Spin> five = {1, -1, 1, -1, -1};
+    const std::vector<Spin> one = {-1};
+    CHECK(sbmc::detail::cut_edges_unchecked(Graph{5, {}}, five) == 0);
+    CHECK(sbmc::detail::cut_edges_unchecked(Graph{1, {}}, one) == 0);
+  }
+}
+
+TEST_CASE("detail: cut_dense_rows_unchecked equals cut_direct") {
+  SUBCASE("DenseSpinGlass{200, 7}, ld = 200 and ld = 256 (padding columns set to 77)") {
+    const DenseSpinGlass g{200, 7};
+    for (const std::int64_t ld : {std::int64_t{200}, std::int64_t{256}}) {
+      std::vector<std::int8_t> rows = rows_of(g, ld);
+      for (std::int64_t i = 0; i < g.n; ++i) {
+        for (std::int64_t j = g.n; j < ld; ++j) {
+          rows[index(i, j, ld)] = 77;  // never read
+        }
+      }
+      for (std::uint32_t r = 0; r < 20; ++r) {
+        const std::vector<Spin> s = stream_spins(g.n, r);
+        INFO("ld = " << ld << ", r = " << r);
+        CHECK(sbmc::detail::cut_dense_rows_unchecked(rows, g.n, ld, s) == sbmc::cut_direct(g, s));
+      }
+    }
+  }
+  SUBCASE("DenseSpinGlass{1, 3}: 0") {
+    const DenseSpinGlass g{1, 3};
+    const std::vector<std::int8_t> rows = rows_of(g, 1);
+    const std::vector<Spin> s = {-1};
+    CHECK(sbmc::detail::cut_dense_rows_unchecked(rows, 1, 1, s) == 0);
+    CHECK(sbmc::cut_direct(g, s) == 0);
+  }
+  SUBCASE("torus_4x6_pm1.rudy, ld = 24 and ld = 32: the cut of the Graph") {
+    const Graph g = test_rudy("torus_4x6_pm1.rudy");
+    REQUIRE(g.n == 24);
+    for (const std::int64_t ld : {std::int64_t{24}, std::int64_t{32}}) {
+      const std::vector<std::int8_t> rows = rows_of(g, ld);
+      for (std::uint32_t r = 0; r < 20; ++r) {
+        const std::vector<Spin> s = stream_spins(g.n, r);
+        INFO("ld = " << ld << ", r = " << r);
+        CHECK(sbmc::detail::cut_dense_rows_unchecked(rows, g.n, ld, s) == sbmc::cut_direct(g, s));
+      }
+    }
+  }
 }

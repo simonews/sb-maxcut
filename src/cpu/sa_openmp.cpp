@@ -1,19 +1,27 @@
 // C2: simulated annealing with OpenMP over blocks of replicas and SIMD over the replicas of a
 // block (sbmc/sa_openmp.hpp).
 //
-// Preparation, after the preconditions and outside the parallel region: W; beta_k for every
+// Preparation [t0, t1), outside the parallel regions of the run and of the check: the
+// preconditions; W (total_weight, the only full check of the instance, B5); beta_k for every
 // sweep (sa_beta); the internal copy of J (dense INT8 with rows on 64-byte boundaries, or
 // compressed rows with increasing columns, int32 values); the accumulator of the local fields from
 // L = max_i sum_j |J_ij|; the path of the thresholds (a table when L <= L_tab, direct calls
-// otherwise); the outputs; one work area per thread of the region, each on a 64-byte boundary and
-// made of whole cache lines. Parallel region: num_threads(min(T_req, B)); a single construct reads
-// the team size; a for loop with schedule(dynamic, 1) gives the blocks to the threads. A block runs
-// all S sweeps in the work area of its thread, then writes only its rows of the outputs and checks
-// the best and the final cut of its replicas with cut_direct; a mismatch or an exception is
-// recorded per replica (per block for an exception of the sweeps) and reported after the region
-// for the smallest replica. Nothing allocates and no exception leaves the region; in the sweep
-// loop no public function of the instance is called (B5); the global OpenMP state is never
-// changed.
+// otherwise); the outputs; one work area per thread of the run, each on a 64-byte boundary and
+// made of whole cache lines; the initial spins of every replica in final_spins, computed in a
+// parallel loop with num_threads(min(T_req, B)) from the stream of sa_initial_spin.
+// Run [t1, t2): a parallel region with num_threads(min(T_req, B)); a single construct reads the
+// team size; a for loop with schedule(dynamic, 1) gives the blocks to the threads. A block reads
+// the initial spins of its replicas from final_spins (the padding lanes take those of lane 0),
+// runs all S sweeps in the work area of its thread, then writes only its rows of the outputs; an
+// exception of the sweeps is recorded per block.
+// Check [t2, t3): a second parallel region with num_threads(min(T_req, B)), schedule(static)
+// over the replicas: the best and the final cut of every replica recomputed directly, without any
+// check of the instance (decision L3 of phase 07), on the edges for a Graph (whatever the format
+// of the internal J) and on the internal INT8 rows for a DenseSpinGlass; the replicas of a block
+// whose run threw are not checked; a mismatch is recorded per replica. After t3 the replicas are
+// scanned in order and the first error (of its block, then of its check) is reported. Nothing
+// allocates and no exception leaves the regions; after the entry no public function of the
+// instance is called (B5); the global OpenMP state is never changed.
 //
 // One proposal of spin i for all the lanes of a block: the acceptance words (one Philox block
 // gives the words of four consecutive proposals of a lane), then the RB decisions in one lane
@@ -40,6 +48,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -73,6 +82,12 @@ constexpr std::int32_t kMaxDenseWeight = 127;                       // |w| of a 
 constexpr std::size_t kCacheLine = 64;
 constexpr std::int64_t kTableLimit = 4096;                         // L_tab = 2^12
 constexpr std::uint64_t kAlwaysAccepted = std::uint64_t{1} << 32;  // above every word
+
+using Clock = std::chrono::steady_clock;
+
+double milliseconds(Clock::time_point from, Clock::time_point to) {
+  return std::chrono::duration<double, std::milli>(to - from).count();
+}
 
 [[noreturn]] void invalid(const std::string& reason) {
   throw InvalidArgument("run_sa_openmp: " + reason);
@@ -205,6 +220,24 @@ bool dense_graph(const Graph& g) {
   });
   return small_weights && 8 * static_cast<std::int64_t>(g.edges.size()) >= g.n * (g.n - 1);
 }
+
+// The cut of the final check, computed directly and without any check (decision L3 of phase 07):
+// on the edges of a Graph, whatever the format of its internal J; on the internal dense rows of a
+// DenseSpinGlass, with their ld.
+struct DirectCut {
+  const Graph* graph = nullptr;  // the Graph, or nullptr for a DenseSpinGlass
+  const DenseJ* rows = nullptr;  // the internal J of a DenseSpinGlass
+
+  std::int64_t operator()(std::span<const Spin> s) const noexcept {
+    if (graph != nullptr) {
+      return detail::cut_edges_unchecked(*graph, s);
+    }
+    return detail::cut_dense_rows_unchecked(
+        std::span<const std::int8_t>(reinterpret_cast<const std::int8_t*>(rows->bytes.get()),
+                                     rows->n * rows->ld),
+        static_cast<std::int64_t>(rows->n), static_cast<std::int64_t>(rows->ld), s);
+  }
+};
 
 // --- Lane loops on one block: arrays of n * kLanes elements in spin-major order -----------------
 
@@ -345,6 +378,7 @@ struct Plan {
   std::int64_t norm = 0;  // L
   const double* beta = nullptr;
   SaResult* out = nullptr;
+  Clock::time_point start;  // t0, the entry of run_sa_openmp
 };
 
 // The work area of one thread: four spin-major arrays of n * kLanes elements, the table of the
@@ -462,16 +496,14 @@ void run_block(const Plan& plan, const Couplings& j, const WorkArea<Acc>& a, int
     lane.global[l] = static_cast<std::uint32_t>(plan.first_replica + r0 + (l < real ? l : 0));
   }
 
-  // Initial state: s_i = sa_initial_spin(seed, g, i), four spins per Philox block.
-  Words w{};
-  for (std::size_t q = 0; 4 * q < n; ++q) {
-    fill_words(plan.seed, RngDomain::sa_initial_spins, lane.global, q, w);
-    for (std::size_t c = 0; c < 4 && 4 * q + c < n; ++c) {
-      Acc* const s_i = s + (4 * q + c) * kLaneCount;
-#pragma omp simd
-      for (int l = 0; l < kLanes; ++l) {
-        s_i[l] = static_cast<Acc>(coupling_from_word(w.word[c][l]));
-      }
+  // Initial state: s_i = sa_initial_spin(seed, g, i), read from final_spins, where the
+  // preparation wrote it (the block reads only its rows, before writing the final spins there);
+  // the padding lanes take the spins of lane 0, the values of the stream they follow.
+  for (std::size_t i = 0; i < n; ++i) {
+    Acc* const s_i = s + i * kLaneCount;
+    for (int l = 0; l < kLanes; ++l) {
+      const auto r = static_cast<std::size_t>(r0 + (l < real ? l : 0));
+      s_i[l] = static_cast<Acc>(out.final_spins[r * n + i]);
     }
   }
   initial_fields(j, s, h);
@@ -490,6 +522,7 @@ void run_block(const Plan& plan, const Couplings& j, const WorkArea<Acc>& a, int
   std::copy(s, s + n * kLaneCount, a.start);
   std::copy(s, s + n * kLaneCount, a.best_start);  // read by the replay only after an improvement
 
+  Words w{};
   std::uint64_t p = 0;  // proposal index k * n + i
   for (int k = 0; k < plan.sweeps; ++k) {
     const double beta = plan.beta[k];
@@ -576,35 +609,35 @@ struct CheckStatus {
   bool mismatch = false;
   std::int64_t best_cut = 0;
   std::int64_t final_cut = 0;
-  std::exception_ptr error;
 };
 
-// cut_direct of the best and of the final spins of every replica of block b.
-void check_block(const Instance& inst, const Plan& plan, int b,
-                 std::vector<CheckStatus>& status) noexcept {
-  const SaResult& out = *plan.out;
-  const int r0 = b * kLanes;
-  const int real = std::min(kLanes, plan.replicas - r0);
-  for (int l = 0; l < real; ++l) {
-    const auto r = static_cast<std::size_t>(r0 + l);
-    try {
-      const std::int64_t best_cut =
-          cut_direct(inst, std::span<const Spin>(out.best_spins.data() + r * plan.n, plan.n));
-      const std::int64_t final_cut =
-          cut_direct(inst, std::span<const Spin>(out.final_spins.data() + r * plan.n, plan.n));
-      if (best_cut != out.per_replica[r].best_cut || final_cut != out.per_replica[r].final_cut) {
-        status[r].mismatch = true;
-        status[r].best_cut = best_cut;
-        status[r].final_cut = final_cut;
-      }
-    } catch (...) {
-      status[r].error = std::current_exception();
+// The initial spins of every replica in final_spins, replica-major: final_spins[r * n + i] =
+// sa_initial_spin(seed, first_replica + r, i), computed from whole Philox blocks of the stream (4
+// words each), with a team of team_request threads. Every element is written once; no
+// allocation, no exception.
+void initial_spins(const Plan& plan, int team_request) noexcept {
+  const auto n = static_cast<std::int64_t>(plan.n);
+  const std::int64_t blocks_per_replica = (n + 3) / 4;
+  const std::int64_t tasks = blocks_per_replica * plan.replicas;
+  Spin* const s0 = plan.out->final_spins.data();
+#pragma omp parallel for num_threads(team_request) schedule(static)
+  for (std::int64_t task = 0; task < tasks; ++task) {
+    const std::int64_t r = task / blocks_per_replica;
+    const std::int64_t b = task % blocks_per_replica;
+    const auto replica = static_cast<std::uint32_t>(plan.first_replica + r);
+    const U32x4 block = stream_block(plan.seed, RngDomain::sa_initial_spins, replica,
+                                     static_cast<std::uint64_t>(b));
+    const std::uint32_t words[4] = {block.x, block.y, block.z, block.w};
+    const std::int64_t i0 = 4 * b;
+    const std::int64_t count = std::min<std::int64_t>(4, n - i0);
+    for (std::int64_t t = 0; t < count; ++t) {
+      s0[r * n + i0 + t] = coupling_from_word(words[t]);  // = sa_initial_spin(seed, replica, i)
     }
   }
 }
 
 template <typename Acc, bool Table, typename Couplings>
-void run_blocks(const Instance& inst, const Couplings& j, const Plan& plan, int threads,
+void run_blocks(const DirectCut& direct_cut, const Couplings& j, const Plan& plan, int threads,
                 int& team) {
   const int blocks = (plan.replicas + kLanes - 1) / kLanes;
   const int team_request = std::min(threads, blocks);
@@ -613,7 +646,10 @@ void run_blocks(const Instance& inst, const Couplings& j, const Plan& plan, int 
   const AlignedBytes areas = allocate_aligned(area_bytes * static_cast<std::size_t>(team_request));
   std::vector<CheckStatus> status(static_cast<std::size_t>(plan.replicas));
   std::vector<std::exception_ptr> block_error(static_cast<std::size_t>(blocks));
+  initial_spins(plan, team_request);
 
+  // Run: all S sweeps of every block.
+  const Clock::time_point t1 = Clock::now();
   int team_size = 0;
 #pragma omp parallel num_threads(team_request)
   {
@@ -629,49 +665,74 @@ void run_blocks(const Instance& inst, const Couplings& j, const Plan& plan, int 
         run_block<Acc, Table>(plan, j, area, b);
       } catch (...) {
         block_error[static_cast<std::size_t>(b)] = std::current_exception();
-        continue;
       }
-      check_block(inst, plan, b, status);
     }
   }
+  const Clock::time_point t2 = Clock::now();
+
+  // Check: the direct cuts of the best and of the final spins of every replica whose block ran.
+  const SaResult& out = *plan.out;
+  const int replicas = plan.replicas;
+#pragma omp parallel num_threads(team_request)
+  {
+#pragma omp for schedule(static)
+    for (int r = 0; r < replicas; ++r) {
+      const auto ur = static_cast<std::size_t>(r);
+      if (block_error[ur / kLaneCount]) {
+        continue;
+      }
+      const std::int64_t best_cut =
+          direct_cut(std::span<const Spin>(out.best_spins.data() + ur * plan.n, plan.n));
+      const std::int64_t final_cut =
+          direct_cut(std::span<const Spin>(out.final_spins.data() + ur * plan.n, plan.n));
+      if (best_cut != out.per_replica[ur].best_cut || final_cut != out.per_replica[ur].final_cut) {
+        status[ur].mismatch = true;
+        status[ur].best_cut = best_cut;
+        status[ur].final_cut = final_cut;
+      }
+    }
+  }
+  const Clock::time_point t3 = Clock::now();
   team = team_size;
 
   for (std::size_t r = 0; r < status.size(); ++r) {
     if (r % kLaneCount == 0 && block_error[r / kLaneCount]) {
       std::rethrow_exception(block_error[r / kLaneCount]);
     }
-    if (status[r].error) {
-      std::rethrow_exception(status[r].error);
-    }
     if (status[r].mismatch) {
-      const SaReplicaResult& rep = plan.out->per_replica[r];
+      const SaReplicaResult& rep = out.per_replica[r];
       throw Error("run_sa_openmp: internal error: replica " + std::to_string(r) +
-                  ": cut_direct gives best " + std::to_string(status[r].best_cut) + " and final " +
-                  std::to_string(status[r].final_cut) + ", the incremental energy gives best " +
-                  std::to_string(rep.best_cut) + " and final " + std::to_string(rep.final_cut));
+                  ": the direct cut gives best " + std::to_string(status[r].best_cut) +
+                  " and final " + std::to_string(status[r].final_cut) +
+                  ", the incremental energy gives best " + std::to_string(rep.best_cut) +
+                  " and final " + std::to_string(rep.final_cut));
     }
   }
+  plan.out->times.prep_ms = milliseconds(plan.start, t1);
+  plan.out->times.run_ms = milliseconds(t1, t2);
+  plan.out->times.check_ms = milliseconds(t2, t3);
 }
 
 // The accumulator and the path of the thresholds from L: the table (L <= L_tab, so int16) or
 // direct calls with int16, int32 or int64.
 template <typename Couplings>
-void run_with_accumulator(const Instance& inst, const Couplings& j, const Plan& plan, int threads,
-                          int& team) {
+void run_with_accumulator(const DirectCut& direct_cut, const Couplings& j, const Plan& plan,
+                          int threads, int& team) {
   if (plan.norm <= kTableLimit) {
-    run_blocks<std::int16_t, true>(inst, j, plan, threads, team);
+    run_blocks<std::int16_t, true>(direct_cut, j, plan, threads, team);
   } else if (plan.norm <= 32767) {
-    run_blocks<std::int16_t, false>(inst, j, plan, threads, team);
+    run_blocks<std::int16_t, false>(direct_cut, j, plan, threads, team);
   } else if (plan.norm <= 2147483647) {
-    run_blocks<std::int32_t, false>(inst, j, plan, threads, team);
+    run_blocks<std::int32_t, false>(direct_cut, j, plan, threads, team);
   } else {
-    run_blocks<std::int64_t, false>(inst, j, plan, threads, team);
+    run_blocks<std::int64_t, false>(direct_cut, j, plan, threads, team);
   }
 }
 
 }  // namespace
 
 SaResult run_sa_openmp(const Instance& inst, const SaParams& params, int threads) {
+  const Clock::time_point t0 = Clock::now();
   if (threads < 0) {
     invalid("threads = " + std::to_string(threads) +
             " must be >= 0 (0: the default number of OpenMP threads)");
@@ -714,19 +775,23 @@ SaResult run_sa_openmp(const Instance& inst, const SaParams& params, int threads
   plan.total = total;
   plan.beta = beta.data();
   plan.out = &result;
+  plan.start = t0;
 
   int team = 0;
   if (const auto* g = std::get_if<Graph>(&inst)) {
     plan.norm = g->edges.empty() ? 0 : max_row_norm(*g);
+    const DirectCut direct_cut{g, nullptr};
     if (dense_graph(*g)) {
-      run_with_accumulator(inst, make_dense(*g), plan, requested, team);
+      run_with_accumulator(direct_cut, make_dense(*g), plan, requested, team);
     } else {
-      run_with_accumulator(inst, make_sparse(*g), plan, requested, team);
+      run_with_accumulator(direct_cut, make_sparse(*g), plan, requested, team);
     }
   } else {
     const auto& dense = std::get<DenseSpinGlass>(inst);
     plan.norm = dense.n - 1;
-    run_with_accumulator(inst, make_dense(dense), plan, requested, team);
+    const DenseJ j = make_dense(dense);
+    const DirectCut direct_cut{nullptr, &j};
+    run_with_accumulator(direct_cut, j, plan, requested, team);
   }
   result.threads = team;
   return result;

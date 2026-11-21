@@ -1,5 +1,5 @@
 // sbmc_run: runs a solver of the project on one instance and writes one CSV row per repetition,
-// with the results schema 1 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
+// with the results schema 2 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
 // sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
 // (variant c1, --threads). Simulated annealing (--algo sa), phase 06: the sequential reference
 // (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads).
@@ -8,28 +8,36 @@
 //            [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
 //            [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
 //            [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
-//            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT]
+//            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
 //
 // --steps and --dt are required with dsb and bsb, which take the variants c0 and c1; --sweeps,
 // --beta0 and --beta1 with sa, which takes the variants c0 and c2 and where --steps, --dt, --c0,
 // --a0 and --eval-every are not used. --threads only with c1 or c2. --replica-out needs --out and
 // another file (compared with std::filesystem::weakly_canonical).
 //
-// Run: the instance is read (t_setup_ms); the target is resolved (with --target best-known the
-// row of the table must have the n and m of the instance); --warmup runs with first replica 0 are
-// not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica = k*R and the
-// same seed, so different global replicas and different initial conditions (decision B7), appends
-// one row to --out and, with --replica-out, R rows to the replica file, and prints one line
-// "rep <k>: ..." on stdout. The solver is run_sb_sequential (dsb or bsb, c0), run_sb_openmp with T
-// threads (dsb or bsb, c1; T = 0, the default, is the default number of OpenMP threads),
-// run_sa_sequential (sa, c0) or run_sa_openmp with T threads (sa, c2). t_solve_ms is the duration
-// of the call of the solver, its internal preparation and final check included; the column threads
-// is the team of the solver (1 for c0).
+// Run: at startup, before any run, the environment of the process is read once: the logical
+// processors allowed to it (the Cpus_allowed_list line of /proc/self/status, column cpu_affinity)
+// and the variables OMP_PLACES and OMP_PROC_BIND (columns omp_places and omp_proc_bind; empty when
+// missing). Then the instance is read (t_setup_ms); the target is resolved (with --target
+// best-known the row of the table must have the n and m of the instance); --warmup runs with first
+// replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica
+// = k*R and the same seed, so different global replicas and different initial conditions
+// (decision B7), appends one row to --out and, with --replica-out, R rows to the replica file, and
+// prints one line "rep <k>: ..." on stdout. The solver is run_sb_sequential (dsb or bsb, c0),
+// run_sb_openmp with T threads (dsb or bsb, c1; T = 0, the default, is the default number of
+// OpenMP threads), run_sa_sequential (sa, c0) or run_sa_openmp with T threads (sa, c2).
+// t_solve_ms is the duration of the call of the solver measured by sbmc_run; t_prep_ms, t_run_ms
+// and t_check_ms are the three phases measured inside it (sbmc/solve_times.hpp: preparation, run,
+// final check), whose sum is at most t_solve_ms; t_step_us is t_run_ms per step or sweep. The
+// column threads is the team of the solver (1 for c0); dt_rule and c0_rule say how dt and c0 of SB
+// were chosen; run_tag is the text of --tag.
 //
 // Exit status: 0 on success; 1 for errors of the library (preconditions such as --replicas 0),
-// of reading or writing, for an instance that is not in the best-known table or that has
-// another n or m than its row, and when the paths of --out and --replica-out cannot be compared;
-// 2 for errors of the command line, with a message on stderr.
+// of reading or writing (an --out with another header than that of results schema 2 included),
+// for an instance that is not in the best-known table or that has another n or m than its row,
+// when the paths of --out and --replica-out cannot be compared, and when OMP_PLACES or
+// OMP_PROC_BIND contains a line break; 2 for errors of the command line, with a message on
+// stderr.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -37,6 +45,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <exception>
 #include <filesystem>
@@ -65,6 +74,7 @@
 #include <sbmc/sb.hpp>
 #include <sbmc/sb_openmp.hpp>
 #include <sbmc/sb_sequential.hpp>
+#include <sbmc/solve_times.hpp>
 
 namespace {
 
@@ -98,6 +108,7 @@ struct Options {
   std::string out;
   std::string replica_out;
   std::string notes;
+  std::string tag;
 };
 
 // Float over the whole text, as std::from_chars reads it (shortest round trip, no locale).
@@ -253,7 +264,7 @@ std::string os_pretty_name() {
   return "unknown";
 }
 
-// One row of results schema 1, filled by column name.
+// One row of results schema 2, filled by column name.
 class ResultsRow {
  public:
   ResultsRow() : values_(sbmc::results_columns().size()) {}
@@ -267,7 +278,7 @@ class ResultsRow {
       }
     }
     throw sbmc::Error("sbmc_run: internal error: no column '" + std::string(column) +
-                      "' in results schema 1");
+                      "' in results schema 2");
   }
 
   [[nodiscard]] const std::vector<std::string>& values() const noexcept { return values_; }
@@ -315,13 +326,51 @@ void check_output_file(const std::filesystem::path& file, std::string_view optio
   }
 }
 
+// The text after "Cpus_allowed_list:" in its line of /proc/self/status, without leading and
+// trailing spaces and tabs: the logical processors allowed to the process, in the cpulist format
+// (for example 0-15 or 0-3,8). Empty when the file or the line is missing.
+std::string cpu_affinity() {
+  std::ifstream in("/proc/self/status");
+  std::string line;
+  constexpr std::string_view kKey = "Cpus_allowed_list:";
+  while (in && std::getline(in, line)) {
+    if (line.compare(0, kKey.size(), kKey) != 0) {
+      continue;
+    }
+    const std::string value = line.substr(kKey.size());
+    const std::size_t first = value.find_first_not_of(" \t");
+    if (first == std::string::npos) {
+      return {};
+    }
+    const std::size_t last = value.find_last_not_of(" \t");
+    return value.substr(first, last - first + 1);
+  }
+  return {};
+}
+
+// The value of an environment variable, empty when it does not exist; a line break in the value
+// is an error (one CSV row per line).
+std::string environment_variable(const char* variable) {
+  const char* const value = std::getenv(variable);
+  if (value == nullptr) {
+    return {};
+  }
+  std::string text(value);
+  if (has_line_break(text)) {
+    throw sbmc::Error("the environment variable " + std::string(variable) +
+                      " contains a line break, which a CSV row cannot hold");
+  }
+  return text;
+}
+
 struct Target {
   std::optional<std::int64_t> value;
   std::string source = "none";  // best_known | user | none
 };
 
 // What a call of the solver gives to the rows: per replica best_cut, best_step (best_sweep of SA)
-// and final_cut; the team of the solver; the c0 actually used (SB only); t_solve_ms.
+// and final_cut; the team of the solver; the c0 actually used (SB only); t_solve_ms; the times
+// measured inside the solver.
 struct ReplicaOutcome {
   std::int64_t best_cut = 0;
   std::int64_t best_step = 0;
@@ -333,10 +382,16 @@ struct SolveOutcome {
   int threads = 1;
   std::string c0;
   double t_solve_ms = 0.0;
+  sbmc::SolveTimes times;
 };
 
 int run(const Options& options, bool dense) {
   const bool sa = options.algo == "sa";
+
+  // 0. The environment of the process, read once at startup, before any run.
+  const std::string affinity = cpu_affinity();
+  const std::string omp_places = environment_variable("OMP_PLACES");
+  const std::string omp_proc_bind = environment_variable("OMP_PROC_BIND");
 
   // 1. Instance; t_setup_ms is the time of this phase.
   const auto setup_start = std::chrono::steady_clock::now();
@@ -386,7 +441,7 @@ int run(const Options& options, bool dense) {
 
   // The checks that need no run.
   if (!options.out.empty()) {
-    check_output_file(options.out, "--out", sbmc::results_columns(), "results schema 1");
+    check_output_file(options.out, "--out", sbmc::results_columns(), "results schema 2");
   }
   if (!options.replica_out.empty()) {
     check_output_file(options.replica_out, "--replica-out", sbmc::replica_columns(),
@@ -433,6 +488,7 @@ int run(const Options& options, bool dense) {
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count();
       outcome.threads = result.threads;  // 1 for C0
+      outcome.times = result.times;
       for (const sbmc::SaReplicaResult& r : result.per_replica) {
         outcome.replicas.push_back({r.best_cut, r.best_sweep, r.final_cut});
       }
@@ -446,6 +502,7 @@ int run(const Options& options, bool dense) {
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count();
       outcome.threads = result.threads;  // 1 for C0
+      outcome.times = result.times;
       outcome.c0 = shortest(result.c0);
       for (const sbmc::SbReplicaResult& r : result.per_replica) {
         outcome.replicas.push_back({r.best_cut, r.best_step, r.final_cut});
@@ -471,6 +528,8 @@ int run(const Options& options, bool dense) {
     const std::string timestamp = utc_timestamp(std::chrono::system_clock::now());
     const SolveOutcome outcome = solve(first_replica);
     const double t_solve_ms = outcome.t_solve_ms;
+    const std::string t_run_ms = fixed3(outcome.times.run_ms);
+    const std::string t_check_ms = fixed3(outcome.times.check_ms);
 
     std::int64_t best_cut = std::numeric_limits<std::int64_t>::min();
     std::int64_t sum = 0;
@@ -517,7 +576,7 @@ int run(const Options& options, bool dense) {
     row.set("rep", std::to_string(k));
     row.set("t_setup_ms", fixed3(t_setup_ms));
     row.set("t_solve_ms", fixed3(t_solve_ms));
-    row.set("t_step_us", fixed3(t_solve_ms * 1000.0 / static_cast<double>(steps)));
+    row.set("t_step_us", fixed3(outcome.times.run_ms * 1000.0 / static_cast<double>(steps)));
     row.set("best_cut", std::to_string(best_cut));
     row.set("mean_cut", mean_cut);
     if (target.value) {
@@ -534,6 +593,17 @@ int run(const Options& options, bool dense) {
     row.set("first_replica", std::to_string(first_replica));
     row.set("threads", std::to_string(outcome.threads));  // 1 for c0
     row.set("target_source", target.source);
+    row.set("t_prep_ms", fixed3(outcome.times.prep_ms));
+    row.set("t_run_ms", t_run_ms);
+    row.set("t_check_ms", t_check_ms);
+    if (!sa) {
+      row.set("dt_rule", "value");
+      row.set("c0_rule", options.c0 == "auto" ? "sigma" : "value");
+    }
+    row.set("cpu_affinity", affinity);
+    row.set("omp_places", omp_places);
+    row.set("omp_proc_bind", omp_proc_bind);
+    row.set("run_tag", options.tag);
     row.set("notes", options.notes);
     if (!options.out.empty()) {
       sbmc::append_results_row(options.out, row.values());
@@ -558,7 +628,9 @@ int run(const Options& options, bool dense) {
     if (target.value) {
       std::cout << " n_success " << successes << "/" << options.replicas;
     }
-    std::cout << " t_solve_ms " << fixed3(t_solve_ms) << '\n' << std::flush;
+    std::cout << " t_solve_ms " << fixed3(t_solve_ms) << " t_run_ms " << t_run_ms << " t_check_ms "
+              << t_check_ms << '\n'
+              << std::flush;
   }
   return kExitOk;
 }
@@ -576,7 +648,7 @@ int main(int argc, char** argv) {
       "Runs simulated bifurcation (dsb or bsb: the sequential reference C0, or C1 with OpenMP over "
       "blocks of replicas) or simulated annealing (sa: the sequential reference C0, or C2 with "
       "OpenMP over blocks of replicas) on one instance, and writes one CSV row per repetition "
-      "(results schema 1) and, with --replica-out, one row per replica (replica file, schema 1).",
+      "(results schema 2) and, with --replica-out, one row per replica (replica file, schema 1).",
       "sbmc_run"};
   app.failure_message([](const CLI::App* parser, const CLI::Error& e) {
     const std::string message = CLI::FailureMessage::simple(parser, e);
@@ -589,10 +661,15 @@ int main(int argc, char** argv) {
       "--seed: different global replicas, hence different initial conditions. --threads only with "
       "--variant c1 or c2; the column threads is the team of the solver (1 for c0). --replica-out "
       "(with --out, on another file) appends one row per replica of every repetition. --target "
-      "best-known needs a row of the table with the n and m of the instance. Exit status: 0 "
-      "success; 1 error of the library, of reading or writing, instance not in the best-known "
-      "table or with another n or m, paths of --out and --replica-out that cannot be compared; 2 "
-      "error of the command line.");
+      "best-known needs a row of the table with the n and m of the instance. Times: t_solve_ms is "
+      "the duration of the call of the solver; t_prep_ms, t_run_ms and t_check_ms are its "
+      "preparation, run and final check, measured inside it; t_step_us is t_run_ms per step or "
+      "sweep. --tag fills the column run_tag; cpu_affinity, omp_places and omp_proc_bind record "
+      "the allowed processors and OMP_PLACES and OMP_PROC_BIND at startup. Exit status: 0 "
+      "success; 1 error of the library, of reading or writing (an --out with another header than "
+      "that of results schema 2 included), instance not in the best-known table or with another n "
+      "or m, paths of --out and --replica-out that cannot be compared, OMP_PLACES or "
+      "OMP_PROC_BIND with a line break; 2 error of the command line.");
 
   const CLI::Validator decimal = decimal_integer();
   const CLI::Validator number = float_value();
@@ -731,6 +808,11 @@ int main(int argc, char** argv) {
                      "schema 1); requires --out")
           ->type_name("FILE");
   app.add_option("--notes", options.notes, "Free text of the notes column")
+      ->type_name("TEXT")
+      ->check(no_line_break);
+  app.add_option("--tag", options.tag,
+                 "Free text of the run_tag column: the identifier of the campaign or of the "
+                 "configuration")
       ->type_name("TEXT")
       ->check(no_line_break);
 

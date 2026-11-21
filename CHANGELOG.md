@@ -3,6 +3,58 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R1] - 2026-11-21
+
+Phase 07, part 1 of 4 (measuring tools): results schema 2, the separate times of the solvers
+(preparation, run, final check), the final check without a second validation of the instance,
+`python/sbmc_tts.py` for schemas 1 and 2, the README at the closure of phase 06. No result of the
+solvers changes: only the recorded times and the way the cuts are checked.
+
+### Added
+
+- `include/sbmc/solve_times.hpp`: `SolveTimes` (`prep_ms`, `run_ms`, `check_ms`), the three
+  consecutive phases of a call of a solver measured with `std::chrono::steady_clock`.
+- `include/sbmc/instance.hpp`, `src/core/instance.cpp`: `sbmc::detail::cut_edges_unchecked` and
+  `sbmc::detail::cut_dense_rows_unchecked`, the cut of the final check of the solvers without any
+  check, exception, allocation or OpenMP (the edge loop without branches; int32 partial sums per
+  dense row up to n = 2^24).
+- `tests/cpu/test_solve_times.cpp` (label `cpu`): the times start at zero; 16 calls of the four
+  solvers with three finite, non-negative times whose sum is at most the duration of the call.
+- `apps/sbmc_run.cpp`: `--tag TEXT` (column `run_tag`); the columns `t_prep_ms`, `t_run_ms`,
+  `t_check_ms`, `dt_rule`, `c0_rule`, `cpu_affinity` (from `/proc/self/status`), `omp_places` and
+  `omp_proc_bind` (read once at startup; a line break in their value gives exit status 1), and the
+  empty `lambda_min`, `lambda_max`, `cpu_classes`.
+- Tests: the cases `detail:` of `test_instance`; the new checks of `test_results`,
+  `test_sbmc_run` and `test_sbmc_tts` (checks 8 to 10).
+
+### Changed
+
+- `include/sbmc/sb.hpp`, `include/sbmc/sa.hpp`: the field `times` (last field) of `SbResult` and
+  `SaResult`.
+- `src/cpu/sb_sequential.cpp`, `src/cpu/sb_openmp.cpp`, `src/cpu/sa_sequential.cpp`,
+  `src/cpu/sa_openmp.cpp`: the times t0 to t3; the initial states of every replica computed in
+  the preparation into `final_x` or `final_spins` (C1 and C2: a parallel loop with
+  num_threads(min(T_req, B))); in C1 and C2 the final check in a second parallel region; the final
+  check with the `detail` functions instead of `cut_direct` ("the direct cut gives" in the
+  messages); header comments. The results are those of F06-R2.
+- `include/sbmc/results.hpp`, `src/core/results.cpp`: results schema 2, 56 columns
+  (`kResultsSchemaVersion` = 2); a file with the header of schema 1 is refused like any other
+  header. The replica file does not change.
+- `apps/sbmc_run.cpp`: writes schema 2; `t_step_us` from `t_run_ms`; the line on stdout ends with
+  `t_run_ms` and `t_check_ms`; header comment, description and footer of the help.
+- `python/sbmc_tts.py`: reads results schemas 1 and 2 (exact headers; any other header: exit
+  status 1); with schema 2 the batch time is `t_run_ms`, the group has 31 columns and the summary
+  the column `t_batch_column`; with schema 1 the summary and stdout of F06-R2, byte for byte.
+- `src/core/CMakeLists.txt`: `solve_times.hpp` in the header check, after `initial_state.hpp`.
+- `tests/CMakeLists.txt`: the test `test_solve_times`; `SBMC_TEST_DATA_DIR` and `SBMC_DATA_DIR` for
+  `test_instance`; comments. 24 tests with the cpu presets, 30 with the cuda presets, 27 with the
+  t4 presets.
+- `tests/core/test_results.cpp`, `tests/python/test_sbmc_run.py`, `tests/python/test_sbmc_tts.py`:
+  schema 2.
+- `README.md`: Status; the measurement of phase 06 on the laptop in "C2: simulated annealing with
+  OpenMP"; the new section "Times of the solvers"; the final check in the sections of the four
+  solvers; "sbmc_run and the results CSV" and "Time to solution" for schema 2; "Tests".
+
 ## [F06-R2] - 2026-11-19
 
 Phase 06, part 2 of 2: C2, simulated annealing with OpenMP over blocks of replicas, equal to the

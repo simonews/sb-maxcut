@@ -1,5 +1,6 @@
 // Ising model of Max-Cut on explicit graphs and on implicit dense spin glasses: validation, int64
-// sums and dense INT8 rows of J (sbmc/instance.hpp).
+// sums, dense INT8 rows of J and the unchecked cut of the final check of the solvers
+// (sbmc/instance.hpp).
 #include <sbmc/instance.hpp>
 
 #include <algorithm>
@@ -328,5 +329,57 @@ void dense_rows_int8(const Instance& inst, std::int64_t row_begin, std::int64_t 
                      std::int64_t ld, std::span<std::int8_t> out) {
   std::visit([&](const auto& g) { dense_rows_int8(g, row_begin, row_end, ld, out); }, inst);
 }
+
+// --- Internal cut of the final check of the solvers ------------------------------------------
+
+namespace detail {
+namespace {
+
+// Largest n for which the sum of one row, at most 127 (n - 1) in absolute value, fits in int32:
+// 127 * 2^24 = 2130706432 < 2^31 - 1.
+constexpr std::int64_t kMaxSpinsInt32Row = std::int64_t{1} << 24;
+
+// -sum_{i<j} J_ij [s_i != s_j], with the sum of each row j > i in Acc (exact by the caller's
+// choice of Acc) and the total in int64. The select keeps the inner loop free of branches.
+template <typename Acc>
+std::int64_t dense_rows_cut(const std::int8_t* rows, std::int64_t n, std::int64_t ld,
+                            const Spin* s) noexcept {
+  std::int64_t total = 0;
+  for (std::int64_t i = 0; i + 1 < n; ++i) {
+    const std::int8_t* row = rows + i * ld;
+    const Spin si = s[i];
+    Acc acc = 0;
+    for (std::int64_t j = i + 1; j < n; ++j) {
+      acc += s[j] != si ? static_cast<Acc>(row[j]) : Acc{0};
+    }
+    total += static_cast<std::int64_t>(acc);
+  }
+  return -total;
+}
+
+}  // namespace
+
+std::int64_t cut_edges_unchecked(const Graph& g, std::span<const Spin> s) noexcept {
+  const Spin* spins = s.data();
+  std::int64_t total = 0;
+  for (const Edge& e : g.edges) {
+    // w AND a mask of all ones when s_u != s_v, all zeros otherwise: no branch, whose outcome
+    // would be unpredictable (with a conditional expression GCC -O3 emits a branch, about 9 times
+    // slower on G1).
+    const auto cut = static_cast<std::int64_t>(spins[e.u] != spins[e.v]);
+    total += static_cast<std::int64_t>(e.w) & -cut;
+  }
+  return total;
+}
+
+std::int64_t cut_dense_rows_unchecked(std::span<const std::int8_t> rows, std::int64_t n,
+                                      std::int64_t ld, std::span<const Spin> s) noexcept {
+  if (n <= kMaxSpinsInt32Row) {
+    return dense_rows_cut<std::int32_t>(rows.data(), n, ld, s.data());
+  }
+  return dense_rows_cut<std::int64_t>(rows.data(), n, ld, s.data());
+}
+
+}  // namespace detail
 
 }  // namespace sbmc

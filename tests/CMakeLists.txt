@@ -2,7 +2,8 @@
 # tests (tools), CUDA tests and smoke tests (gpu, tile, probe). Folders: core/ (unit tests of
 # sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/ and K2000 on
 # data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/: C0, C1 with
-# T7, the reference of simulated annealing, C2, the exact enumeration C3 and T2), data/ (input files
+# T7, the reference of simulated annealing, C2, the exact enumeration C3, T2 and the times of the
+# solvers), data/ (input files
 # of the tests), python/ (Python tests, run with the interpreter chosen by the root CMakeLists.txt:
 # the reference P0, T8 with traces in <build>/tests/python/, the data of data/, the tool of the time
 # to solution with its files in <build>/tests/tts/; and, label apps, sbmc_run with its files in
@@ -38,7 +39,8 @@ target_compile_definitions(test_sb PRIVATE
                            "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
                            "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 # T6 (data/gset/) and K2000 (data/raw/k2000/, skipped with 77 until scripts/fetch_data.sh --k2000
-# has downloaded it); test_results reads data/best_known.csv.
+# has downloaded it); test_results reads data/best_known.csv; test_instance (since phase 07) reads
+# files of tests/data/ and data/gset/ for the cut of the final check of the solvers.
 foreach(_sbmc_test IN ITEMS test_gset test_k2000)
   target_compile_definitions(${_sbmc_test} PRIVATE
                              "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\""
@@ -46,6 +48,9 @@ foreach(_sbmc_test IN ITEMS test_gset test_k2000)
 endforeach()
 set_tests_properties(test_k2000 PROPERTIES SKIP_RETURN_CODE 77)
 target_compile_definitions(test_results PRIVATE "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+target_compile_definitions(test_instance PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                           "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
 
 # Unit tests of the CPU solvers (sbmc::cpu): the sequential reference C0.
 add_executable(test_sb_sequential cpu/test_sb_sequential.cpp)
@@ -109,6 +114,18 @@ foreach(_sbmc_test IN ITEMS test_bruteforce test_t2)
   set_tests_properties(${_sbmc_test} PROPERTIES LABELS "cpu")
 endforeach()
 target_compile_definitions(test_t2 PRIVATE "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
+
+# The times of the four solvers (phase 07): three finite, non-negative phases whose sum is at most
+# the duration of the call measured outside it.
+add_executable(test_solve_times cpu/test_solve_times.cpp)
+set_target_properties(test_solve_times PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                  "${CMAKE_CURRENT_BINARY_DIR}/cpu")
+target_link_libraries(test_solve_times PRIVATE sbmc::flags sbmc::cpu doctest OpenMP::OpenMP_CXX)
+target_compile_definitions(test_solve_times PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                           "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+add_test(NAME test_solve_times COMMAND test_solve_times)
+set_tests_properties(test_solve_times PROPERTIES LABELS "cpu")
 
 # --- Test tools -----------------------------------------------------------------------------
 # sbmc_trace: runs C0 and writes the trace file read by T8 (python/test_t8.py). Not a test.

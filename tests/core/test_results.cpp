@@ -1,4 +1,4 @@
-// Results schema 1, the replica file, CSV helpers and the table of best-known values
+// Results schema 2, the replica file, CSV helpers and the table of best-known values
 // (sbmc/results.hpp).
 //
 // The files written by the tests go to a fresh folder under the temporary directory of the
@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -74,14 +75,14 @@ std::string header_line() {
   return line;
 }
 
-// A row of 44 values: "v0", "v1", ..., with a comma and a quote in some of them.
+// A row of 56 values: "v0", "v1", ..., with a comma and a quote in some of them.
 std::vector<std::string> sample_row(int tag) {
   std::vector<std::string> row;
   for (std::size_t k = 0; k < sbmc::results_columns().size(); ++k) {
     row.push_back("v" + std::to_string(k) + "_" + std::to_string(tag));
   }
   row[3] = "";
-  row[43] = "notes, with \"quotes\"";
+  row.back() = "notes, with \"quotes\"";
   return row;
 }
 
@@ -92,61 +93,81 @@ std::filesystem::path best_known_csv() {
 constexpr std::string_view kBestKnownHeader =
     "instance,n,m,best_known,status,source_1,source_2,checked,notes\n";
 
+// The 44 columns of schema 1 (phases 03 to 06), written here: schema 2 keeps the first 43.
+const std::vector<std::string_view>& schema1_columns() {
+  static const std::vector<std::string_view> columns = {"schema_version",
+                                                        "timestamp",
+                                                        "git_hash",
+                                                        "dirty",
+                                                        "host",
+                                                        "os",
+                                                        "gpu",
+                                                        "driver",
+                                                        "cuda",
+                                                        "cublas",
+                                                        "compiler",
+                                                        "algo",
+                                                        "variant",
+                                                        "instance",
+                                                        "n",
+                                                        "nnz",
+                                                        "replicas",
+                                                        "steps",
+                                                        "dt",
+                                                        "c0",
+                                                        "beta0",
+                                                        "beta1",
+                                                        "seed",
+                                                        "rep",
+                                                        "t_setup_ms",
+                                                        "t_solve_ms",
+                                                        "t_step_us",
+                                                        "best_cut",
+                                                        "mean_cut",
+                                                        "n_success",
+                                                        "p_s",
+                                                        "target",
+                                                        "tts99_ms",
+                                                        "ranks",
+                                                        "t_comm_ms",
+                                                        "sm_clock_avg_mhz",
+                                                        "temp_max_c",
+                                                        "power_avg_w",
+                                                        "a0",
+                                                        "eval_every",
+                                                        "first_replica",
+                                                        "threads",
+                                                        "target_source",
+                                                        "notes"};
+  return columns;
+}
+
 }  // namespace
 
-TEST_CASE("RES: results_columns has the 44 names of schema 1, in order") {
-  const std::vector<std::string_view> expected = {"schema_version",
-                                                  "timestamp",
-                                                  "git_hash",
-                                                  "dirty",
-                                                  "host",
-                                                  "os",
-                                                  "gpu",
-                                                  "driver",
-                                                  "cuda",
-                                                  "cublas",
-                                                  "compiler",
-                                                  "algo",
-                                                  "variant",
-                                                  "instance",
-                                                  "n",
-                                                  "nnz",
-                                                  "replicas",
-                                                  "steps",
-                                                  "dt",
-                                                  "c0",
-                                                  "beta0",
-                                                  "beta1",
-                                                  "seed",
-                                                  "rep",
-                                                  "t_setup_ms",
-                                                  "t_solve_ms",
-                                                  "t_step_us",
-                                                  "best_cut",
-                                                  "mean_cut",
-                                                  "n_success",
-                                                  "p_s",
-                                                  "target",
-                                                  "tts99_ms",
-                                                  "ranks",
-                                                  "t_comm_ms",
-                                                  "sm_clock_avg_mhz",
-                                                  "temp_max_c",
-                                                  "power_avg_w",
-                                                  "a0",
-                                                  "eval_every",
-                                                  "first_replica",
-                                                  "threads",
-                                                  "target_source",
-                                                  "notes"};
-  REQUIRE(expected.size() == 44u);
+TEST_CASE("RES: results_columns has the 56 names of schema 2, in order") {
+  const std::vector<std::string_view>& schema1 = schema1_columns();
+  REQUIRE(schema1.size() == 44u);
+  std::vector<std::string_view> expected(schema1.begin(), schema1.begin() + 43);
+  for (const std::string_view name :
+       {"t_prep_ms", "t_run_ms", "t_check_ms", "dt_rule", "c0_rule", "lambda_min", "lambda_max",
+        "cpu_affinity", "cpu_classes", "omp_places", "omp_proc_bind", "run_tag", "notes"}) {
+    expected.push_back(name);
+  }
+  REQUIRE(expected.size() == 56u);
   const std::span<const std::string_view> columns = sbmc::results_columns();
-  REQUIRE(columns.size() == 44u);
+  REQUIRE(columns.size() == 56u);
   for (std::size_t k = 0; k < expected.size(); ++k) {
     INFO("column " << k);
     CHECK(columns[k] == expected[k]);
   }
-  CHECK(sbmc::kResultsSchemaVersion == 1);
+  for (std::size_t k = 0; k < 43; ++k) {
+    INFO("column " << k << " of schema 1");
+    CHECK(columns[k] == schema1[k]);
+  }
+  CHECK(columns.back() == "notes");
+  const std::set<std::string_view> distinct(columns.begin(), columns.end());
+  CHECK(distinct.size() == columns.size());
+  CHECK(sbmc::kResultsSchemaVersion == 2);
 }
 
 TEST_CASE("RES: csv_escape quotes fields with commas or quotes and rejects line breaks") {
@@ -219,13 +240,23 @@ TEST_CASE("RES: append_results_row writes the header once and appends the rows")
     CHECK_THROWS_AS(sbmc::append_results_row(file, first), IoError);
     CHECK(read_file(file) == other);
   }
+  SUBCASE("a file with the header of schema 1: IoError, file unchanged") {
+    std::string schema1_header;
+    for (const std::string_view name : schema1_columns()) {
+      schema1_header += (schema1_header.empty() ? "" : ",") + std::string(name);
+    }
+    const std::string old = schema1_header + "\n1,2,3\n";
+    write_file(file, old);
+    CHECK_THROWS_AS(sbmc::append_results_row(file, first), IoError);
+    CHECK(read_file(file) == old);
+  }
   SUBCASE("a file with the header but a partial last line: IoError, file unchanged") {
     const std::string partial = header + "1,2,3";
     write_file(file, partial);
     CHECK_THROWS_AS(sbmc::append_results_row(file, first), IoError);
     CHECK(read_file(file) == partial);
   }
-  SUBCASE("a row without 44 values, or with a line break: InvalidArgument, file untouched") {
+  SUBCASE("a row without 56 values, or with a line break: InvalidArgument, file untouched") {
     std::vector<std::string> short_row = first;
     short_row.pop_back();
     CHECK_THROWS_AS(sbmc::append_results_row(file, short_row), InvalidArgument);

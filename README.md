@@ -28,7 +28,7 @@ simulated bifurcation (C1)"); the exact enumeration C3 with Gray code, parallel 
 `sbmc_bruteforce`, which runs it on one instance; T2, C0 and C1 against the exact optimum on small
 graphs (see "Exact solution by brute force (C3)"); the flag `dirty` of the build information
 ignores `results/` (see "sbmc_run and the results CSV").
-Phase 06 complete in the code (the closure follows the measurement on the laptop). Part 1: the
+Phase 06 complete, with the measurement on the laptop. Part 1: the
 sequential reference of simulated annealing, with T2 (see "Simulated annealing (reference)");
 `sbmc_run --algo sa`, the replica file of `--replica-out` and an error when the row of
 `--target best-known` has another n or m (see "sbmc_run and the results CSV"); the time to
@@ -37,6 +37,12 @@ simulated annealing with OpenMP over blocks of replicas and SIMD over the replic
 equal to the reference bit for bit in every preset, with T2, and `sbmc_run --variant c2` (see "C2:
 simulated annealing with OpenMP"); `--replica-out` must name another file than `--out`; without
 `--replicas` and `--targets`, `python/sbmc_tts.py` uses the target 1000 alone.
+Phase 07, part 1 of 4 (measuring tools): results schema 2, with the times of the solvers, the
+rules of dt and c0, columns reserved for the spectrum of J and for E9, and a tag of the run (see
+"sbmc_run and the results CSV"); the separate times of the solvers, preparation, run and final
+check, and the final check without a second validation of the instance (see "Times of the
+solvers"); `python/sbmc_tts.py` for schemas 1 and 2 (see "Time to solution
+(python/sbmc_tts.py)").
 
 ## Requirements
 
@@ -193,7 +199,9 @@ out)` writes rows `[row_begin, row_end)` of J in INT8, row-major with stride `ld
 diagonal and zero padding columns (`j >= n`) and rows (`i >= n`); for a `Graph` every edge needs
 `1 <= |w| <= 127`. On a `DenseSpinGlass` the functions run with OpenMP over the rows (rows in
 groups of four, so that one Philox block gives four elements) and their results do not depend
-on the number of threads.
+on the number of threads. Internal to the solvers, `sbmc::detail::cut_edges_unchecked` and
+`sbmc::detail::cut_dense_rows_unchecked` compute the cut of their final check without any check
+(see "Times of the solvers").
 
 ### Rudy reader (`sbmc/rudy.hpp`)
 
@@ -341,8 +349,10 @@ evaluate s(M), the signs after the last step (every algorithm, every eval_every)
 - Best cut of a replica: the minimum E over the evaluated configurations; a configuration becomes
   the best when it is the first evaluated or strictly better (ties keep the smallest m);
   `best_cut = (W - best_energy)/2`, `final_cut` is the cut of s(M). bSB with `eval_every = 0`
-  evaluates only s(M). After the run the best cut of every replica is checked with one call of
-  `cut_direct` (`sbmc::Error` with "internal" on a mismatch).
+  evaluates only s(M). After the run the best cut of every replica is checked against its cut
+  computed directly, on the edges of a `Graph` or on the internal INT8 rows of a
+  `DenseSpinGlass`, without a second validation of the instance (`sbmc::Error` with "internal" on
+  a mismatch; see "Times of the solvers").
 - C0 checks the instance once at the entry (B5): the step loop works on internal copies of J
   (compressed rows for a `Graph`, dense INT8 for a `DenseSpinGlass`, at most n = 32768) and calls
   no public function of the instance. C0 itself has no OpenMP directive; it runs the replicas
@@ -383,11 +393,13 @@ first: `threads >= 0`); the result has one more field, `SbResult::threads`, whic
   `initial_position` (its replica index could overflow), computed like the others and discarded.
   The sums over the columns of a row add four columns per lane loop and take eight per iteration,
   in two lane loops: with one lane loop per iteration GCC -O3 fuses consecutive iterations
-  (unroll-and-jam) and vectorizes the result badly (several times slower, measured). After its M
-  steps a block writes its rows of the outputs and checks the best cut of each of its replicas
-  with `cut_direct`, in the same region; a mismatch or an exception is recorded per replica, and
-  after the region the one of the smallest replica is reported (`sbmc::Error` with "internal", as
-  in C0). Inside the region no public function of the instance is called (B5).
+  (unroll-and-jam) and vectorizes the result badly (several times slower, measured). A block
+  reads x0 of its replicas from `final_x`, where the preparation wrote it, and after its M steps
+  writes its rows of the outputs. The final check runs in a second parallel region, after the
+  region of the steps (see "Times of the solvers"): the best cut of every replica against its cut
+  computed directly; a mismatch is recorded per replica, and after the region the one of the
+  smallest replica is reported (`sbmc::Error` with "internal", as in C0). After the entry no
+  public function of the instance is called (B5).
 - Format of J and accumulator, fixed for the whole run. J is dense INT8 (rows on 64-byte
   boundaries, from `dense_rows_int8`) for a `DenseSpinGlass` (at most n = 32768) and for a `Graph`
   with n <= 32768, |w| <= 127 on every edge and 8m >= n(n - 1) (density at least 25%), compressed
@@ -441,8 +453,10 @@ sandbox (Intel Xeon Processor @ 2.10GHz, 2 cores, preset `cpu`), not of the lapt
 RB = 32 is the fastest in every case, and so it is in bSB on K2000 (4.85 s against 5.43 s with
 RB = 16, one thread). On the same two cases C0 (`--variant c0 --reps 1 --warmup 0`) takes
 16,958 ms on G1 and 32,022 ms on K2000, about 14 and 17 times C1 with one thread. On K2000 about
-a quarter of the time of C1 does not depend on M (the same run with M = 1 or 2 takes about
-480 ms): mostly the final check, `cut_direct` of every replica, O(m) with m = 1,999,000. The
+a quarter of the time of C1 did not depend on M (the same run with M = 1 or 2 took about
+480 ms): mostly the final check of phase 05, `cut_direct` of every replica, which validated the
+instance again, O(m) with m = 1,999,000 (since phase 07 the final check is cheaper and measured
+apart, see "Times of the solvers"). The
 price of RB = 32 is the granularity: a run keeps at most ceil(R / 32) threads at work (R = 64
 gives 2), and the dynamic schedule balances the cores with blocks of 32 replicas.
 
@@ -459,8 +473,9 @@ milliseconds in WSL2). With R = 1024 there are 32 blocks, so the team has the re
 thread. This is not the experiment E9 of the reference document (section 14.2), which comes in
 phase 07: C1 and C2 on the P cores only, on the E cores only and on both, with `OMP_PLACES` and
 `OMP_PROC_BIND`, at least five repetitions with median and interquartile range, results schema 2
-and separate times for the preparation, the steps and the final check. Here `t_solve_ms` keeps
-its meaning, the whole call of the solver.
+and separate times for the preparation, the steps and the final check. Here (results schema 1)
+`t_solve_ms` is the whole call of the solver, its preparation and final check included; since
+phase 07 they are measured apart (see "Times of the solvers").
 
 ## Simulated annealing (reference)
 
@@ -500,8 +515,10 @@ sa_acceptance_word(seed, r, p)   word p of the stream (seed, sa_acceptance, r)
   best so far (ties keep the earlier state). `best_sweep` is 0 for the initial state, k when the
   best state was found during sweep k (1..S); best_cut = (W - best_energy) / 2;
   final_cut = (W - E) / 2 of the state after the last sweep; `accepted` counts the accepted moves.
-- Final check, for every replica: `cut_direct` of the best spins must give `best_cut` and of the
-  final spins `final_cut` (`sbmc::Error` with "internal" otherwise).
+- Final check, for every replica: the cut of the best spins computed directly must give
+  `best_cut`, and that of the final spins `final_cut`, on the edges of a `Graph` or on the
+  internal INT8 rows of a `DenseSpinGlass`, without a second validation of the instance
+  (`sbmc::Error` with "internal" otherwise; see "Times of the solvers").
 - Internal copy of J as in C0: compressed rows for a `Graph`, dense INT8 for a `DenseSpinGlass`
   (at most n = 32768); no public function of the instance in the sweep loop (B5); no OpenMP in
   the reference itself.
@@ -563,11 +580,15 @@ reference, plus `threads`, checked first (`threads >= 0`); the messages start wi
   the table of the thresholds). The arrays are spin-major, element (spin i, lane l) at i * RB + l;
   every loop over the lanes has exactly RB iterations. The lanes of the last block beyond R are
   padding: they follow the Philox streams of lane 0 of the block (no global index beyond
-  2^32 - 1), take the same decisions and are discarded. After its sweeps a block writes its rows of
-  the outputs and checks the best and the final cut of each of its replicas with `cut_direct`, in
-  the same region; a mismatch or an exception (also one of the sweeps) is recorded, and after the
-  region the one of the smallest replica is reported (`sbmc::Error` with "internal"). Inside the
-  region no public function of the instance is called (B5) and nothing is allocated.
+  2^32 - 1), take the same decisions and are discarded. A block reads the initial spins of its
+  replicas from `final_spins`, where the preparation wrote them (the padding lanes take those of
+  lane 0), and after its sweeps writes its rows of the outputs; an exception of the sweeps is
+  recorded per block. The final check runs in a second parallel region (see "Times of the
+  solvers"): the best and the final cut of every replica whose block ran, against their cuts
+  computed directly; a mismatch is recorded per replica, and after the region the first error in
+  the order of the replicas is reported (that of its block, then that of its check; `sbmc::Error`
+  with "internal" for a mismatch). After the entry no public function of the instance is called
+  (B5), and nothing is allocated inside the regions.
 - One proposal of spin i for all the lanes of a block: the acceptance words, one Philox block for
   four consecutive proposals of a lane, in a vector loop over the lanes; the RB decisions in one
   lane loop, m = s_i h_i, accepted when m <= 0 or w < threshold(beta_k, 2m), every lane consuming
@@ -599,8 +620,8 @@ reference, plus `threads`, checked first (`threads >= 0`); the messages start wi
   with an improvement). At the end of the block the fields of the kept states are computed for all
   the lanes at once, and every lane is replayed from its kept state, with the same words and the
   thresholds of `sa_threshold`, up to the proposal of its last improvement; `best_sweep = 0` gives
-  the initial state, recomputed from its stream. The final check compares these signs with
-  `cut_direct`.
+  the initial state, recomputed from its stream. The final check compares the cut of these signs,
+  computed directly, with `best_cut`.
 - Guarantees. In every preset, strict or not, every field of the result except `threads` is equal
   to `run_sa_sequential(inst, params)` (the bits of beta0 and beta1 included), for every number of
   threads: there is no floating-point operation outside `sa_beta` and `sa_threshold`. So the
@@ -653,9 +674,19 @@ one thread (489 ms with two) and 1338 ms on K2000 (712 ms with two); C0 (`--vari
 Per replica and proposal, C2 with one thread costs about 4.6 ns on G1 and 105 ns on K2000, where
 every accepted move of any lane updates the fields of the whole block (n * RB elements).
 
-Measurement on the laptop: to be filled at the closure of phase 06 (scaling of C2 on G1 and K2000
-with T = 1, 2, 4, 6, 8, 12 and 16 threads, `results/f06/scaling_sa_G1.csv` and
-`results/f06/scaling_sa_K2000.csv`; C0 against C2 with one thread, `results/f06/c0_vs_c2.csv`).
+Measurement on the laptop, closure of phase 06 (`results/f06/`, results schema 1, the fixed
+power profile, R = 1024 for the scaling, 3 recorded repetitions after one warm-up run, medians of
+`t_solve_ms`). In schema 1 `t_solve_ms` includes the preparation and the final check of the
+solver, measured apart since phase 07 (see "Times of the solvers").
+
+- Scaling of C2 (`results/f06/scaling_sa_G1.csv`, `results/f06/scaling_sa_K2000.csv`): on G1
+  (S = 1000, beta0 = 0.1, beta1 = 3) 3665.2 ms with 1 thread and 488.2 ms with 16, speedup 7.51; on
+  K2000 (S = 200, beta0 = 0.01, beta1 = 3) 20172.9 ms with 1 thread, 3287.8 ms with 12 and
+  3291.1 ms with 16, speedup 6.13, no gain from 12 to 16 threads. The results are identical for
+  every number of threads.
+- C0 against C2 with one thread (`results/f06/c0_vs_c2.csv`): on G1 (R = 256) 2321.4 against
+  908.5 ms, x2.56 (11.3 against 4.4 ns per replica and proposal); on K2000 (R = 32) 2108.1 against
+  654.2 ms, x3.22 (164.7 against 51.1 ns per replica and proposal). The results are identical.
 
 ### T2 for C2
 
@@ -840,12 +871,81 @@ in `data/README.md`.
 - `.gitattributes` marks `data/gset/G*` as `-text`: git never converts the line endings of the
   G-set files (the originals of G56, G60 and G61 have CRLF).
 
+## Times of the solvers
+
+Every solver, `run_sb_sequential` (C0), `run_sb_openmp` (C1), `run_sa_sequential` (the reference
+of SA) and `run_sa_openmp` (C2), measures inside the call three consecutive phases with
+`std::chrono::steady_clock`, at four instants t0 <= t1 <= t2 <= t3, and returns them in
+milliseconds in the field `times`, the last field of `SbResult` and `SaResult`
+(`sbmc/solve_times.hpp`, decision L2 of phase 07):
+
+```cpp
+struct SolveTimes {
+  double prep_ms = 0.0;   // preparation, t1 - t0
+  double run_ms = 0.0;    // run, t2 - t1
+  double check_ms = 0.0;  // final check, t3 - t2
+};
+```
+
+- t0 is the first instruction of the call, before the preconditions. Preparation [t0, t1): the
+  preconditions; `total_weight`, the only full check of the instance (B5); c0 and the pressure
+  schedule (SB); beta_k of every sweep where it is computed before the run (C2); the internal copy
+  of J; the plan of the accumulators and of the thresholds (C1, C2); the allocation of the
+  outputs, of the trace and of the work areas; the initial states of every replica, with their
+  usual values, written in replica-major order into the output that holds the final state at the
+  end: x0 of SB in `final_x` (y = 0), the initial spins of SA in `final_spins`.
+- Run [t1, t2): every replica from its initial state, read from `final_x` or `final_spins`: in SA
+  the initial local fields and energy; all the M steps or S sweeps, the evaluations, the best
+  state and the trace; the replay of the best signs (C2); `per_replica` and the outputs
+  `best_spins`, `final_x`, `final_y`, `final_spins`.
+- Check [t2, t3): the final check of every replica, and nothing else. A mismatch throws after t3
+  (for the smallest replica); `times` is written only before a normal return.
+- C1 and C2: the run and the check are two parallel regions, both with num_threads(min(T_req,
+  B)); t1 is taken right before the first, t2 after its implicit barrier, t3 after the second;
+  `threads` of the result stays the team of the run. The check distributes the replicas with
+  schedule(static); in C2 the replicas of a block whose run threw are not checked. In C1 and C2 the
+  initial states are computed in the preparation by a parallel loop with num_threads(min(T_req,
+  B)), from whole Philox blocks of their streams (the values of `initial_position` and
+  `sa_initial_spin`); C0 calls `make_initial_state` (the default number of OpenMP threads), the
+  reference of SA calls `sa_initial_spin` in a sequential loop. The padding lanes of C1 start from
+  x = 0, y = 0; those of C2 take the initial spins of lane 0 of their block.
+- The intervals are consecutive, so prep_ms + run_ms + check_ms is at most the duration of the
+  call measured outside it, `t_solve_ms` of `sbmc_run` (which also counts the time between the
+  call and t0, and the return of the result).
+
+Final check (decision L3 of phase 07). SB (C0, C1): the cut of the best signs of every replica
+must equal its `best_cut`; SA (the reference, C2): the cut of its best spins must equal `best_cut`
+and that of its final spins `final_cut`; a mismatch is `sbmc::Error` with the prefix of the solver,
+"internal" and the values. The instance is checked once, at the entry, and the cuts are computed
+directly by two functions of `sbmc::detail` (`sbmc/instance.hpp`), internal to the solvers: they
+check nothing, never throw, never allocate and use no OpenMP, so that they run inside the parallel
+region of the check, and they give the values of `cut_direct` for the same instance and spins
+(the cases `detail:` of `test_instance`).
+
+- `detail::cut_edges_unchecked(g, s)`: the sum over the edges of g of w_uv [s_u != s_v], in int64,
+  without branches (w AND a mask: with a conditional expression GCC -O3 emits a branch whose
+  outcome cannot be predicted, about 9 times slower on G1). Used for every `Graph`, also when the
+  internal J of C1 or C2 is dense.
+- `detail::cut_dense_rows_unchecked(rows, n, ld, s)`: -sum_{i<j} J_ij [s_i != s_j] from dense
+  INT8 rows of J (element (i, j) at `rows[i * ld + j]`, the columns j >= n never read), with the
+  sum of every row in int32 (exact up to n = 2^24, int64 beyond) and the total in int64. Used for a
+  `DenseSpinGlass`, on the internal rows of the solver (ld = n in C0 and in the reference of SA,
+  rows on 64-byte boundaries in C1 and C2).
+
+What the check verifies: the energy accounting of every replica, the best (and final) energy that
+the solver kept from its fields or incrementally, against a cut computed directly on the edges or
+on the rows of J. What it does not verify: for a `DenseSpinGlass` it reads the same INT8 rows as
+the solver, generated by `dense_rows_int8`, so an error in those rows would go unseen here;
+`dense_rows_int8` has its own tests with independent values (T5, T12). Until phase 06 the solvers
+called `cut_direct`, which checks the whole instance again at every call: on K2000 (m = 1,999,000
+edges of 12 bytes) two reads of the edge list per call, one call per replica in SB and two in SA.
+
 ## sbmc_run and the results CSV
 
 `sbmc_run` (`apps/`, built in `build/<preset>/apps/`) runs simulated bifurcation (dSB or bSB,
 with the sequential reference C0 or with C1, `--variant c1`) or simulated annealing (`--algo sa`,
 with the sequential reference or with C2, `--variant c2`) on one instance, and appends one row
-per repetition to a CSV with the results schema 1 (`sbmc/results.hpp`) and, with
+per repetition to a CSV with the results schema 2 (`sbmc/results.hpp`) and, with
 `--replica-out`, one row per replica to the replica file. The command line is parsed with CLI11
 (`third_party/CLI11`).
 
@@ -854,7 +954,7 @@ sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --rep
          [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
          [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
          [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
-         [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT]
+         [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
 ```
 
 | Option | Meaning |
@@ -874,14 +974,18 @@ sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --rep
 | `--out FILE` | CSV of the results: header written when the file is new or empty, one row appended per repetition (no CSV without `--out`) |
 | `--replica-out FILE` | replica file: header written when the file is new or empty, R rows appended per repetition after its row of results (see "Replica file"); requires `--out`, and another file |
 | `--notes TEXT` | free text of the `notes` column (no line breaks) |
+| `--tag TEXT` | free text of the `run_tag` column, the identifier of the campaign or of the configuration (no line breaks; commas allowed, the field is then quoted); default empty |
 
 Integers are decimal only (CLI11 alone would read `010` as octal). Exit status: 0 success; 1
 error of the library (for example `--replicas 0`: the preconditions of C0, C1 and of the SA
 reference stay with the library, as in `sbmc_trace`), of reading or writing, a `--out` or
 `--replica-out` with another header or a partial last line (checked before the runs, the file
-is not modified), an instance that is not in the best-known table, a row of the table whose n or
-m differs from the instance, or paths of `--out` and `--replica-out` that cannot be compared (the
-message names both options); 2 error of the command line (unknown, missing or repeated
+is not modified; a `--out` with the header of results schema 1 is refused like any other header,
+with a message that names "results schema 2"), an instance that is not in the best-known table, a
+row of the table whose n or m differs from the instance, paths of `--out` and `--replica-out`
+that cannot be compared (the message names both options), or `OMP_PLACES` or `OMP_PROC_BIND`
+with a line break in its value (before any run, with a message that names the variable); 2 error
+of the command line (unknown, missing or repeated
 option, value that cannot be converted or is not in the list or in its range, missing or double
 instance, and the rules of the algorithms, checked after the parsing in this order: "--steps is
 required" and "--dt is required" with `dsb` and `bsb`; with `sa`, "--sweeps is required with
@@ -895,8 +999,10 @@ once made absolute and passed to `std::filesystem::weakly_canonical`: `x.csv`, `
 `/abs/x.csv` are the same file, before any run). Until phase 05
 `--steps` and `--dt` were required options of CLI11; the messages and their place among the
 checks of `sbmc_run` are unchanged, but an error that CLI11 finds during the parsing (a value
-that cannot be converted, an unexpected argument) now comes before them. On stdout every
-repetition prints `rep <k>: best_cut <v> mean_cut <v> [n_success <a>/<R>] t_solve_ms <v>`.
+that cannot be converted, an unexpected argument) now comes before them; `--tag` with a line
+break is an error of the command line too. On stdout every repetition prints `rep <k>: best_cut
+<v> mean_cut <v> [n_success <a>/<R>] t_solve_ms <v> t_run_ms <v> t_check_ms <v>`, with the
+values of its row.
 
 With `--target best-known`, the row `--name` of the table must have the n and m of the instance
 (m: edges of the rudy file, n(n - 1)/2 for a dense instance); otherwise exit status 1, before any
@@ -908,11 +1014,14 @@ Repetitions (decision B7): repetition k runs the solver with `first_replica = k 
 repetition, each one reproducible on its own (the replicas of a repetition are the same whatever
 the number of repetitions). The warm-up runs use `first_replica = 0` and are not recorded.
 `t_solve_ms` is the duration of the call of the solver, `run_sb_sequential` (dsb and bsb, c0),
-`run_sb_openmp` (c1), `run_sa_sequential` (sa, c0) or `run_sa_openmp` (sa, c2), including its
-internal preparation (check of the instance, internal copy of J, automatic c0, initial positions
-or spins; for c1 and c2 also the work areas and the start of the parallel region) and its final
-check; `t_setup_ms` is the time to read
-the rudy file (or to set up the dense instance), the same in every row of a run.
+`run_sb_openmp` (c1), `run_sa_sequential` (sa, c0) or `run_sa_openmp` (sa, c2), measured by
+`sbmc_run` around the call; `t_prep_ms`, `t_run_ms` and `t_check_ms` are the preparation, the run
+and the final check measured inside it (see "Times of the solvers"), whose sum is at most
+`t_solve_ms`; `t_step_us` is `t_run_ms` per step or sweep. `t_setup_ms` is the time to read
+the rudy file (or to set up the dense instance), the same in every row of a run. At startup,
+before the warm-up runs, `sbmc_run` reads once the logical processors allowed to it (the line
+`Cpus_allowed_list:` of `/proc/self/status`) and the variables `OMP_PLACES` and `OMP_PROC_BIND`,
+recorded in every row.
 
 Example: G1 with the parameters of GS-G1, five repetitions, target the best-known value:
 
@@ -952,13 +1061,15 @@ build/cpu/apps/sbmc_run --instance data/gset/G1 --algo sa --variant c2 --threads
 K2000: the file is `data/raw/k2000/WK2000_1.rud` and its row in the table is `K2000`, so a run with
 `--target best-known` needs `--name K2000`.
 
-Columns of schema 1 (44, in order: the columns of section 10.4 of the reference document,
+Columns of schema 2 (56, in order: the columns of section 10.4 of the reference document,
 preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
-`target_source` added before `notes`, which stays the last column):
+`target_source`; the 12 columns of phase 07, from `t_prep_ms` to `run_tag`; `notes`, which stays
+the last column). Schema 1 (phases 03 to 06) had the first 43 of them and `notes`; it is no longer
+written (`python/sbmc_tts.py` reads both):
 
 | Column | Meaning | `sbmc_run` |
 |--------|---------|------------|
-| `schema_version` | version of the schema | 1 |
+| `schema_version` | version of the schema | 2 |
 | `timestamp` | start of the repetition, UTC, `YYYY-MM-DDThh:mm:ssZ` | |
 | `git_hash` | commit of the source tree at build time | 40 hexadecimal digits, or `unknown` |
 | `dirty` | uncommitted changes, at build time, to tracked files outside `results/` of the root | 1, 0, or empty when unknown |
@@ -974,7 +1085,7 @@ preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
 | `dt`, `c0`, `a0` | parameters as float, shortest form that reads back as the same float; `c0` is the value used (the automatic one with `--c0 auto`) | empty (SA) |
 | `beta0`, `beta1` | inverse temperatures of the first and of the last sweep of simulated annealing, shortest form that reads back as the same double | empty (SB) |
 | `seed`, `rep` | `--seed`; repetition k | |
-| `t_setup_ms`, `t_solve_ms`, `t_step_us` | setup time, solve time of the repetition, `t_solve_ms` * 1000 / M (SB) or / S (SA); three decimals | |
+| `t_setup_ms`, `t_solve_ms`, `t_step_us` | setup time; duration of the call of the solver; `t_run_ms` * 1000 / M (SB) or / S (SA), from the unrounded time (until schema 1 from `t_solve_ms`); three decimals | |
 | `best_cut`, `mean_cut` | maximum and mean (three decimals) over the replicas of their best cut | |
 | `n_success`, `p_s`, `target` | replicas with best cut >= target, `n_success` / R, the target | empty without a target |
 | `tts99_ms` | time to solution at 99% | empty: a statistic over the repetitions, computed by `python/sbmc_tts.py` |
@@ -983,6 +1094,14 @@ preceded by `schema_version`; `a0`, `eval_every`, `first_replica`, `threads` and
 | `eval_every`, `first_replica` | bSB evaluation period (empty for SA); global index of the first replica, k R | |
 | `threads` | CPU threads | 1 for `c0` (sequential, SB and SA); for `c1` the team of the steps, for `c2` the team of the sweeps, min(T_req, B) |
 | `target_source` | origin of the target: `best_known`, `user`, `none` | |
+| `t_prep_ms`, `t_run_ms`, `t_check_ms` | the times measured inside the solver: preparation, run, final check (see "Times of the solvers"); three decimals | |
+| `dt_rule` | how dt was chosen: `value`, the value of `--dt` (phase 07, part 2 adds `auto`) | `value` (SB); empty (SA) |
+| `c0_rule` | how c0 was chosen: `sigma`, automatic, 1/(2 sigma sqrt(n)); `value`, an explicit `--c0` (phase 07, part 2 adds `lambda`) | SB; empty (SA) |
+| `lambda_min`, `lambda_max` | estimated extremes of the spectrum of J | empty (filled from phase 07, part 2) |
+| `cpu_affinity` | logical processors allowed to the process at startup, cpulist format (for example `0-15` or `0-3,8`) | the text after `Cpus_allowed_list:` in `/proc/self/status`, empty when missing |
+| `cpu_classes` | efficiency classes of the allowed logical processors, groups `<class>:<cpulist>` separated by a space in decreasing class order (for example `1:0-11 0:12-15`) | empty (filled on Windows in phase 07, part 4) |
+| `omp_places`, `omp_proc_bind` | `OMP_PLACES` and `OMP_PROC_BIND` at startup | empty when not set |
+| `run_tag` | `--tag` | |
 | `notes` | `--notes` | |
 
 Reproducibility (section 8.8 of the reference document): the build information (`git_hash`,
@@ -1035,7 +1154,7 @@ python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,
 
 | Option | Meaning |
 |--------|---------|
-| `--results FILE` | CSV of results schema 1 (exact header) |
+| `--results FILE` | CSV of results schema 1 or 2 (exact header, which tells the schema) |
 | `--replicas FILE` | replica file of the same runs (exact header) |
 | `--targets` | fractions of the target in thousandths, distinct integers in [1, 1000]; default 1000,995,990 with `--replicas` and 1000 alone without it (decision Q3 of F06-R1); an explicit list without `--replicas` may only be 1000 ("relaxed targets need --replicas") |
 | `--bootstrap B` | bootstrap resamples: 0 (none) or at least 1000; default 1000 |
@@ -1044,7 +1163,9 @@ python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,
 
 - Groups: the rows of results with the same git_hash, dirty, host, compiler, algo, variant,
   instance, n, nnz, replicas, steps, dt, c0, beta0, beta1, a0, eval_every, threads, target,
-  target_source and notes, in the order of first appearance. A group without a target is skipped
+  target_source and notes (21 columns), and with schema 2 also the same os, dt_rule, c0_rule,
+  lambda_min, lambda_max, cpu_affinity, cpu_classes, omp_places, omp_proc_bind and run_tag (31
+  columns), in the order of first appearance. A group without a target is skipped
   (one line `SKIP` on stdout). In a group a pair (seed, rep) appears once: the same replicas are
   never counted twice.
 - Join with the replica file, on the key (timestamp, instance, algo, variant, replicas, steps,
@@ -1057,8 +1178,9 @@ python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,
   target_value = ceil(f T / 1000), and a replica succeeds when 1000 best_cut >= f T; the
   successes come from the replica rows (without `--replicas`, the sum of `n_success`, f = 1000
   only); p_s = successes / N with the Wilson interval at 95% (z = `NormalDist().inv_cdf(0.975)`;
-  exactly 0 below for no success and 1 above for N successes); t_batch = median of `t_solve_ms`,
-  with the quartiles of `numpy.percentile`; TTS(p) = t_batch when p = 1, undefined when p = 0,
+  exactly 0 below for no success and 1 above for N successes); t_batch = median of `t_solve_ms`
+  with schema 1 and of `t_run_ms` with schema 2 (decision L2 of phase 07), with the quartiles of
+  `numpy.percentile`; TTS(p) = t_batch when p = 1, undefined when p = 0,
   otherwise t_batch * max(1, ln(0.01) / (R log1p(-p))) (a batch that already reaches 99% costs
   one batch); tts99 = TTS(p_s), its interval TTS(upper Wilson bound) and TTS(lower bound).
 - Bootstrap (B > 0): `numpy.random.default_rng([seed, group index, fraction index])` (indices from
@@ -1070,7 +1192,9 @@ python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,
 - Best and mean cut: maximum and mean over the replicas (without `--replicas`, the maximum of
   `best_cut` and the mean of `mean_cut`); gaps 100 (T - best) / T and 100 (T - mean) / T, empty
   when T = 0.
-- Summary (`--out`), one row per group and fraction: the 21 columns of the group, then
+- Summary (`--out`), one row per group and fraction: the 21 columns of the group (schema 1), or
+  the 31 columns of the group and `t_batch_column`, the column of the batch time, `t_run_ms`
+  (schema 2), then
   target_permille, target_value, rows, replicas_total, successes, p_s, p_s_lo, p_s_hi, t_batch_ms,
   t_batch_q1_ms, t_batch_q3_ms, tts99_ms, tts99_lo_ms, tts99_hi_ms, bootstrap, bootstrap_seed,
   tts99_boot_lo_ms, tts99_boot_hi_ms, best_cut, mean_cut, gap_best_pct, gap_mean_pct. Floats are
@@ -1082,8 +1206,10 @@ python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,
   between the files, duplicates; also NumPy missing); 2 error of the command line. Messages on
   stderr start with `sbmc_tts: `.
 
-Limit: until results schema 2 (phase 07) `t_solve_ms` includes the preparation and the final
-check of the solver, so the TTS of these runs is slightly pessimistic.
+Limit, schema 1 only: its `t_solve_ms` is the whole call of the solver, its preparation and
+final check included, so the TTS of these runs is slightly pessimistic. With schema 2 the batch
+time is `t_run_ms`, the run alone. With schema 1 the summary and stdout are those of F06-R2 byte
+for byte.
 
 Example, on the runs of the example of "Replica file":
 
@@ -1096,7 +1222,7 @@ Example, on the runs of the example of "Replica file":
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2`, `test_solve_times` | `tests/`, `tests/core/`, `tests/cpu/` |
 | `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`                                   | `tests/python/`, `tests/tools/`       |
 | `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`                                              | `tests/python/`                       |
 | `tools`  | `test_sync_from_zip`, `test_build_info`; `test_cuda_rpath` (CUDA presets)                                         | `tests/scripts/`                      |
@@ -1118,9 +1244,9 @@ between 2 and 6, like the random graphs of the G-set (maximum cut 40, the instan
 T2-2); `weighted_isolated_13.rudy`, 13 nodes and 19 edges with weights of both signs up to
 2^31 - 1 and two isolated nodes (maximum cut 6,442,452,014, 4 optimal partitions), which tests the
 int64 sums of C3 (only C3: `auto_c0` rejects it, because Q overflows int64). `test_gset`,
-`test_data`, `test_results`, the case GS-G1, the cases SA-5 and SA-9 read `data/`. Number of
-tests: 23 with `cpu` and `cpu-strict`, 29 with `cuda` and `cuda-strict`, 26 with `t4` and
-`t4-strict`. A
+`test_data`, `test_results`, `test_instance`, `test_solve_times`, the case GS-G1, the cases SA-5
+and SA-9 read `data/`. Number of tests: 24 with `cpu` and `cpu-strict`, 30 with `cuda` and
+`cuda-strict`, 27 with `t4` and `t4-strict`. A
 test that cannot run on the current machine (no GPU, no NumPy, missing tool, missing data) exits
 with 77 and CTest reports it as skipped (for example `ctest --preset cuda -L tile` runs only the
 Tile tests): `test_k2000` needs `scripts/fetch_data.sh --k2000` first.
@@ -1132,7 +1258,13 @@ Tests in detail (the C++ ones use doctest):
 - `test_instance`: T1 (the 4-node example), int64 sums and the identity `2C = W - E` on random
   graphs, every precondition, T5 (dense INT8 rows of a `Graph`: values, symmetry, padding, rows
   in blocks, round trip) and T12 (implicit dense instances: reference couplings, sums and rows up
-  to n = 160,000, statistics, independence from the number of threads);
+  to n = 160,000, statistics, independence from the number of threads); the cases `detail:`
+  (phase 07): `detail::cut_edges_unchecked` equal to `cut_direct` on every spin vector of
+  `four_nodes.rudy` (with the cuts 4 and 3 of the reference document), on 20 vectors of G1 and on
+  64 of `weighted_isolated_13.rudy` (sums beyond 2^31), 0 on graphs without edges;
+  `detail::cut_dense_rows_unchecked` equal to `cut_direct` on `DenseSpinGlass{200, 7}` with
+  ld = 200 and ld = 256 (padding columns overwritten with 77, never read), on
+  `torus_4x6_pm1.rudy` with ld = 24 and 32, and 0 for one spin;
 - `test_rudy` (T6 on example inputs): the accepted variants and every rejection rule, with the
   line numbers of the messages;
 - `test_initial_state`: reference bits of x0, layout, replica split, independence from the
@@ -1143,9 +1275,11 @@ Tests in detail (the C++ ones use doctest):
   last canonical edges of G1 and G81, E and C of G1 with every spin +1, `auto_c0` of G1;
 - `test_k2000`: n, m, W and the counts of the weights of K2000, `auto_c0`; exits with 77 and
   "SKIP: run scripts/fetch_data.sh --k2000" when the file is missing;
-- `test_results`: the 44 columns of schema 1, `csv_escape`, `csv_line` and `csv_split` (round
+- `test_results`: the 56 columns of schema 2 (the first 43 those of schema 1, written in the
+  test; distinct names; `notes` last; version 2), `csv_escape`, `csv_line` and `csv_split` (round
   trips, malformed lines), `append_results_row` in a temporary folder (new file, appended rows,
-  file with another header left unchanged, wrong rows), the 13 columns of the replica file and
+  file with another header, the header of schema 1 included, left unchanged, wrong rows), the 13
+  columns of the replica file and
   `append_replica_rows` (header and rows, a second append without header, another header or a
   partial last line left unchanged, wrong rows before the file is touched, no rows),
   `read_best_known` on `data/best_known.csv` and on malformed tables;
@@ -1194,6 +1328,10 @@ Tests in detail (the C++ ones use doctest):
   result with 1, 2, 3 and the default number of threads (`omp_set_dynamic(0)`, the team size in
   `threads`, the OpenMP settings unchanged by the library); every precondition, among them a
   `DenseSpinGlass` with n = 2^31 - 1, rejected at once because n is checked before `total_weight`;
+- `test_solve_times` (phase 07): `SolveTimes{}` and the field `times` of `SbResult{}` and
+  `SaResult{}` at zero; for 16 calls of the four solvers (G1, dense_graph_40 and
+  `DenseSpinGlass{200, 7}`; dSB and bSB; one and three threads) the three times finite and >= 0,
+  their sum at most the duration of the call measured outside it, and on G1 a run time > 0;
 - `test_t2` (T2): the seven cases of "T2: C0 and C1 against the exact optimum", the optimum from
   C3, the replicas of C0 and of C1 at the optimum (counts and the best cuts of T2-3 in the strict
   presets, where C1 also equals C0 replica by replica); the seven cases of "T2 for SA" with the
@@ -1214,10 +1352,14 @@ Tests in detail (the C++ ones use doctest):
   without `--targets`: the three groups at 1000 alone), every exit status 1 (data) and 2
   (command line), a group with skewed times (the batch time is their median, not their mean), the
   bootstrap intervals of one group against the procedure of "Time to solution", written again in
-  the test; one line `TTS <check>: PASS|FAIL` per check and the final line `TTS_VERDICT`;
+  the test; since phase 07 the fixture in results schema 2 (the same P_s, intervals, cuts and
+  gaps; the times 0.9 times those of schema 1 since its `t_run_ms` is 0.9 `t_solve_ms`;
+  `t_batch_column`; the header of the summary), two groups when only `run_tag` or `os` differ, and
+  a header of schema 2 with a column less or more (exit status 1); one line `TTS <check>:
+  PASS|FAIL` per check and the final line `TTS_VERDICT`;
 - `test_sbmc_run` (label `apps`): `sbmc_run` run from the repository root, its exit statuses (2 for
   the command line, among them `--threads` with `--variant c0` and out of [0, 1024]; 1 for the
-  library and for reading and writing), the 44 columns and their values on the 4-node graph, a
+  library and for reading and writing), the 56 columns and their values on the 4-node graph, a
   repetition against `sbmc_trace` on the same global replicas, appending to an existing CSV,
   `--target best-known` on G1, `--name G1` on another instance (exit status 1: another n and m)
   and a table of the test with a right and a wrong row, a dense instance with a warm-up run, the
@@ -1231,7 +1373,15 @@ Tests in detail (the C++ ones use doctest):
   1, the rows and the replica file of `c0`), G1 with R = 133 and three threads against `c0`, the
   messages of `--variant c2` with dSB and bSB, of `--threads` with `c0`, of `--variant c3`, of
   `--replica-out` on the `--out` file written in four ways, and exit status 1 for a loop of
-  symbolic links in the path of `--replica-out`; final line `RUN_VERDICT`;
+  symbolic links in the path of `--replica-out`; with results schema 2 (phase 07): in every row of
+  every run the three times >= 0 with their sum at most `t_solve_ms` + 0.002, `t_step_us` from
+  `t_run_ms`, `dt_rule` and `c0_rule`, `lambda_min`, `lambda_max` and `cpu_classes` empty,
+  `cpu_affinity` equal to the `Cpus_allowed_list` of the test, `omp_places` and `omp_proc_bind`;
+  a run under `taskset -c 0` (skipped, and said so, without `taskset`), `OMP_PLACES=cores` and
+  `OMP_PROC_BIND=close` in the environment and then neither, `OMP_PLACES` with a line break (exit
+  status 1), `--tag "E2 cfg,1"` and `--tag` with a line break (exit status 2), an `--out` with the
+  header of schema 1 (exit status 1, file unchanged), the lines on stdout with `t_run_ms` and
+  `t_check_ms`; final line `RUN_VERDICT`;
 - `test_sbmc_bruteforce` (label `apps`, standard library only): `sbmc_bruteforce` with absolute
   paths, its exit statuses (2 for the command line, among them `--threads 1025` and a default
   name taken from a file name with a space; 1 for the library and for reading; always with an
@@ -1340,12 +1490,12 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 CMakeLists.txt, CMakePresets.json, cmake/   build system (cmake/sbmc_build_info.cmake: build
                      information of the results rows)
 include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
-                     sb, sb_sequential, sb_openmp, sa, sa_sequential, sa_openmp, bruteforce,
-                     results
-src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, initial
-                     positions, pressure schedule and automatic c0, schedule of beta and
-                     acceptance threshold of SA, results schema, replica file and CSV, table of
-                     best-known values
+                     solve_times, sb, sb_sequential, sb_openmp, sa, sa_sequential, sa_openmp,
+                     bruteforce, results
+src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, the
+                     unchecked cut of the final check, initial positions, pressure schedule and
+                     automatic c0, schedule of beta and acceptance threshold of SA, results
+                     schema 2, replica file and CSV, table of best-known values
 src/cpu/             sequential reference C0 (phase 04), OpenMP simulated bifurcation C1 and
                      exact enumeration C3 with OpenMP (phase 05), sequential reference of
                      simulated annealing and OpenMP simulated annealing C2 (phase 06)
@@ -1356,8 +1506,8 @@ apps/                command-line programs: sbmc_run (phase 04, C1 from phase 05
                      the replica file from phase 06), sbmc_bruteforce (phase 05)
 tests/               unit, integration and smoke tests (ctest)
 tests/core/          unit tests of the core library (doctest)
-tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C2, C3) and
-                     T2 (doctest)
+tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C2, C3), T2
+                     and the times of the solvers (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
 tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run
@@ -1377,7 +1527,7 @@ docs/                report sources and figures
 third_party/         vendored dependencies: doctest, CLI11
 ```
 
-Existing in phase 06: `apps/`, `cmake/`, `data/`, `include/sbmc/`, `python/`, `scripts/`,
+Existing in phase 07: `apps/`, `cmake/`, `data/`, `include/sbmc/`, `python/`, `scripts/`,
 `src/core/`, `src/cpu/`, `tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`, `scripts/`,
 `smoke/`, `tools/`) and `third_party/`; the other folders come with later phases.
 

@@ -2,14 +2,25 @@
 //
 // The replicas are independent and run one after the other, each for all S sweeps. The sweep
 // loop works only on internal copies (couplings, spins, local fields): the instance is checked
-// once at the entry, and the public cut_direct is called twice per replica at the end (B5). No
-// OpenMP here: the library functions called at the entry (total_weight, dense_rows_int8) may use
-// it, with results that do not depend on the number of threads.
+// once at the entry, by total_weight, and never again (B5). The final check recomputes the best
+// and the final cut of every replica directly, without any check of the instance (decision L3 of
+// phase 07): on the edges for a Graph (detail::cut_edges_unchecked), on the internal INT8 rows
+// of J with ld = n for a DenseSpinGlass (detail::cut_dense_rows_unchecked); no public function of
+// the instance is called after the entry. No OpenMP here: the library functions called in the
+// preparation (total_weight, dense_rows_int8) may use it, with results that do not depend on the
+// number of threads.
+//
+// Times (sbmc/solve_times.hpp): t0 is the first instruction of run_sa_sequential; the
+// preparation [t0, t1) covers the preconditions, total_weight, the internal J, the outputs, the
+// work area and the initial spins of every replica in final_spins (sa_initial_spin); the run
+// [t1, t2) is the replica loop (initial fields and energy, every sweep with its beta, the best
+// state); the check [t2, t3) is the final check loop.
 #include <sbmc/sa_sequential.hpp>
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -29,6 +40,12 @@ namespace {
 
 constexpr std::int64_t kMaxDenseSpins = 32768;                      // dense INT8 J: at most 1 GiB
 constexpr std::int64_t kReplicaIndexLimit = std::int64_t{1} << 32;  // global replica indices
+
+using Clock = std::chrono::steady_clock;
+
+double milliseconds(Clock::time_point from, Clock::time_point to) {
+  return std::chrono::duration<double, std::milli>(to - from).count();
+}
 
 [[noreturn]] void invalid(const std::string& reason) {
   throw InvalidArgument("run_sa_sequential: " + reason);
@@ -151,6 +168,18 @@ DenseCouplings make_couplings(const DenseSpinGlass& g) {
   return c;
 }
 
+// The cut of the final check, computed directly and without any check (decision L3 of phase 07):
+// on the edges of a Graph, on the internal dense rows (ld = n) of a DenseSpinGlass.
+std::int64_t direct_cut(const Graph& g, const SparseCouplings& /*c*/,
+                        std::span<const Spin> s) noexcept {
+  return detail::cut_edges_unchecked(g, s);
+}
+
+std::int64_t direct_cut(const DenseSpinGlass& /*g*/, const DenseCouplings& c,
+                        std::span<const Spin> s) noexcept {
+  return detail::cut_dense_rows_unchecked(c.j, c.n, c.n, s);
+}
+
 // The acceptance words of one replica in proposal order p = 0, 1, 2, ...: word p of the stream
 // (seed, sa_acceptance, replica), that is sa_acceptance_word(seed, replica, p). One Philox block
 // gives four consecutive words.
@@ -174,8 +203,9 @@ class AcceptanceWords {
   U32x4 block_{};
 };
 
-template <typename Couplings>
-SaResult run(const Instance& inst, const Couplings& c, std::int64_t total, const SaParams& params) {
+template <typename G, typename Couplings>
+SaResult run(const G& g, const Couplings& c, std::int64_t total, const SaParams& params,
+             Clock::time_point t0) {
   const std::int64_t n = c.n;
   const auto un = static_cast<std::size_t>(n);
   const int replicas = params.replicas;
@@ -195,15 +225,22 @@ SaResult run(const Instance& inst, const Couplings& c, std::int64_t total, const
   result.threads = 1;
 
   std::vector<std::int64_t> h(un);
+  // The initial spins of every replica, in final_spins.
   for (int r = 0; r < replicas; ++r) {
     const auto global = static_cast<std::uint32_t>(params.first_replica + r);  // < 2^32
-    const std::size_t offset = static_cast<std::size_t>(r) * un;
-    Spin* const s = result.final_spins.data() + offset;  // the state of the replica
-    Spin* const best = result.best_spins.data() + offset;
-
+    Spin* const s = result.final_spins.data() + static_cast<std::size_t>(r) * un;
     for (std::size_t i = 0; i < un; ++i) {
       s[i] = sa_initial_spin(params.seed, global, static_cast<std::uint32_t>(i));
     }
+  }
+
+  const Clock::time_point t1 = Clock::now();
+  for (int r = 0; r < replicas; ++r) {
+    const auto global = static_cast<std::uint32_t>(params.first_replica + r);  // < 2^32
+    const std::size_t offset = static_cast<std::size_t>(r) * un;
+    Spin* const s = result.final_spins.data() + offset;  // the state of the replica: initial spins
+    Spin* const best = result.best_spins.data() + offset;
+
     std::int64_t sum = 0;
     for (std::size_t i = 0; i < un; ++i) {
       h[i] = c.field(static_cast<std::int64_t>(i), s);
@@ -243,27 +280,45 @@ SaResult run(const Instance& inst, const Couplings& c, std::int64_t total, const
     out.accepted = accepted;
   }
 
-  // Final check with the public functions: the best and the final spins of every replica.
+  const Clock::time_point t2 = Clock::now();
+
+  // Final check: the direct cuts of the best and of the final spins of every replica. The first
+  // mismatch (the smallest replica) is thrown after t3.
+  int mismatch = -1;
+  std::int64_t mismatch_best = 0;
+  std::int64_t mismatch_final = 0;
   for (int r = 0; r < replicas; ++r) {
     const std::size_t offset = static_cast<std::size_t>(r) * un;
     const SaReplicaResult& out = result.per_replica[static_cast<std::size_t>(r)];
     const std::int64_t best_cut =
-        cut_direct(inst, std::span<const Spin>(result.best_spins.data() + offset, un));
+        direct_cut(g, c, std::span<const Spin>(result.best_spins.data() + offset, un));
     const std::int64_t final_cut =
-        cut_direct(inst, std::span<const Spin>(result.final_spins.data() + offset, un));
+        direct_cut(g, c, std::span<const Spin>(result.final_spins.data() + offset, un));
     if (best_cut != out.best_cut || final_cut != out.final_cut) {
-      throw Error("run_sa_sequential: internal error: replica " + std::to_string(r) +
-                  ": cut_direct gives best " + std::to_string(best_cut) + " and final " +
-                  std::to_string(final_cut) + ", the incremental energy gives best " +
-                  std::to_string(out.best_cut) + " and final " + std::to_string(out.final_cut));
+      mismatch = r;
+      mismatch_best = best_cut;
+      mismatch_final = final_cut;
+      break;
     }
   }
+  const Clock::time_point t3 = Clock::now();
+  if (mismatch >= 0) {
+    const SaReplicaResult& out = result.per_replica[static_cast<std::size_t>(mismatch)];
+    throw Error("run_sa_sequential: internal error: replica " + std::to_string(mismatch) +
+                ": the direct cut gives best " + std::to_string(mismatch_best) + " and final " +
+                std::to_string(mismatch_final) + ", the incremental energy gives best " +
+                std::to_string(out.best_cut) + " and final " + std::to_string(out.final_cut));
+  }
+  result.times.prep_ms = milliseconds(t0, t1);
+  result.times.run_ms = milliseconds(t1, t2);
+  result.times.check_ms = milliseconds(t2, t3);
   return result;
 }
 
 }  // namespace
 
 SaResult run_sa_sequential(const Instance& inst, const SaParams& params) {
+  const Clock::time_point t0 = Clock::now();
   check_params(params);
   if (const auto* dense = std::get_if<DenseSpinGlass>(&inst);
       dense != nullptr && dense->n > kMaxDenseSpins) {
@@ -272,7 +327,7 @@ SaResult run_sa_sequential(const Instance& inst, const SaParams& params) {
             "n <= 32768");
   }
   const std::int64_t total = total_weight(inst);  // full check of the instance
-  return std::visit([&](const auto& g) { return run(inst, make_couplings(g), total, params); },
+  return std::visit([&](const auto& g) { return run(g, make_couplings(g), total, params, t0); },
                     inst);
 }
 
