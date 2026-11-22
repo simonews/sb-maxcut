@@ -1,1 +1,17 @@
+# Pinned packages of the virtual environment .venv (scripts/setup_python.sh, wheels only; Python
+# 3.12 or newer). NumPy: P0 (python/sbmc_ref), the time to solution (python/sbmc_tts.py) and the
+# campaign tools of phase 07 (python/sbmc_campaign.py, sbmc_e2.py, sbmc_e3.py, sbmc_dwave.py).
+# matplotlib (phase 07) and its dependencies, all pinned: the plots of E2, E3 and of the external
+# check, drawn with the Agg backend (no display). The optional packages of the external check
+# with dwave-samplers are in python/requirements-dwave.txt (scripts/setup_python.sh --dwave).
 numpy==2.5.4
+matplotlib==3.11.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.68.0
+kiwisolver==1.5.1
+packaging==26.3
+pillow==13.0.0
+pyparsing==3.3.3
+python-dateutil==4.0.0
+tzdata==2026.6

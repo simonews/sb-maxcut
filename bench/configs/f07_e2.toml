@@ -1,0 +1,66 @@
+# E2 of phase 07 (reference document, section 14.2; decision L6): the tuning of dSB (C1) and SA
+# (C2) on the tuning instances G2, G12 and G15 (families of G1, G11 and G14) and on
+# DenseSpinGlass{2000, 1} (family of K2000), with grids relative to the instance: 24
+# configurations per method and instance, R 1024, 16 threads, 5 repetitions after 1 warm-up run.
+# The stage "target" runs first: its largest best_cut is the target of the dense instance
+# (best-found). Run with: python3 python/sbmc_campaign.py run bench/configs/f07_e2.toml --notes
+# "$NOTES"; then python3 python/sbmc_e2.py analyze bench/configs/f07_e2.toml.
+
+[campaign]
+name = "f07_e2"
+output = "results/f07/e2"
+sbmc_run = "build/cpu/apps/sbmc_run"
+sbmc_spectrum = "build/cpu/apps/sbmc_spectrum"
+replicas = 1024
+threads = 16
+reps = 5
+warmup = 1
+seed = 1
+
+[[instance]]
+id = "G2"
+args = ["--instance", "data/gset/G2"]
+target = "best-known"
+family = "G1"
+
+[[instance]]
+id = "G12"
+args = ["--instance", "data/gset/G12"]
+target = "best-known"
+family = "G11"
+
+[[instance]]
+id = "G15"
+args = ["--instance", "data/gset/G15"]
+target = "best-known"
+family = "G14"
+
+[[instance]]
+id = "dense_n2000_s1"
+args = ["--dense", "2000", "--instance-seed", "1"]
+target = "best-found"
+family = "K2000"
+
+# SA: beta0 = a / h (h, the scale of the local fields) and beta1 = b / w (w, the smallest |w|).
+[[method]]
+id = "sa"
+variant = "c2"
+a = [0.5, 1.0, 2.0]
+b = [2.0, 3.0]
+steps = { G2 = [1000, 2000, 4000, 8000], G12 = [1000, 2000, 4000, 8000], G15 = [1000, 2000, 4000, 8000], dense_n2000_s1 = [500, 1000, 2000, 4000] }
+
+# dSB: dt = f * dt_auto (--dt auto --dt-factor f), c0 with the rule sigma (--c0 auto) or lambda.
+[[method]]
+id = "dsb"
+variant = "c1"
+f = [0.25, 0.5, 1.0]
+c0 = ["sigma", "lambda"]
+steps = { G2 = [1000, 2000, 4000, 8000], G12 = [1000, 2000, 4000, 8000], G15 = [1000, 2000, 4000, 8000], dense_n2000_s1 = [500, 1000, 2000, 4000] }
+
+# The target of the dense instance: one long run per method, no warm-up, --target none.
+[[stage]]
+name = "target"
+instance = "dense_n2000_s1"
+target = "none"
+runs = [ { method = "sa", a = 1.0, b = 2.0, steps = 16000, reps = 1, warmup = 0 },
+         { method = "dsb", f = 1.0, c0 = "sigma", steps = 8000, reps = 1, warmup = 0 } ]

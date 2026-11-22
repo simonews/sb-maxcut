@@ -6,12 +6,15 @@
 # enumeration C3, T2 and the times of the solvers), data/ (input files of the tests), python/
 # (Python tests, run with the interpreter chosen by the root CMakeLists.txt: the reference P0, T8
 # with traces in <build>/tests/python/, the data of data/, the tool of the time to solution with its
-# files in <build>/tests/tts/; and, label apps, sbmc_run with its files in <build>/tests/apps/,
-# sbmc_bruteforce with its files in <build>/tests/bruteforce/ and sbmc_spectrum with its files in
-# <build>/tests/spectrum/), tools/ (test tools, executables in <build>/tests/tools/: sbmc_trace),
-# gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/ (CUDA smoke tests, executables in
-# <build>/tests/smoke/), scripts/ (tool tests and checks: sync_from_zip.sh, the build information,
-# RPATH). Tests that cannot run on the current machine exit with 77, registered as SKIP_RETURN_CODE.
+# files in <build>/tests/tts/, the analysis tools of the campaigns of phase 07 (E2, E3, the external
+# check with dwave-samplers) with their files in <build>/tests/e2/, e3/ and dwave/; and, label apps,
+# sbmc_run with its files in <build>/tests/apps/, sbmc_bruteforce with its files in
+# <build>/tests/bruteforce/, sbmc_spectrum with its files in <build>/tests/spectrum/ and the runner
+# of the campaigns with its files in <build>/tests/campaign/), tools/ (test tools, executables in
+# <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/
+# (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/ (tool tests and checks:
+# sync_from_zip.sh, the build information, RPATH). Tests that cannot run on the current machine exit
+# with 77, registered as SKIP_RETURN_CODE.
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
@@ -174,6 +177,24 @@ sbmc_add_python_test(test_data python
 sbmc_add_python_test(test_sbmc_tts python
                      ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
                           "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/tts")
+# The analysis tools of the campaigns of phase 07, on fake campaigns written to their folders:
+# python/sbmc_e2.py (<build>/tests/e2/), python/sbmc_e3.py (<build>/tests/e3/) and
+# python/sbmc_dwave.py (<build>/tests/dwave/; the check itself only with dwave-samplers installed,
+# scripts/setup_python.sh --dwave, with sbmc_run on one thread).
+sbmc_add_python_test(test_sbmc_e2 python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/e2")
+sbmc_add_python_test(test_sbmc_e3 python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/e3")
+sbmc_add_python_test(test_sbmc_dwave python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/dwave")
 
 # --- Applications ---------------------------------------------------------------------------
 # sbmc_run (apps/), run from the repository root (its defaults are relative to it); its CSV files
@@ -195,6 +216,15 @@ sbmc_add_python_test(test_sbmc_spectrum apps
                           "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
                           "--gset" "${PROJECT_SOURCE_DIR}/data/gset"
                           "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/spectrum")
+# python/sbmc_campaign.py (phase 07), the runner of the campaigns, with sbmc_run and sbmc_spectrum
+# of this build, from the repository root (data/best_known.csv); its campaigns go to
+# <build>/tests/campaign/.
+sbmc_add_python_test(test_sbmc_campaign apps
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--sbmc-spectrum" "$<TARGET_FILE:sbmc_spectrum>"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/campaign")
 
 # --- Tools ----------------------------------------------------------------------------------
 add_test(NAME test_sync_from_zip

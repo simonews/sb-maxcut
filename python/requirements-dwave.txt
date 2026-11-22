@@ -1,0 +1,9 @@
+# Optional packages of the external check of SA with dwave-samplers (reference document, section
+# 7, rule 5; decision L7 of phase 07): python/sbmc_dwave.py compares the final cuts and the
+# nanoseconds per proposal of our SA (C2 on one thread) with the SimulatedAnnealingSampler of
+# dwave-samplers, with the same sweeps and schedule. Installed only by scripts/setup_python.sh
+# --dwave, from wheels, after python/requirements.txt (which pins NumPy); without them
+# sbmc_dwave.py writes "DWAVE_VERDICT: SKIP (dwave-samplers not installed)".
+dwave-samplers==1.8.0
+dimod==0.12.23
+networkx==3.7

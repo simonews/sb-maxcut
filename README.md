@@ -50,13 +50,20 @@ c0"); `sbmc_run --dt auto`, `--dt-factor` and `--c0 lambda`, with the columns `d
 the fields in lane-major order and the update of the accepting replicas only, with the same
 results (see "Layouts of the block"); the final check on dense rows in product form (see "Times
 of the solvers").
+Phase 07, part 3 of 4: the resumable runner of the campaigns, with TOML configurations in
+`bench/configs/`; the tuning E2 of dSB and SA, the external check of SA with dwave-samplers and E3
+on the CPU, with their analysis tools and plots (see "Campaigns"); matplotlib in the virtual
+environment, dwave-samplers as an option (`scripts/setup_python.sh --dwave`).
 
 ## Requirements
 
 - WSL2 with Ubuntu 24.04 (the CPU code uses only standard C++20 and OpenMP)
 - GCC 13, CMake 3.28 or newer, Ninja
 - Python 3 with `venv` (`sudo apt install python3-venv`): used to install the CUDA toolkit and,
-  with Python 3.12 or newer, the virtual environment of the Python tests (`scripts/setup_python.sh`)
+  with Python 3.12 or newer, the virtual environment of the Python tests and of the campaign tools
+  (`scripts/setup_python.sh`: NumPy 2.5.4 and matplotlib 3.11.2 with its dependencies, all pinned
+  in `python/requirements.txt`; with `--dwave` also dwave-samplers 1.8.0, dimod 0.12.23 and
+  networkx 3.7, pinned in `python/requirements-dwave.txt`, for the optional external check)
 - An NVIDIA driver that supports CUDA 13.4 (`nvidia-smi` in WSL reports "CUDA Version" 13.4 or
   newer)
 - For the tools and their test: git, rsync, unzip and zip (`sudo apt install rsync unzip zip`)
@@ -763,8 +770,25 @@ C2 costs about 15.6 ns per replica and proposal on the dense instance (36.9 ns i
 code of the spin-major path is that of F07-R1, but the removal of the dense overloads moved its
 block function to another offset modulo 64 in the executable, and G1 became 7% slower in the
 sandbox; both block functions now start on a 64-byte boundary (`[[gnu::aligned(64)]]`), which
-gives back the times of F07-R1 (the G1 rows above). The measurement on the laptop is added by the
-command C3 of phase 07 (`results/f07/c2/`).
+gives back the times of F07-R1 (the G1 rows above).
+
+Measurement on the laptop (F07-R2, `results/f07/c2/c2_dense_after.csv` against the rows of F07-R1
+in `results/f07/c1/`; R = 1024, S = 200, beta 0.01 -> 3, medians of `t_run_ms` over 3 repetitions
+after one warm-up run, the same `best_cut`, `mean_cut` and `n_success`):
+
+| Instance | Threads | F07-R1 | F07-R2 | F07-R1 / F07-R2 |
+|----------|---------|--------|--------|-----------------|
+| K2000 | 1 | 10967.2 ms | 4112.1 ms | 2.67 |
+| K2000 | 16 | 2118.3 ms | 725.3 ms | 2.92 |
+| `DenseSpinGlass{2000, 1}` | 1 | 10928.3 ms | 4111.0 ms | 2.66 |
+| `DenseSpinGlass{2000, 1}` | 16 | 2034.8 ms | 745.4 ms | 2.73 |
+| G1 (compressed rows, unchanged; S = 1000, beta 0.1 -> 3) | 1 | 3471.3 ms | 3546.4 ms | 0.98 |
+| G1 (compressed rows, unchanged; S = 1000, beta 0.1 -> 3) | 16 | 459.5 ms | 455.0 ms | 1.01 |
+
+On the dense instance C2 now costs 10.0 ns per replica and proposal with one thread and 1.8 ns
+with 16. The final check on the dense rows (`t_check_ms`, product form, see "Times of the
+solvers") went from 2935.1 to 523.9 ms with one thread (5.6 times faster) and from 484.1 to
+72.0 ms with 16 (6.7 times).
 
 ### T2 for C2
 
@@ -899,8 +923,13 @@ from the C++ formula on purpose), `sign`, `pressure_schedule`, `sb_step`, `run_s
 `best_from_states`.
 
 The Python tests use the virtual environment of the project, `.venv/` (git-ignored), created by
-`scripts/setup_python.sh` with NumPy 2.5.4 (`python/requirements.txt`, wheels only; Python 3.12 or
-newer). A second run reuses it ("venv bootstrap: existing"). At every configure CMake picks the
+`scripts/setup_python.sh` with NumPy 2.5.4 and, since phase 07, matplotlib 3.11.2 with its pinned
+dependencies (`python/requirements.txt`, wheels only; Python 3.12 or newer); `--dwave` adds the
+optional packages of `python/requirements-dwave.txt` (dwave-samplers 1.8.0, dimod 0.12.23,
+networkx 3.7). The summary ends with the lines "numpy: <version>", "matplotlib: <version>", with
+`--dwave` "dwave-samplers: <version>", and "setup_python: OK". A second run reuses the virtual
+environment ("venv bootstrap: existing"), and `--dwave` can be given to a later run. At every
+configure CMake picks the
 interpreter of the tests: the cache variable `SBMC_PYTHON` when set, otherwise `.venv/bin/python`,
 otherwise `python3` from the PATH; the summary shows the choice on the line "Python (tests)". The
 tests run in isolated mode without bytecode (`python -I -B`), so nothing is written into the
@@ -1457,13 +1486,261 @@ Example, on the runs of the example of "Replica file":
     --replicas results/f06/sa_G1_example_replicas.csv --out results/f06/sa_G1_example_tts.csv
 ```
 
+## Campaigns
+
+The measurement campaigns of phase 07 run `sbmc_run` many times with a fixed protocol (reference
+document, section 14.3: a warm-up run, 5 repetitions with different replicas, medians, the fixed
+power profile). Four Python tools take care of them, from the repository root, with the
+interpreter of `.venv` (NumPy and matplotlib; see "Python reference P0 and T8"):
+
+| Tool | Command | What |
+|------|---------|------|
+| `python/sbmc_campaign.py` | `run CONFIG --notes TEXT [--dry-run] [--stage NAME]`, `status CONFIG`, `manifest CONFIG` | the resumable runner of a campaign |
+| `python/sbmc_e2.py` | `analyze CONFIG [--bootstrap B] [--seed S]` | the analysis of the tuning E2 |
+| `python/sbmc_dwave.py` | `check CONFIG --notes TEXT` | the external check of SA with dwave-samplers |
+| `python/sbmc_e3.py` | `analyze CONFIG [--bootstrap B] [--seed S]` | the analysis of E3 on the CPU |
+
+Every tool takes `--root DIR` (default: the current directory), reads its configuration with
+`tomllib`, exits with 0 on success, 1 for an error in the data or in a child process and 2 for an
+error of the command line or of the configuration, writes its messages on stderr with its name as
+prefix, and is importable as a module (`main(argv)` and pure functions). The definitions of P_s,
+of the Wilson interval, of T_batch (the median of `t_run_ms`), of TTS99 and of the bootstrap are
+the functions of `python/sbmc_tts.py`. Numbers in the CSV files: integers in decimal, floats with
+`repr()`, an undefined value empty, infinity `inf`. Plots: PDF (for the report) and PNG at 150 dpi
+(for this README) with the same name, Agg backend, fixed sizes, one figure per file, no dates or
+hashes in the titles.
+
+### The runner (python/sbmc_campaign.py)
+
+A campaign is a TOML file, validated in full before anything runs or is written (unknown or
+missing keys, types, values out of range, repeated ids: exit status 2, with a message that names
+the key and the file):
+
+| Table and key | Meaning |
+|---------------|---------|
+| `[campaign]` `name` | `[a-z0-9_]+` |
+| `output` | the folder of the campaign, relative to the repository root |
+| `sbmc_run`, `sbmc_spectrum` | the executables (relative to the root), usually `build/cpu/apps/...` |
+| `replicas`, `threads`, `reps`, `warmup`, `seed` | R (>= 1), threads (>= 1), repetitions (>= 1), warm-up runs (>= 0), seed of the runs (>= 0) |
+| `[dwave]` `seed` | optional: the seed of the sampler of dwave-samplers (`python/sbmc_dwave.py`) |
+| `[[instance]]` `id` | `[A-Za-z0-9_]+`, passed as `--name` (the row of `data/best_known.csv`) |
+| `args` | `["--instance", FILE]` or `["--dense", N, "--instance-seed", S]` |
+| `target` | `"best-known"`, `"best-found"` (needs a stage on the instance), `"none"` or an integer > 0 |
+| `family` | optional: the evaluation instance of the family (E2) |
+| `note` | optional: a note for the tables of the analysis (E3) |
+| `[[method]]` `id`, `variant` | `"sa"` with `"c2"`, or `"dsb"` with `"c1"` |
+| `a`, `b` | `sa`: arrays of numbers > 0; beta0 = a / h, beta1 = b / w |
+| `f`, `c0` | `dsb`: arrays; `--dt auto --dt-factor f`, and `"sigma"` (`--c0 auto`) or `"lambda"` (`--c0 lambda`) |
+| `steps` | a table with one array of integers >= 1 per instance: S (sa) or M (dsb) |
+| `selection` | instead of `a`, `b` (or `f`, `c0`): a `selected.csv` of `python/sbmc_e2.py`; the row of the method whose `tuning_instance` or `evaluation_instance` is the instance; with it `steps` can be `"selected"`, the steps of that row; a row `none` gives no configuration (written in the log) |
+| `[[stage]]` `name`, `instance`, `target`, `runs` | optional runs before the grid (`name` not `grid`; `target` default `"none"`); `runs` is an array of tables with `method`, `steps`, `a` and `b` or `f` and `c0`, and optional `reps` and `warmup` |
+
+Scales of an instance, written with the line SPECTRUM of `sbmc_spectrum` to
+`<output>/instances.csv` (columns `instance, n, m, h, w, lambda_min, lambda_max, dt_auto,
+c0_sigma, c0_lambda, target, target_source, family, target_note`): h = sqrt((1/n) sum_i sum_j
+w_ij^2), the scale of the local fields, and w = min |w_ij| over the pairs with w_ij != 0, from the
+rudy file read in Python (the weights of a repeated pair are added; exact integer sums, then one
+square root in double); for `--dense N`, h = sqrt(N - 1) and w = 1. `target_source` is
+`best_known`, `best_found` (the largest `best_cut` of the stages; the analysis may raise it, see
+E2), `given` or `none`.
+
+Configurations, in this order: the runs of the stages, then the grid (instances in the order of
+the file, for each the methods in the order of the file, for each the product (a, b, steps) or
+(f, c0, steps) with the steps innermost). Ids: `sa_a<a>_b<b>_S<S>` and `dsb_f<f>_c<sigma|lambda>_M<M>`
+(numbers with `repr()`, for example `sa_a0.5_b2.0_S1000`); a run of a stage is `<stage>_<id>`.
+Each configuration is one call, from the repository root, in the environment of the runner without
+the `OMP_*` variables:
+
+```
+sbmc_run <args of the instance> --name <instance> <parameters> --replicas R --threads T
+         --seed seed --reps reps --warmup warmup --target <target> --notes <NOTES>
+         --tag <configuration> --out <output>/<instance>/<method>/<configuration>.csv
+         --replica-out <output>/raw/<instance>/<method>/<configuration>_replicas.csv
+```
+
+with the parameters `--algo sa --variant c2 --sweeps S --beta0 repr(a/h) --beta1 repr(b/w)` or
+`--algo dsb --variant c1 --steps M --dt auto --dt-factor repr(f) --c0 auto|lambda`. One pair of
+files per configuration: the replica file has no `run_tag`, so the join of the two files needs
+them alone. The target of a grid on an instance with `best-found` is the largest `best_cut` of
+its stages, which run first; `--stage grid` refuses to start before they are complete.
+
+Resuming: a configuration is complete when its results file has exactly `reps` rows with
+`run_tag` equal to its id and its replica file exactly `reps` x R rows; the runner skips it. An
+incomplete one (a file missing, truncated or with another number of rows) is removed (both
+files) and run again. When `sbmc_run` exits with another status than 0, the runner writes `fail`
+in the log and stops with exit status 1 without starting the following configurations; SIGINT and
+SIGTERM stop the running `sbmc_run` and the runner (`stop` in the log, exit status 1). Either way
+the next `run` repeats only the configurations that are not complete. A lock in
+`<output>/raw/.campaign.lock` refuses a second runner on the same campaign. Killing the runner with
+SIGKILL leaves `sbmc_run` running: wait for it to end before running again.
+
+Log: `<output>/campaign.log`, appended, one line per event, `<UTC time> <event> instance=<id>
+config=<id> seconds=<s> exit=<status>` (fields not defined are `-`, a note may follow), with the
+events `start`, `skip`, `run`, `done`, `fail` and `stop`; the output of `sbmc_run` between `run`
+and `done`. The runner prints the same event lines on stdout.
+
+`status` prints `done`, `partial` or `todo` for every configuration, then
+`STATUS_TOTAL configurations=... done=... partial=... todo=... estimated_remaining_s=...
+unknown=...`. Estimate of the time left: a complete configuration costs the sum over its rows of
+`t_run_ms + t_check_ms`, times (reps + warmup) / reps; a configuration not complete is estimated
+as steps x q x (reps + warmup), where q is the mean, over the complete configurations of the same
+instance and method, of (`t_run_ms + t_check_ms`) / steps per row; `unknown` without them (times
+outside the solver, such as starting the process and reading the instance, are not counted).
+
+`manifest` writes `<output>/raw/MANIFEST.sha256` in the format of `sha256sum` (paths relative to
+`raw/`, sorted) and its copy `<output>/raw_manifest.sha256`; `run` writes them at the end, also
+after a failure or an interruption. `results/**/raw/` is ignored by git (decision D10): the CSV
+files of the results, the summaries, the plots, `instances.csv`, the log and the copy of the
+manifest are versioned, the replica files stay on the machine with their hashes in git.
+`--dry-run` prints one line per configuration, `run: <command>` or `skip: <command>` (with
+`shlex.join`), and runs and writes nothing (a `best-found` target not yet known shows as
+`best-found:pending`); `--stage NAME` runs only that stage (`grid` for the grid).
+
+### The campaigns of phase 07
+
+| Configuration | Output | Instances | Configurations |
+|---------------|--------|-----------|----------------|
+| `bench/configs/f07_e2.toml` | `results/f07/e2/` | G2, G12, G15, `dense_n2000_s1` | 2 (stage `target`) + 192 |
+| `bench/configs/f07_dwave.toml` | `results/f07/dwave/` | G2, G12, G15 | 3 (one thread) |
+| `bench/configs/f07_e3.toml` | `results/f07/e3/` | G1, G11, G14, K2000 | 32 |
+
+E2 and E3 with R = 1024 (with R = 2048 the test of F07-R1 gained 3-5% at 16 threads, not worth
+twice the time), 16 threads, 5 repetitions after one warm-up run, seed 1; the check with R = 1024
+and one thread. In this order (E3 and the check read `results/f07/e2/selected.csv`):
+
+```bash
+.venv/bin/python -B python/sbmc_campaign.py run bench/configs/f07_e2.toml --notes "$NOTES"
+.venv/bin/python -B python/sbmc_e2.py analyze bench/configs/f07_e2.toml
+.venv/bin/python -B python/sbmc_dwave.py check bench/configs/f07_dwave.toml --notes "$NOTES"
+.venv/bin/python -B python/sbmc_campaign.py run bench/configs/f07_e3.toml --notes "$NOTES"
+.venv/bin/python -B python/sbmc_e3.py analyze bench/configs/f07_e3.toml
+```
+
+### E2: tuning
+
+E2 (reference document, section 14.2; decision L6 of phase 07) tunes dSB (C1) and SA (C2) with
+the same budget, 24 configurations per method and instance (section 7, rule 2), on the tuning
+instances G2, G12 and G15 (the families of G1, G11 and G14) and on `DenseSpinGlass{2000, 1}` (the
+family of K2000). The grids are relative to the instance, so that the parameters transfer to the
+evaluation instance of the family:
+
+- SA: beta0 = a / h with a in {0.5, 1, 2} and beta1 = b / w with b in {2, 3}; S in {1000, 2000,
+  4000, 8000} on the G-set and {500, 1000, 2000, 4000} on the dense instance;
+- dSB: dt = f x dt_auto (`--dt auto --dt-factor f`) with f in {0.25, 0.5, 1}, c0 with the rule
+  sigma or lambda; M as S.
+
+Why these grids (pilot runs of cldArchitect, in the sandbox, R 256 on the G-set and 64 on the
+dense instance, one repetition): with SA the mean cut grows from a = 0.05 to a = 1 on G2 and G15
+and up to a = 2 on G12, and is largest between a = 0.5 and 1 on the dense instance, where a = 2
+is worse; b = 1 fails on G12 (no replica at 99% of the target) and is much worse on G15, b = 2 is
+the best or equal to the best almost everywhere, b = 3 a little worse, b = 5 worse. P_s grows
+much with S (G12: 0.26 with S 2000, 0.52 with S 8000; G15: 0 and 0.08). With dSB, f = 1 is the
+best on G12, G15 and (with f = 0.75) on the dense instance, f = 0.25-0.5 on G2, where f = 0.75
+collapses (mean cut 11374 against 11567 with f = 0.5, M 1000): the sensitivity plots show it; the
+rule sigma beats lambda on G12 and G15 and ties on G2 and on the dense instance. With R = 1024 one
+batch reaches the 99% (TTS99 = T_batch) as soon as P_s >= 0.45%: the choice rewards the shortest
+configuration that gets there, so the grids start from short runs and cover a factor 8.
+
+Target: the best-known values for the G-set; for the dense instance, which has no published
+value, the best cut found (`best-found`), declared as such: the stage `target` runs first, one
+long run per method (SA with a 1, b 2, S 16000; dSB with f 1, sigma, M 8000; one repetition, no
+warm-up, `--target none`), and its largest `best_cut` is the target of the grid; the analysis
+takes the largest `best_cut` of all the runs on the instance (stage and grid), and when the grid
+beats the stage it says so on stdout and writes the new value in `instances.csv`.
+
+`python/sbmc_e2.py analyze` (stages excluded): for every configuration and level f in {1000, 995,
+990} (thousandths of the target; the relaxed targets of section 8.5) the successes from the
+replica file, P_s and its Wilson interval, T_batch and its quartiles, TTS99 and its interval from
+the Wilson bounds, a bootstrap interval (B = 1000, seed [S, index of the configuration in the
+order of the grid counted from 0 over the whole campaign, index of the level]), the best and the
+mean cut and their gaps. Choice, for every instance and method separately: the level is the most
+severe one where at least one configuration of the method has P_s > 0; then the configuration
+with the smallest TTS99 at that level; on an exact tie the smaller T_batch, then the first in the
+order of the grid; no success even at 990 gives `none` (the method has no parameters for that
+family, and E3 says so). Files in `results/f07/e2/`: `e2_summary.csv` (one row per configuration
+and level, with the relative parameters a, b or f, c0_rule and the absolute ones beta0, beta1 or
+dt, c0, from the rows of `sbmc_run`), `selected.csv` (`tuning_instance, evaluation_instance,
+method, level_permille, config_id, a, b, f, c0_rule, steps, p_s, p_s_lo, p_s_hi, t_batch_ms,
+tts99_ms, tts99_lo_ms, tts99_hi_ms, tts99_boot_lo_ms, tts99_boot_hi_ms, target, target_source`),
+`plots/sens_<instance>_<method>` (TTS99 against the steps at the chosen level, log-log, one line
+per (a, b) or (f, c0), Wilson error bars, undefined values and infinite bounds named in the
+legend, the chosen configuration marked; and the mean cut against the steps) and `plots/tts_e2`
+(the TTS99 of the two chosen configurations of every instance). Lines on stdout:
+`E2 <instance> <method> level=<f> config=<id> tts99_ms=<x>`, then `E2_DONE`. The results of the
+laptop are added by the closing package of the phase.
+
+### External check with dwave-samplers
+
+Section 7, rule 5 of the reference document asks to check our SA against an external
+implementation (decision L7): `python/sbmc_dwave.py check` runs our SA (C2 on one thread) and the
+`SimulatedAnnealingSampler` of dwave-samplers 1.8.0 with the same sweeps and the same schedule on
+G2, G12 and G15, with a, b and S chosen by E2 for SA (`steps = "selected"`), R = reads = 1024:
+
+- dwave: `dimod.BinaryQuadraticModel.from_ising` with h = 0 on the n nodes and J(u, v) = w_uv,
+  the schedule beta0 (beta1 / beta0)^(k / (S - 1)), k = 0, ..., S - 1, in double (the same as
+  `sa_beta`, and as the schedule "geometric" of dwave-samplers), passed as `beta_schedule_type=
+  "custom"`, with `randomize_order=False` (the spins in order, as ours), the Metropolis criterion
+  and seed 1; the cuts (W - energy) / 2;
+- ours: one run of `sbmc_run` (resumable, as the runner), seed 1, one repetition after one warm-up
+  run, `--target none`; the column `final_cut` of the replica file (dwave-samplers returns only the
+  final state);
+- statistics: z of the difference of the means (sample variances), the two-sample
+  Kolmogorov-Smirnov D with the empirical distribution functions, D_crit = 1.95 sqrt((n1 + n2) /
+  (n1 n2)) (alpha = 0.001, conservative with repeated values); PASS when |z| <= 3 and D <= D_crit;
+  and the nanoseconds per proposal on one thread (`sampling_ns` of dwave-samplers, `t_run_ms` of
+  ours, divided by R S n).
+
+Files in `results/f07/dwave/`: `dwave_check.csv` (per instance the parameters, mean, sd, median,
+min and max of both sides, z, D, D_crit, the nanoseconds per proposal of both sides, their ratio
+and the verdict), `final_cuts_<instance>.csv` (columns `ours` and `dwave`, R rows) and
+`plots/final_cuts_<instance>` (the two histograms). Lines on stdout: `DWAVE <instance>: PASS|FAIL
+(z=..., D=..., D_crit=..., ns ours=..., dwave=...)`, then `DWAVE_VERDICT: PASS|FAIL` (exit status 0
+either way). Without dwave-samplers (`scripts/setup_python.sh --dwave`) the tool writes
+`DWAVE_VERDICT: SKIP (dwave-samplers not installed)` and nothing else. In the sandbox of
+cldArchitect, with 256 reads, the mean final cuts agreed (z -1.64, 0.97, 1.15 on G2, G12, G15) and
+ours cost 5.9-8.1 ns per proposal against 16.6-21.6 of dwave-samplers.
+
+### E3 on the CPU
+
+E3 (sections 14.2 and 14.5; decision L8) compares dSB (C1) and SA (C2) on the evaluation instances
+G1, G11, G14 and K2000 with the parameters of E2 transferred, without tuning on the evaluation
+instance: the relative parameters of the family (G2 -> G1, G12 -> G11, G15 -> G14,
+`dense_n2000_s1` -> K2000; `selection = "results/f07/e2/selected.csv"`), recomputed with h, w and
+the spectrum of the evaluation instance, and the four steps of the grid of E2 of the family: 8
+configurations per instance, 32 in all (fewer when E2 chose `none` for a method). The target of
+K2000 is preliminary: its two sources come from the same group.
+
+`python/sbmc_e3.py analyze` writes, in `results/f07/e3/`:
+
+- `e3_summary.csv`: as `e2_summary.csv`, per instance, method, steps and level;
+- `e3_tts.csv`, the main table, one row per instance and level: for dSB (`sb_` columns) and SA
+  (`sa_`) the TTS99 at the configuration with the steps chosen in E2, its Wilson and bootstrap
+  intervals, and the smallest TTS99 over the four steps with its steps; the ratio SA/SB at the
+  transferred configurations with the conservative interval [lo_SA / hi_SB, hi_SA / lo_SB] from
+  the Wilson bounds; `common_level` = 1 in the row of the most severe level where both methods
+  have P_s > 0; a note (for K2000 "preliminary target (one source)");
+- `quality_equal_time.csv`, the quality at equal time (section 7): per instance and method the
+  points of the four steps (median of `t_run_ms`, medians of the mean and of the best cut over the
+  repetitions); the budgets of the intersection of the two time ranges, [max of the minima, min of
+  the maxima], its ends and their geometric mean, with the mean and the best cut of each method
+  interpolated linearly in ln t between the two points that contain the budget (no
+  extrapolation); `no_overlap` when the ranges do not intersect;
+- `plots/tts_bars_<f>` for f in {1000, 995, 990} (plot 1 of section 14.5: bars per instance and
+  method, log y, Wilson error bars, undefined values marked) and `plots/quality_time_<instance>`
+  (plot 2: the mean and the best cut against the median of `t_run_ms`, log x, the target as a
+  horizontal line).
+
+Lines on stdout: `E3 <instance> level=<f> tts_sb_ms=... tts_sa_ms=... ratio_sa_sb=...`, then
+`E3_DONE`. The final check stays outside T_batch: on K2000 it weighs 15% of run and check with SA
+and S 500, and 1-2% in the longest runs.
+
 ## Tests
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
 | `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_spectrum`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2`, `test_solve_times` | `tests/`, `tests/core/`, `tests/cpu/` |
-| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`                                   | `tests/python/`, `tests/tools/`       |
-| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`, `test_sbmc_spectrum`                        | `tests/python/`                       |
+| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`, `test_sbmc_e2`, `test_sbmc_e3`, `test_sbmc_dwave` | `tests/python/`, `tests/tools/`       |
+| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`, `test_sbmc_spectrum`, `test_sbmc_campaign`  | `tests/python/`                       |
 | `tools`  | `test_sync_from_zip`, `test_build_info`; `test_cuda_rpath` (CUDA presets)                                         | `tests/scripts/`                      |
 | `gpu`    | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)                                          | `tests/smoke/`, `tests/gpu/`          |
 | `tile`   | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                 | `tests/smoke/`                        |
@@ -1474,7 +1751,9 @@ Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset
 a test), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
 `build/<preset>/tests/python/`, the files of `test_sbmc_run` to `build/<preset>/tests/apps/`, those
 of `test_sbmc_bruteforce` to `build/<preset>/tests/bruteforce/`, those of `test_sbmc_spectrum` to
-`build/<preset>/tests/spectrum/`, those of `test_sbmc_tts` to `build/<preset>/tests/tts/`.
+`build/<preset>/tests/spectrum/`, those of `test_sbmc_tts` to `build/<preset>/tests/tts/`, those of
+`test_sbmc_campaign`, `test_sbmc_e2`, `test_sbmc_e3` and `test_sbmc_dwave` to
+`build/<preset>/tests/campaign/`, `e2/`, `e3/` and `dwave/`.
 `tests/data/` holds the input files of the tests: `four_nodes.rudy` (the 4-node example of the
 reference document); two 4 x 6 toroidal grids, `torus_4x6_unit.rudy` (unit weights, maximum
 cut 48) and `torus_4x6_pm1.rudy` (+-1 weights, maximum cut 24, 35 optimal partitions);
@@ -1484,8 +1763,9 @@ T2-2); `weighted_isolated_13.rudy`, 13 nodes and 19 edges with weights of both s
 2^31 - 1 and two isolated nodes (maximum cut 6,442,452,014, 4 optimal partitions), which tests the
 int64 sums of C3 (only C3: `auto_c0` rejects it, because Q overflows int64). `test_gset`,
 `test_data`, `test_results`, `test_instance`, `test_spectrum`, `test_solve_times`,
-`test_sbmc_spectrum`, the case GS-G1, the cases SA-5 and SA-9 read `data/`. Number of tests: 26
-with `cpu` and `cpu-strict`, 32 with `cuda` and `cuda-strict`, 29 with `t4` and `t4-strict`. A
+`test_sbmc_spectrum`, `test_sbmc_campaign`, the case GS-G1, the cases SA-5 and SA-9 read `data/`.
+Number of tests: 30 with `cpu` and `cpu-strict`, 36 with `cuda` and `cuda-strict`, 33 with `t4`
+and `t4-strict`. A
 test that cannot run on the current machine (no GPU, no NumPy, missing tool, missing data) exits
 with 77 and CTest reports it as skipped (for example `ctest --preset cuda -L tile` runs only the
 Tile tests): `test_k2000` needs `scripts/fetch_data.sh --k2000` first.
@@ -1617,6 +1897,30 @@ Tests in detail (the C++ ones use doctest):
   `t_batch_column`; the header of the summary), two groups when only `run_tag` or `os` differ, and
   a header of schema 2 with a column less or more (exit status 1); one line `TTS <check>:
   PASS|FAIL` per check and the final line `TTS_VERDICT`;
+- `test_sbmc_e2` (label `python`, phase 07): `python/sbmc_e2.py analyze` on fake campaigns written
+  by the test (three configurations of SA, R 4, two repetitions): with the target 200 the
+  successes and TTS99 of the three configurations at 1000, 995 and 990 and the interval of TTS99
+  of the first one (values of cldArchitect), the choice of the first configuration at 1000; with
+  the target 201 no success at 1000 and the choice at 995; the choice `none`; `best-found` when the
+  grid beats the stage and when it does not; the plots (PDF and PNG); final line `E2_VERDICT`;
+- `test_sbmc_e3` (label `python`, phase 07): the interpolation in ln t and the budgets of the
+  quality at equal time (values of cldArchitect), no extrapolation, no overlap; the ratio SA/SB
+  with its conservative interval and the common level; a fake campaign analyzed (the transferred
+  configurations, the common level, the ratio from the columns of its row, the note, the points and
+  budgets of `quality_equal_time.csv`, the plots); final line `E3_VERDICT`;
+- `test_sbmc_dwave` (label `python`, phase 07): z, D and D_crit of two samples of cldArchitect, a
+  far sample that fails, the schedule; with dwave-samplers installed the check on
+  `sparse_24_unit.rudy` (S 200, beta 0.5 -> 2, 256 reads and replicas, `sbmc_run` on one thread):
+  PASS, the files and the plot; without it that part is marked SKIP and the test passes; final
+  line `DWAVE_VERDICT` (the verdict of the test);
+- `test_sbmc_campaign` (label `apps`, phase 07): `python/sbmc_campaign.py` with `sbmc_run` and
+  `sbmc_spectrum` of the build: h and w of seven rudy files and of `--dense 200`, beta0 in the
+  commands of `--dry-run` (values of cldArchitect); 12 wrong configurations (exit status 2, no file
+  written); `--dry-run` with 16 configurations in the order of the campaign; real runs on
+  `sparse_24_unit.rudy` (`instances.csv`, a second run that skips everything, a third run after a
+  truncated results file and a removed replica file that repeats only those two configurations,
+  the manifest, `status`, the log); a failure of `sbmc_run` (exit status 1, the next
+  configuration not started, one `fail` line); final line `CAMPAIGN_VERDICT`;
 - `test_sbmc_run` (label `apps`): `sbmc_run` run from the repository root, its exit statuses (2 for
   the command line, among them `--threads` with `--variant c0` and out of [0, 1024]; 1 for the
   library and for reading and writing), the 56 columns and their values on the 4-node graph, a
@@ -1791,13 +2095,17 @@ tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
 tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run
                      (test_sbmc_run), sbmc_bruteforce (test_sbmc_bruteforce), sbmc_spectrum
-                     (test_sbmc_spectrum), the time to solution (test_sbmc_tts)
+                     (test_sbmc_spectrum), the time to solution (test_sbmc_tts), the campaign
+                     tools of phase 07 (test_sbmc_campaign, test_sbmc_e2, test_sbmc_e3,
+                     test_sbmc_dwave)
 tests/smoke/         CUDA smoke tests and FMA probes
 tests/scripts/       tool tests and checks (sync_from_zip.sh, build information, RPATH)
 tests/tools/         tools of the tests (sbmc_trace)
-python/              NumPy reference P0 (sbmc_ref), time to solution (sbmc_tts.py),
-                     requirements.txt; analysis and plots later
-bench/configs/       experiment configurations
+python/              NumPy reference P0 (sbmc_ref), time to solution (sbmc_tts.py), the
+                     runner of the campaigns (sbmc_campaign.py) and the analysis of E2, E3 and of
+                     the external check (sbmc_e2.py, sbmc_e3.py, sbmc_dwave.py, phase 07),
+                     requirements.txt and requirements-dwave.txt
+bench/configs/       TOML configurations of the campaigns (f07_e2, f07_dwave, f07_e3: phase 07)
 data/                G-set instances (gset/), best-known values with sources (best_known.csv),
                      downloaded data outside git (raw/); see data/README.md
 results/             CSV files and metadata (raw data outside git)
@@ -1806,9 +2114,9 @@ docs/                report sources and figures
 third_party/         vendored dependencies: doctest, CLI11
 ```
 
-Existing in phase 07: `apps/`, `cmake/`, `data/`, `include/sbmc/`, `python/`, `scripts/`,
-`src/core/`, `src/cpu/`, `tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`, `scripts/`,
-`smoke/`, `tools/`) and `third_party/`; the other folders come with later phases.
+Existing in phase 07: `apps/`, `bench/configs/`, `cmake/`, `data/`, `include/sbmc/`, `python/`,
+`scripts/`, `src/core/`, `src/cpu/`, `tests/` (with `core/`, `cpu/`, `data/`, `gpu/`, `python/`,
+`scripts/`, `smoke/`, `tools/`) and `third_party/`; the other folders come with later phases.
 
 ## License and third-party code
 

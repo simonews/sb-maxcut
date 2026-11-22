@@ -3,6 +3,47 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R3] - 2026-11-22
+
+Phase 07, part 3 of 4: the resumable runner of the measurement campaigns with TOML configurations,
+the tuning E2 of dSB and SA, the external check of SA with dwave-samplers and E3 on the CPU, with
+their analysis tools and plots. Python tools, configurations and documentation only: no C++
+code, no change to the results schema or to the replica file.
+
+### Added
+
+- `python/sbmc_campaign.py`: the runner (`run`, `status`, `manifest`): configurations in TOML
+  validated in full (exit status 2), the scales h and w of the instances and the line of
+  `sbmc_spectrum` in `instances.csv`, stages before the grid (the target best-found), one pair of
+  files (results and replicas) per configuration, resuming (complete configurations skipped,
+  incomplete ones removed and repeated), stop at the first failure of `sbmc_run`, SIGINT and
+  SIGTERM handled, a lock, `campaign.log`, the SHA-256 manifest of `raw/` and its versioned copy,
+  `--dry-run` and `--stage`.
+- `python/sbmc_e2.py`: the analysis of E2 (`e2_summary.csv`, `selected.csv` with the choice per
+  instance and method, the plots of sensitivity and of the chosen configurations).
+- `python/sbmc_e3.py`: the analysis of E3 (`e3_summary.csv`, `e3_tts.csv` with the transferred
+  configurations, the ratio SA/SB and its conservative interval, the common level;
+  `quality_equal_time.csv`; plots 1 and 2 of section 14.5).
+- `python/sbmc_dwave.py`: the external check of SA against the `SimulatedAnnealingSampler` of
+  dwave-samplers (z of the means, two-sample Kolmogorov-Smirnov, nanoseconds per proposal);
+  `DWAVE_VERDICT: SKIP` without dwave-samplers.
+- `python/requirements-dwave.txt`: dwave-samplers 1.8.0, dimod 0.12.23, networkx 3.7 (optional).
+- `bench/configs/f07_e2.toml`, `f07_dwave.toml`, `f07_e3.toml`: the campaigns of phase 07.
+- Tests: `tests/python/test_sbmc_campaign.py` (label `apps`), `test_sbmc_e2.py`, `test_sbmc_e3.py`
+  and `test_sbmc_dwave.py` (label `python`). 30 tests with the `cpu` presets, 36 with `cuda`, 33
+  with `t4`.
+
+### Changed
+
+- `python/requirements.txt`: matplotlib 3.11.2 and its dependencies, pinned, with a header
+  comment.
+- `scripts/setup_python.sh`: option `--dwave` (also `python/requirements-dwave.txt`, from wheels);
+  the summary shows matplotlib and, with `--dwave`, dwave-samplers.
+- `tests/CMakeLists.txt`: the four tests, with their folders in the build tree.
+- `README.md`: Status part 3 of 4; the section "Campaigns" (the runner, E2, the external check,
+  E3); the measurement of the laptop of F07-R2 under "Layouts of the block"; the Python
+  requirements; the tests; the repository layout.
+
 ## [F07-R2] - 2026-11-22
 
 Phase 07, part 2 of 4: the estimate of the spectrum of J with the Lanczos method, the automatic dt

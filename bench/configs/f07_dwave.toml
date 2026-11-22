@@ -1,0 +1,41 @@
+# The external check of phase 07 (reference document, section 7, rule 5; decision L7): our SA (C2
+# on one thread) against the SimulatedAnnealingSampler of dwave-samplers 1.8.0 with the same
+# sweeps and the same geometric schedule, on the tuning instances G2, G12 and G15, with the
+# parameters of SA chosen by E2 (results/f07/e2/selected.csv: a, b and S of the instance).
+# R = reads = 1024. Run with: python3 python/sbmc_dwave.py check bench/configs/f07_dwave.toml
+# --notes "$NOTES" (needs scripts/setup_python.sh --dwave; without it: DWAVE_VERDICT: SKIP).
+
+[campaign]
+name = "f07_dwave"
+output = "results/f07/dwave"
+sbmc_run = "build/cpu/apps/sbmc_run"
+sbmc_spectrum = "build/cpu/apps/sbmc_spectrum"
+replicas = 1024
+threads = 1
+reps = 1
+warmup = 1
+seed = 1
+
+[dwave]
+seed = 1
+
+[[instance]]
+id = "G2"
+args = ["--instance", "data/gset/G2"]
+target = "none"
+
+[[instance]]
+id = "G12"
+args = ["--instance", "data/gset/G12"]
+target = "none"
+
+[[instance]]
+id = "G15"
+args = ["--instance", "data/gset/G15"]
+target = "none"
+
+[[method]]
+id = "sa"
+variant = "c2"
+selection = "results/f07/e2/selected.csv"
+steps = "selected"
