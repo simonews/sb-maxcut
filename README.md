@@ -43,6 +43,13 @@ rules of dt and c0, columns reserved for the spectrum of J and for E9, and a tag
 check, and the final check without a second validation of the instance (see "Times of the
 solvers"); `python/sbmc_tts.py` for schemas 1 and 2 (see "Time to solution
 (python/sbmc_tts.py)").
+Phase 07, part 2 of 4: the estimate of the extremes of the spectrum of J with the Lanczos method,
+the automatic dt and c0 derived from it and `sbmc_spectrum` (see "Spectrum of J, automatic dt and
+c0"); `sbmc_run --dt auto`, `--dt-factor` and `--c0 lambda`, with the columns `dt_rule`,
+`c0_rule`, `lambda_min` and `lambda_max` (see "sbmc_run and the results CSV"); C2 on dense J with
+the fields in lane-major order and the update of the accepting replicas only, with the same
+results (see "Layouts of the block"); the final check on dense rows in product form (see "Times
+of the solvers").
 
 ## Requirements
 
@@ -248,11 +255,14 @@ stream_word(seed, d, stream, k)  = component k mod 4 of stream_block(seed, d, st
 | `sb_initial_positions` | 2     | run seed      | global replica `r` | spin index `i`    | `x0 = position_from_word(word)`   |
 | `sa_initial_spins`     | 3     | run seed      | `r`                | `i`               | `s_i = coupling_from_word(word)`  |
 | `sa_acceptance`        | 4     | run seed      | `r`                | `sweep * n + spin` | accepted when `word < sa_threshold(beta, delta_e)` |
+| `spectrum_start`       | 5     | 0             | start vector `s`   | spin index `i`    | `v_i = (double(word) + 0.5) / 2^32 - 0.5`, then normalized |
 
 The values are fixed: 0 is never used, a new domain takes the next number and numbers are never
 reassigned. Simulated annealing (see "Simulated annealing (reference)") takes the initial spins
 from domain 3 and one acceptance word per proposal from domain 4, consumed whether the move is
-accepted or not. Because a stream depends only on indices (instance, replica, spin), results do not
+accepted or not. The estimate of the spectrum of J (since F07-R2, see "Spectrum of J, automatic dt
+and c0") takes its start vectors from domain 5 with the key 0, s = 0 and then 1, 2, ... after
+each restart. Because a stream depends only on indices (instance, replica, spin), results do not
 depend on threads, devices or on how the work is split.
 
 Equivalence with cuRAND, checked on the GPU by `test_curand_philox`: after
@@ -301,7 +311,10 @@ independent of the project's code and checked against an exhaustive enumeration 
 instance up to 24 nodes; the dense instances with 30 and 32 nodes come from the Gray-code
 enumeration only. The numbers of replicas of C0 at the optimum in T2 come from cldArchitect's
 emulation of C0 in float32, equal to `n_success` of `sbmc_run` in the cpu-strict preset of F04-R2
-(an emulation in float64 gives the same counts).
+(an emulation in float64 gives the same counts). The extremes of the spectrum of J and the dt and c0 derived from them
+(`test_spectrum`, `test_sbmc_spectrum`, `test_sbmc_run`) come from cldArchitect's independent
+implementation in NumPy of the algorithm of "Spectrum of J, automatic dt and c0", checked against
+`numpy.linalg.eigvalsh`.
 
 ## Sequential simulated bifurcation
 
@@ -576,9 +589,11 @@ reference, plus `threads`, checked first (`threads >= 0`); the messages start wi
 - Organization, as C1. A loop with `schedule(dynamic, 1)` gives the blocks to the threads; a block
   runs all S sweeps on one thread, without barriers between blocks, in the work area of its thread
   (allocated before the region, 64-byte aligned, whole cache lines: the signs, the local fields,
-  the signs at the start of the sweep and those kept for the best state, n * RB elements each, and
-  the table of the thresholds). The arrays are spin-major, element (spin i, lane l) at i * RB + l;
-  every loop over the lanes has exactly RB iterations. The lanes of the last block beyond R are
+  the signs at the start of the sweep and those kept for the best state, n * RB elements each, or
+  RB * ld in the lane-major layout, and the table of the thresholds). With compressed rows the
+  arrays are spin-major, element (spin i, lane l) at i * RB + l; with dense rows, since F07-R2,
+  lane-major, element (lane l, spin c) at l * ld + c (see "Layouts of the block" below); every
+  loop over the lanes has exactly RB iterations. The lanes of the last block beyond R are
   padding: they follow the Philox streams of lane 0 of the block (no global index beyond
   2^32 - 1), take the same decisions and are discarded. A block reads the initial spins of its
   replicas from `final_spins`, where the preparation wrote them (the padding lanes take those of
@@ -592,10 +607,12 @@ reference, plus `threads`, checked first (`threads >= 0`); the messages start wi
 - One proposal of spin i for all the lanes of a block: the acceptance words, one Philox block for
   four consecutive proposals of a lane, in a vector loop over the lanes; the RB decisions in one
   lane loop, m = s_i h_i, accepted when m <= 0 or w < threshold(beta_k, 2m), every lane consuming
-  the word of every proposal; then, only when at least one lane accepted, the masked update of the
-  fields of the neighbours of i, h_c += J_ic d_l with d_l = -2 s_i in the lanes that accepted and 0
-  in the others, in modular unsigned arithmetic (the exact result is in [-L, L] and fits the
-  accumulator). Energy, best energy and accepted moves of every lane are int64; the improvement is
+  the word of every proposal; then, only when at least one lane accepted, the update of the fields,
+  h_c += J_ic d_l with d_l = -2 s_i, in modular unsigned arithmetic (the exact result is in
+  [-L, L] and fits the accumulator): with compressed rows masked, for the neighbours c of i and
+  every lane, with d_l = 0 in the lanes that rejected; with dense rows only in the lanes that
+  accepted, each over its own row of n fields. Energy, best energy and accepted moves of every
+  lane are int64; the improvement is
   strict, as in the reference. Each lane follows the trajectory of its replica in the reference
   whatever the other lanes do.
 - Format of J and accumulator, the rule of C1 (see "OpenMP simulated bifurcation (C1)"): dense INT8
@@ -628,21 +645,25 @@ reference, plus `threads`, checked first (`threads >= 0`); the messages start wi
   result depends neither on `threads`, nor on the size of the team, nor on the order of the
   blocks, nor on how the replicas are split with `first_replica`.
 
-The paths of the test instances, checked in phase 06 with a temporary diagnostic print (removed):
+The paths of the test instances, checked in phase 06 with a temporary diagnostic print (removed);
+the layout is that of F07-R2, and the last two rows, added in F07-R2 (`test_sa_openmp`, "C2: dense
+J, equal to C0"), follow from the rules above:
 
-| Instance | J | L | Accumulator | Thresholds |
-|----------|---|---|-------------|------------|
-| `data/gset/G1` | compressed | 67 | int16 | table |
-| `torus_4x6_pm1.rudy` | compressed | 4 | int16 | table |
-| heavy_torus (`torus_4x6_unit.rudy`, weights x 10000) | compressed | 40,000 | int32 | direct |
-| huge_torus (`torus_4x6_unit.rudy`, weights x 500000) | compressed | 2,000,000 | int32 | direct |
-| `weighted_isolated_13.rudy` | compressed | 4,294,969,294 | int64 | direct |
-| dense_graph_40 (see `test_sb_openmp`) | dense | 117 | int16 | table |
-| dense_graph_40_heavy (the edge (0, 1) with weight 200) | compressed | 268 | int16 | table |
-| `DenseSpinGlass{200, 7}`, `DenseSpinGlass{300, 9}` | dense | 199, 299 | int16 | table |
-| `Graph{1, {}}`, `DenseSpinGlass{1, 3}` | dense | 0 | int16 | table |
-| mid_torus (`torus_4x6_unit.rudy`, weights x 2000) | compressed | 8,000 | int16 | direct |
-| K2000 (`data/raw/k2000/WK2000_1.rud`) | dense | 1,999 | int16 | table |
+| Instance | J | L | Accumulator | Thresholds | Layout |
+|----------|---|---|-------------|------------|--------|
+| `data/gset/G1` | compressed | 67 | int16 | table | spin-major |
+| `torus_4x6_pm1.rudy` | compressed | 4 | int16 | table | spin-major |
+| heavy_torus (`torus_4x6_unit.rudy`, weights x 10000) | compressed | 40,000 | int32 | direct | spin-major |
+| huge_torus (`torus_4x6_unit.rudy`, weights x 500000) | compressed | 2,000,000 | int32 | direct | spin-major |
+| `weighted_isolated_13.rudy` | compressed | 4,294,969,294 | int64 | direct | spin-major |
+| dense_graph_40 (see `test_sb_openmp`) | dense | 117 | int16 | table | lane-major |
+| dense_graph_40_heavy (the edge (0, 1) with weight 200) | compressed | 268 | int16 | table | spin-major |
+| `DenseSpinGlass{200, 7}`, `DenseSpinGlass{300, 9}` | dense | 199, 299 | int16 | table | lane-major |
+| `Graph{1, {}}`, `DenseSpinGlass{1, 3}` | dense | 0 | int16 | table | lane-major |
+| mid_torus (`torus_4x6_unit.rudy`, weights x 2000) | compressed | 8,000 | int16 | direct | spin-major |
+| K2000 (`data/raw/k2000/WK2000_1.rud`) | dense | 1,999 | int16 | table | lane-major |
+| complete `Graph` n = 300, w = +127 when u + v is even, -127 otherwise | dense | 37,973 | int32 | direct | lane-major |
+| `DenseSpinGlass{4200, 5}` | dense | 4,199 | int16 | direct | lane-major |
 
 Choice of RB and of the best signs: C2 with one and two threads on G1 (R = 256, S = 1000,
 beta0 = 0.1, beta1 = 3) and on K2000 (R = 64, S = 100, beta0 = 0.01, beta1 = 3), `sbmc_run
@@ -672,7 +693,8 @@ and improvements are frequent. With these choices, in the same sandbox, C2 takes
 one thread (489 ms with two) and 1338 ms on K2000 (712 ms with two); C0 (`--variant c0 --reps 1
 --warmup 0`) takes 2762 ms on G1 and 3760 ms on K2000, about 2.9 and 2.8 times C2 with one thread.
 Per replica and proposal, C2 with one thread costs about 4.6 ns on G1 and 105 ns on K2000, where
-every accepted move of any lane updates the fields of the whole block (n * RB elements).
+until F07-R1 every accepted move of any lane updated the fields of the whole block (n * RB
+elements; see "Layouts of the block").
 
 Measurement on the laptop, closure of phase 06 (`results/f06/`, results schema 1, the fixed
 power profile, R = 1024 for the scaling, 3 recorded repetitions after one warm-up run, medians of
@@ -687,6 +709,62 @@ solver, measured apart since phase 07 (see "Times of the solvers").
 - C0 against C2 with one thread (`results/f06/c0_vs_c2.csv`): on G1 (R = 256) 2321.4 against
   908.5 ms, x2.56 (11.3 against 4.4 ns per replica and proposal); on K2000 (R = 32) 2108.1 against
   654.2 ms, x3.22 (164.7 against 51.1 ns per replica and proposal). The results are identical.
+
+### Layouts of the block
+
+Since F07-R2 (decision L5 of phase 07) the state of a block (signs, local fields, the signs at the
+start of the sweep and those kept for the best state) has one of two layouts, chosen by the
+format of J:
+
+- compressed rows (a `Graph` that is not dense): spin-major, element (spin i, lane l) at
+  i * RB + l, the RB lanes of a spin contiguous, as until F07-R1; after a proposal of i with at
+  least one acceptance, for every neighbour c of i one SIMD loop over the RB lanes adds J_ic d_l,
+  with d_l = 0 in the lanes that rejected (the masked update). This path is unchanged.
+- dense INT8 rows (a dense `Graph` or a `DenseSpinGlass`): lane-major, element (lane l, spin c)
+  at l * ld + c, with ld = n rounded up to a multiple of 64 bytes divided by sizeof(Acc), every
+  lane row on a 64-byte boundary (no more memory than before but the rounding); s_i and h_i of the
+  RB lanes are gathered before the decisions, which are those of the spin-major path in the same
+  order; then only the lanes that accepted update their fields, h[l * ld + c] += J_ic d_l for
+  c = 0, ..., n - 1 (row i of J, one SIMD loop over c); the lanes that rejected do not touch them.
+  The initial fields of a lane, and those of its kept state before the replay, are computed as
+  sums of rows of J (one such loop per spin), and the replay of a lane updates only its row.
+
+Rule: the lane-major layout always with dense rows, no adaptive rule. Until F07-R1 the dense rows
+used the masked update: n * RB additions per proposal with an acceptance, whatever the number of
+lanes that accepted (on K2000 at least one of the 32 lanes accepts in 45% of the proposals, each
+lane in 11% on average, measured by cldArchitect in phase 06); the lane-major layout does n
+additions per accepting lane, and makes the replay of a lane contiguous. All the fields of
+`SaResult` are those of F07-R1 and of the reference, bit for bit, in every preset.
+
+Measurement in cldExecutor's sandbox (2 cores of an Intel Xeon Processor @ 2.30GHz with AVX-512,
+GCC 13.3, preset `cpu`, `-march=native`), not of the laptop: C2 with R = 64, `sbmc_run --algo sa
+--variant c2 --seed 1 --reps 3 --warmup 1`, medians of `t_run_ms`, the build of F07-R1 against
+that of F07-R2, with the same `best_cut`, `mean_cut` and `n_success`:
+
+| Instance | S | beta0 -> beta1 | Threads | F07-R1 | F07-R2 | F07-R2 / F07-R1 |
+|----------|---|----------------|---------|--------|--------|-----------------|
+| K2000 | 100 | 0.01 -> 3 | 1 | 477.5 ms | 201.6 ms | 0.42 |
+| K2000 | 100 | 0.01 -> 3 | 2 | 243.3 ms | 115.3 ms | 0.47 |
+| `--dense 2000 --instance-seed 1` | 100 | 0.01 -> 3 | 1 | 472.7 ms | 199.3 ms | 0.42 |
+| `--dense 2000 --instance-seed 1` | 100 | 0.01 -> 3 | 2 | 233.8 ms | 99.1 ms | 0.42 |
+| `--dense 2000 --instance-seed 1` | 100 | 0.001 -> 0.01 | 1 | 1078.9 ms | 953.4 ms | 0.88 |
+| `--dense 2000 --instance-seed 1` | 100 | 1 -> 3 | 1 | 151.6 ms | 90.5 ms | 0.60 |
+| `--dense 2000 --instance-seed 1` | 100 | 3 -> 10 | 1 | 133.7 ms | 67.2 ms | 0.50 |
+| `--dense 2000 --instance-seed 1` | 1 | 0.01 -> 3 | 1 | 227.8 ms | 38.5 ms | 0.17 |
+| `--dense 2000 --instance-seed 1` | 5 | 0.01 -> 3 | 1 | 80.8 ms | 41.8 ms | 0.52 |
+| `--dense 2000 --instance-seed 1` | 20 | 0.01 -> 3 | 1 | 132.2 ms | 63.8 ms | 0.48 |
+| G1 (R = 256, compressed rows) | 1000 | 0.1 -> 3 | 1 | 814.7 ms | 792.2 ms | 0.97 |
+| G1 (R = 256, compressed rows) | 1000 | 0.1 -> 3 | 2 | 421.3 ms | 431.4 ms | 1.02 |
+
+No regime was slower, from the hottest (beta 0.001 -> 0.01, where most lanes accept) to the
+coldest, so there is no rule that chooses the old layout. With `-march=raptorlake` (AVX2, as the
+laptop) the dense case with one thread goes from 491.5 to 221.9 ms. With one thread and S = 100,
+C2 costs about 15.6 ns per replica and proposal on the dense instance (36.9 ns in F07-R1). The
+code of the spin-major path is that of F07-R1, but the removal of the dense overloads moved its
+block function to another offset modulo 64 in the executable, and G1 became 7% slower in the
+sandbox; both block functions now start on a 64-byte boundary (`[[gnu::aligned(64)]]`), which
+gives back the times of F07-R1 (the G1 rows above). The measurement on the laptop is added by the
+command C3 of phase 07 (`results/f07/c2/`).
 
 ### T2 for C2
 
@@ -871,6 +949,119 @@ in `data/README.md`.
 - `.gitattributes` marks `data/gset/G*` as `-text`: git never converts the line endings of the
   G-set files (the originals of G56, G60 and G61 have CRLF).
 
+## Spectrum of J, automatic dt and c0
+
+Section 6 of the reference document sets the parameters of simulated bifurcation from the
+spectrum of J: c0 = 1/lambda_max(J) in general (1/(2 sigma sqrt(N)) for random instances, the
+rule of `--c0 auto`), and dt = 1.25 for random matrices, 1.25 sqrt(2 / (1 - lambda_min /
+lambda_max)) in general. Since F07-R2 (decision L4 of phase 07) the library estimates the two
+extremes (`sbmc/spectrum.hpp`, in `sbmc::core`):
+
+```cpp
+struct SpectrumEstimate {
+  double lambda_min = 0.0;  // smallest Ritz value, >= the smallest eigenvalue of J
+  double lambda_max = 0.0;  // largest Ritz value, <= the largest eigenvalue of J
+  int iterations = 0;       // Lanczos steps done: min(requested, n)
+  int restarts = 0;         // new start vectors after a breakdown
+};
+inline constexpr int kSpectrumIterations = 100;
+
+SpectrumEstimate estimate_spectrum(const Graph& g, int iterations = kSpectrumIterations);
+SpectrumEstimate estimate_spectrum(const DenseSpinGlass& g, int iterations = kSpectrumIterations);
+SpectrumEstimate estimate_spectrum(const Instance& inst, int iterations = kSpectrumIterations);
+float spectral_dt(const SpectrumEstimate& s, double factor = 1.0);
+float spectral_c0(const SpectrumEstimate& s);
+```
+
+- `estimate_spectrum` checks `iterations >= 1` and the instance in full (`InvalidArgument`, the
+  message starts with "estimate_spectrum: "); a `DenseSpinGlass` needs n <= 32768, checked before
+  any allocation (its INT8 copy of J would exceed 1 GiB). A graph without edges (J = 0) gives
+  lambda_min = lambda_max = 0 without exceptions.
+- `spectral_dt(s, factor)` = factor * 1.25 * sqrt(2 / (1 - lambda_min / lambda_max)), computed in
+  double and rounded once to float; `InvalidArgument` unless lambda_max is finite and > 0,
+  lambda_min finite and <= 0, factor finite and > 0. `spectral_c0(s)` = 1 / lambda_max, rounded
+  once to float; `InvalidArgument` unless lambda_max is finite and > 0. With J = 0 both throw.
+
+Algorithm, k = min(iterations, n) steps:
+
+1. Products y = J x in double (J_ij = -w_ij): for a `Graph` on compressed rows built once (both
+   directions of every edge, increasing columns), for a `DenseSpinGlass` on the INT8 rows of
+   `dense_rows_int8` built once (ld = n); y_i = sum_j J_ij x_j with j increasing, the rows in
+   parallel with OpenMP (default number of threads), each row summed by one thread.
+2. Start vector s (s = 0, 1, ...): v_i = (double(w_i) + 0.5) / 2^32 - 0.5, with w_i =
+   `stream_word(0, RngDomain::spectrum_start, s, i)`, then normalized.
+3. Lanczos with full reorthogonalization, for j = 0, ..., k - 1: w = J q_j; alpha_j = q_j . w;
+   w <- w - sum_{i<=j} (q_i . w) q_i, twice (classical Gram-Schmidt); beta_j = |w|; scale =
+   max(scale, |alpha_j| + beta_j); stop at j = k - 1; when beta_j <= 1e-12 scale (a breakdown: an
+   invariant subspace) beta_j = 0, s grows by 1, the new start vector is orthogonalized twice
+   against q_0, ..., q_j, normalized and becomes q_{j+1}, and `restarts` grows by 1; otherwise
+   q_{j+1} = w / beta_j. A new start vector whose norm after the orthogonalization is below 1e-6
+   is skipped for the next stream, at most 8 times, then `sbmc::Error` with "internal".
+4. Dot products, norms and the sums of Gram-Schmidt are sequential loops with increasing index,
+   so the result does not depend on the number of threads, bit for bit (`test_spectrum`).
+5. The extremes of the tridiagonal matrix (diagonal alpha_0, ..., alpha_{k-1}, subdiagonal
+   beta_0, ..., beta_{k-2}) by bisection with Sturm counts inside its Gershgorin interval, to an
+   absolute error <= 1e-14 max_j (|alpha_j| + |beta_j| + |beta_{j-1}|).
+
+Why Lanczos and not the power method of section 6: with the same number of products J v it
+estimates both extremes, while the power method converges badly on the second extreme when the
+spectrum is crowded at that end. Why a start vector with continuous components: a vector of +-1
+can stay in an invariant subspace; on `tests/data/four_nodes.rudy` it gives 0 and 1 instead of
+-2.5616 and 1.5616. Why the restart: with isolated nodes the Krylov subspace is invariant before
+k steps; on `tests/data/weighted_isolated_13.rudy` the algorithm breaks down twice and restarts
+(restarts = 2), and on a graph without edges every step breaks down. The Ritz values lie inside
+the spectrum: lambda_min is never below the smallest eigenvalue and lambda_max never above the
+largest, and with more steps lambda_max does not decrease and lambda_min does not increase.
+
+The start vectors use the Philox domain `spectrum_start` = 5 with the key 0 (see "Random
+streams"): the estimate does not depend on the seed of the run.
+
+Precision, from cldArchitect's independent implementation of this algorithm in NumPy against
+`numpy.linalg.eigvalsh`: with 100 iterations (the default) the extremes are within 5e-14 relative
+on G1, G2, G11, G12, G14, G15, G22, G43, the files of `tests/data/` and `DenseSpinGlass{200, 7}`,
+and within 3e-12 on K2000 and `DenseSpinGlass{2000, 1}`; with 64 iterations the relative error
+reaches 4e-6 (`DenseSpinGlass{2000, 1}`), with 32 iterations 1e-2 (K2000). The values of the
+library agree with that implementation within 1e-9 relative (`test_spectrum`, `sbmc_spectrum`
+below).
+
+Cost: k products J v (2m multiply-adds each for a `Graph`, n^2 for a `DenseSpinGlass`) and the
+reorthogonalization, about 2 k^2 n multiply-adds (2 * 10^7 for n = 1000); memory k n doubles for
+the Lanczos vectors (1.6 MB for n = 2000) and the copy of J (12 bytes per entry of the compressed
+rows, n^2 bytes for the dense rows). Measured in the sandbox (2 cores, preset `cpu`, `t_ms` of
+`sbmc_spectrum`): 6-9 ms on the G-set instances with n = 800, 19-21 ms on G22 (n = 2000, m =
+19,990), 280-310 ms on K2000 (compressed rows, 4 * 10^6 entries) and 235-245 ms on
+`--dense 2000 --instance-seed 1`. `sbmc_run` estimates once per invocation, outside the solver
+(see "sbmc_run and the results CSV").
+
+### sbmc_spectrum
+
+`sbmc_spectrum` (`apps/`, built in `build/<preset>/apps/`) prints the estimate of one instance and
+the values derived from it, on one line:
+
+```
+sbmc_spectrum (--instance FILE | --dense N --instance-seed S) [--name NAME] [--iterations K]
+```
+
+`--name` as in `sbmc_run` (default: the file name without folder and extension, or
+`dense_n<N>_s<S>`; no spaces, tabs or line breaks); `--iterations` from 1 to 100000, default 100
+(`kSpectrumIterations`), of which min(K, n) are done. Output:
+
+```
+SPECTRUM instance=<name> n=<n> m=<m> lambda_min=<x> lambda_max=<x> iterations=<k> restarts=<r> dt_auto=<f> c0_lambda=<f> c0_sigma=<f> t_ms=<t>
+```
+
+m is the number of edges (n(n - 1)/2 for a dense instance); lambda_min and lambda_max in the
+shortest form that reads back as the same double; dt_auto = `spectral_dt(s)`, c0_lambda =
+`spectral_c0(s)` and c0_sigma = `auto_c0`, 1/(2 sigma sqrt(n)), in the shortest form that reads
+back as the same float, or `none` when the library refuses them (`InvalidArgument`, for example
+without edges); t_ms the duration of `estimate_spectrum`, three decimals. Exit status: 0 success;
+1 error of the library or of reading; 2 error of the command line; the messages start with
+"sbmc_spectrum: ". On G1:
+
+```
+SPECTRUM instance=G1 n=800 m=19176 lambda_min=-48.78749417418756 lambda_max=13.27415171569188 iterations=100 restarts=0 dt_auto=0.8175546 c0_lambda=0.07533438 c0_sigma=0.07443642 t_ms=7.514
+```
+
 ## Times of the solvers
 
 Every solver, `run_sb_sequential` (C0), `run_sb_openmp` (C1), `run_sa_sequential` (the reference
@@ -888,8 +1079,8 @@ struct SolveTimes {
 ```
 
 - t0 is the first instruction of the call, before the preconditions. Preparation [t0, t1): the
-  preconditions; `total_weight`, the only full check of the instance (B5); c0 and the pressure
-  schedule (SB); beta_k of every sweep where it is computed before the run (C2); the internal copy
+  preconditions; `total_weight`, which checks the instance in full (B5), and with the automatic c0
+  of SB also `auto_c0`, which checks it in full once more; c0 and the pressure schedule (SB); beta_k of every sweep where it is computed before the run (C2); the internal copy
   of J; the plan of the accumulators and of the thresholds (C1, C2); the allocation of the
   outputs, of the trace and of the work areas; the initial states of every replica, with their
   usual values, written in replica-major order into the output that holds the final state at the
@@ -928,9 +1119,35 @@ region of the check, and they give the values of `cut_direct` for the same insta
   internal J of C1 or C2 is dense.
 - `detail::cut_dense_rows_unchecked(rows, n, ld, s)`: -sum_{i<j} J_ij [s_i != s_j] from dense
   INT8 rows of J (element (i, j) at `rows[i * ld + j]`, the columns j >= n never read), with the
-  sum of every row in int32 (exact up to n = 2^24, int64 beyond) and the total in int64. Used for a
-  `DenseSpinGlass`, on the internal rows of the solver (ld = n in C0 and in the reference of SA,
-  rows on 64-byte boundaries in C1 and C2).
+  sums of every row in int32 (exact up to n = 2^24, int64 beyond) and the totals in int64. Used for
+  a `DenseSpinGlass`, on the internal rows of the solver (ld = n in C0 and in the reference of SA,
+  rows on 64-byte boundaries in C1 and C2). Since F07-R2 (decision M1 of phase 07) the inner loop
+  has the product form: for every row i < n - 1, g_i = sum_{j>i} J_ij s_j and r_i = sum_{j>i} J_ij;
+  then S = sum_i s_i g_i, R = sum_i r_i and the cut is (S - R) / 2. It is exact, because
+  -sum_{i<j} J_ij [s_i != s_j] = sum_{i<j} J_ij (s_i s_j - 1) / 2 and every term J_ij (s_i s_j - 1)
+  is 0 or -2 J_ij, so S - R is even. Signature, contract and values are those of F07-R1 (the case
+  "detail: cut_dense_rows_unchecked, product form" of `test_instance`). Why: the loop of F07-R1, a
+  select (J_ij when s_j != s_i, 0 otherwise), vectorizes with AVX-512 but not with AVX2, the
+  instruction set of the laptop; products and sums vectorize with both. Measured by cldArchitect
+  on a prototype (64 spin vectors on dense n = 2000, the same values in every variant): the select
+  22 ms with `-march=native` in the sandbox (AVX-512), 170 ms with `-march=x86-64-v3` and 165 ms
+  with `-march=raptorlake` (AVX2); the product form 25-26 ms in all three. Measured in
+  cldExecutor's sandbox (medians of `t_check_ms` of C2 over 3 repetitions on `--dense 2000
+  --instance-seed 1`, R = 64, S = 100, beta 0.01 -> 3, 128 cuts per run), the build of F07-R1
+  against that of F07-R2:
+
+  | Build | Threads | F07-R1 | F07-R2 | F07-R2 / F07-R1 |
+  |-------|---------|--------|--------|-----------------|
+  | preset `cpu` (`-march=native`, AVX-512) | 1 | 42.9 ms | 55.8 ms | 1.30 |
+  | preset `cpu` (`-march=native`, AVX-512) | 2 | 21.7 ms | 28.1 ms | 1.29 |
+  | preset `cpu` with `-march=raptorlake` (AVX2) | 1 | 956.4 ms | 56.2 ms | 0.06 |
+  | preset `cpu` with `-march=raptorlake` (AVX2) | 2 | 473.7 ms | 28.3 ms | 0.06 |
+
+  With AVX-512 the select was a little faster; with AVX2, as on the laptop, the product form is 17
+  times faster. (The build with `-march=raptorlake` is the preset `cpu` with `-march=native`
+  replaced in a copy of `cmake/SbmcFlags.cmake`; the sandbox CPU has every extension of
+  Raptor Lake.) On the laptop, in F07-R1, the check of C2 on this instance was 21% of
+  `t_solve_ms` with one thread and 19% with 16 (`results/f07/c1/before_c2_dense.csv`).
 
 What the check verifies: the energy accounting of every replica, the best (and final) energy that
 the solver kept from its fields or incrementally, against a cut computed directly on the edges or
@@ -951,8 +1168,8 @@ per repetition to a CSV with the results schema 2 (`sbmc/results.hpp`) and, with
 
 ```
 sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
-         [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
-         [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
+         [--steps M --dt auto|X [--dt-factor F] | --sweeps S --beta0 X --beta1 X] [--name NAME]
+         [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|lambda|X] [--eval-every K]
          [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
          [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
 ```
@@ -962,11 +1179,12 @@ sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --rep
 | `--instance FILE` | rudy file; or `--dense N --instance-seed S`, the implicit complete graph with J_ij = +-1 |
 | `--name NAME` | name in the `instance` column and in the best-known table; default: the file name without folder and extension (`data/gset/G1` gives `G1`, `WK2000_1.rud` gives `WK2000_1`), or `dense_n<N>_s<S>` |
 | `--algo dsb\|bsb\|sa`, `--replicas R` | required: dSB, bSB or simulated annealing; R |
-| `--steps M`, `--dt X` | required with `dsb` and `bsb`, not used with `sa`: M and the time step (no default for dt, see "Sequential simulated bifurcation") |
+| `--steps M`, `--dt auto\|X` | required with `dsb` and `bsb`, not used with `sa`: M and the time step, `auto` (since F07-R2: `spectral_dt`, 1.25 sqrt(2 / (1 - lambda_min / lambda_max)) times `--dt-factor`, see "Spectrum of J, automatic dt and c0") or a finite number > 0 (no default for dt, see "Sequential simulated bifurcation") |
+| `--dt-factor F` | only with `--dt auto` (otherwise exit status 2): the factor of the automatic dt, a finite number > 0, default 1 (since F07-R2; for the calibration E2, where dt is a fraction of the automatic one) |
 | `--sweeps S`, `--beta0 X`, `--beta1 X` | required with `sa`, not used with `dsb` and `bsb`, no default: the sweeps (an integer >= 1) and the inverse temperatures of the first and of the last sweep, finite numbers > 0 with `--beta1` >= `--beta0` (see "Simulated annealing (reference)") |
 | `--variant c0\|c1\|c2` | the implementation: `c0` (default), the sequential reference; `c1`, OpenMP over blocks of replicas, only with `dsb` and `bsb` (see "OpenMP simulated bifurcation (C1)"); `c2`, OpenMP over blocks of replicas, only with `sa` (see "C2: simulated annealing with OpenMP") |
 | `--threads T` | OpenMP threads of `c1` and `c2`, an integer from 0 to 1024; default 0, the default number of OpenMP threads. Only with `--variant c1` or `c2` |
-| `--a0 X`, `--c0 auto\|X` | `dsb` and `bsb`: a0 (default 1); c0 automatic (default) or a finite number > 0 (`--c0 0` is an error: in the library c0 = 0 means automatic, and the CSV would record another value) |
+| `--a0 X`, `--c0 auto\|lambda\|X` | `dsb` and `bsb`: a0 (default 1); c0 automatic with the rule sigma, 1/(2 sigma sqrt(n)) (`auto`, default), 1/lambda_max from the estimate of the spectrum (`lambda`, since F07-R2, `spectral_c0`), or a finite number > 0 (`--c0 0` is an error: in the library c0 = 0 means automatic, and the CSV would record another value) |
 | `--eval-every K` | bSB: evaluate the signs every K steps (default 0: only the final configuration); not with `sa` |
 | `--seed S` | seed of the initial positions (`dsb`, `bsb`) or of the initial spins and of the acceptance words (`sa`); default 0 |
 | `--reps K`, `--warmup K` | recorded repetitions (default 1) and warm-up runs, not recorded (default 1) |
@@ -983,16 +1201,19 @@ reference stay with the library, as in `sbmc_trace`), of reading or writing, a `
 is not modified; a `--out` with the header of results schema 1 is refused like any other header,
 with a message that names "results schema 2"), an instance that is not in the best-known table, a
 row of the table whose n or m differs from the instance, paths of `--out` and `--replica-out`
-that cannot be compared (the message names both options), or `OMP_PLACES` or `OMP_PROC_BIND`
-with a line break in its value (before any run, with a message that names the variable); 2 error
+that cannot be compared (the message names both options), `OMP_PLACES` or `OMP_PROC_BIND`
+with a line break in its value (before any run, with a message that names the variable), or a
+dt or c0 that the spectrum does not define (`--dt auto` or `--c0 lambda` with J = 0, a graph
+without edges: before any run, no row, the message of `spectral_dt` or `spectral_c0`); 2 error
 of the command line (unknown, missing or repeated
 option, value that cannot be converted or is not in the list or in its range, missing or double
 instance, and the rules of the algorithms, checked after the parsing in this order: "--steps is
 required" and "--dt is required" with `dsb` and `bsb`; with `sa`, "--sweeps is required with
 --algo sa" (and so for `--beta0`, `--beta1`), "--steps is not used with --algo sa" (and so for
-`--dt`, `--c0`, `--a0`, `--eval-every`), "--variant c1 is not available with --algo sa", "--beta1
+`--dt`, `--dt-factor`, `--c0`, `--a0`, `--eval-every`), "--variant c1 is not available with --algo sa", "--beta1
 must be >= --beta0"; with `dsb` and `bsb`, "--sweeps requires --algo sa" (and so for `--beta0`,
-`--beta1`) and "--variant c2 requires --algo sa"; then a missing instance, "--threads requires
+`--beta1`), "--variant c2 requires --algo sa" and "--dt-factor requires --dt auto"; then a missing
+instance, "--threads requires
 --variant c1 or c2" (`--threads` with `--variant c0`, explicit or by default), "--replica-out
 requires --out" and "--replica-out must differ from --out", when the two paths name the same file
 once made absolute and passed to `std::filesystem::weakly_canonical`: `x.csv`, `./x.csv` and
@@ -1018,7 +1239,12 @@ the number of repetitions). The warm-up runs use `first_replica = 0` and are not
 `sbmc_run` around the call; `t_prep_ms`, `t_run_ms` and `t_check_ms` are the preparation, the run
 and the final check measured inside it (see "Times of the solvers"), whose sum is at most
 `t_solve_ms`; `t_step_us` is `t_run_ms` per step or sweep. `t_setup_ms` is the time to read
-the rudy file (or to set up the dense instance), the same in every row of a run. At startup,
+the rudy file (or to set up the dense instance) and, with `--dt auto` or `--c0 lambda`, to estimate
+the spectrum of J, the same in every row of a run. The estimate (`estimate_spectrum` with
+`kSpectrumIterations` = 100 iterations) runs once per invocation, after reading the instance and
+before the warm-up runs, and only when dt or c0 is derived from it; with `--dt 0.8175546 --c0
+0.07533438` on G1 the rows are those of `--dt auto --c0 lambda` but for the rules, the lambdas and
+the times (`test_sbmc_run`, check 14). At startup,
 before the warm-up runs, `sbmc_run` reads once the logical processors allowed to it (the line
 `Cpus_allowed_list:` of `/proc/self/status`) and the variables `OMP_PLACES` and `OMP_PROC_BIND`,
 recorded in every row.
@@ -1058,6 +1284,19 @@ build/cpu/apps/sbmc_run --instance data/gset/G1 --algo sa --variant c2 --threads
     --out results/f06/sa_G1_c2_example.csv
 ```
 
+dSB on G1 with dt and c0 from the spectrum of J (dt 0.8175546 and c0 0.07533438, columns `dt_rule`
+`auto` and `c0_rule` `lambda`), then with three quarters of the automatic dt and the rule sigma:
+
+```bash
+mkdir -p results/f07
+build/cpu/apps/sbmc_run --instance data/gset/G1 --algo dsb --variant c1 --threads 8 \
+    --replicas 1024 --steps 2000 --dt auto --c0 lambda --seed 1 --reps 3 --target best-known \
+    --out results/f07/sb_auto_example.csv
+build/cpu/apps/sbmc_run --instance data/gset/G1 --algo dsb --variant c1 --threads 8 \
+    --replicas 1024 --steps 2000 --dt auto --dt-factor 0.75 --c0 auto --seed 1 --reps 3 \
+    --target best-known --out results/f07/sb_auto_example.csv
+```
+
 K2000: the file is `data/raw/k2000/WK2000_1.rud` and its row in the table is `K2000`, so a run with
 `--target best-known` needs `--name K2000`.
 
@@ -1095,9 +1334,9 @@ written (`python/sbmc_tts.py` reads both):
 | `threads` | CPU threads | 1 for `c0` (sequential, SB and SA); for `c1` the team of the steps, for `c2` the team of the sweeps, min(T_req, B) |
 | `target_source` | origin of the target: `best_known`, `user`, `none` | |
 | `t_prep_ms`, `t_run_ms`, `t_check_ms` | the times measured inside the solver: preparation, run, final check (see "Times of the solvers"); three decimals | |
-| `dt_rule` | how dt was chosen: `value`, the value of `--dt` (phase 07, part 2 adds `auto`) | `value` (SB); empty (SA) |
-| `c0_rule` | how c0 was chosen: `sigma`, automatic, 1/(2 sigma sqrt(n)); `value`, an explicit `--c0` (phase 07, part 2 adds `lambda`) | SB; empty (SA) |
-| `lambda_min`, `lambda_max` | estimated extremes of the spectrum of J | empty (filled from phase 07, part 2) |
+| `dt_rule` | how dt was chosen: `value`, the value of `--dt`; `auto`, `--dt auto` (the column `dt` holds the value used) | SB; empty (SA) |
+| `c0_rule` | how c0 was chosen: `sigma`, automatic, 1/(2 sigma sqrt(n)); `lambda`, 1/lambda_max; `value`, an explicit `--c0` | SB; empty (SA) |
+| `lambda_min`, `lambda_max` | estimated extremes of the spectrum of J, shortest form that reads back as the same double | filled only with `--dt auto` or `--c0 lambda`, empty otherwise (and for SA) |
 | `cpu_affinity` | logical processors allowed to the process at startup, cpulist format (for example `0-15` or `0-3,8`) | the text after `Cpus_allowed_list:` in `/proc/self/status`, empty when missing |
 | `cpu_classes` | efficiency classes of the allowed logical processors, groups `<class>:<cpulist>` separated by a space in decreasing class order (for example `1:0-11 0:12-15`) | empty (filled on Windows in phase 07, part 4) |
 | `omp_places`, `omp_proc_bind` | `OMP_PLACES` and `OMP_PROC_BIND` at startup | empty when not set |
@@ -1222,9 +1461,9 @@ Example, on the runs of the example of "Replica file":
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2`, `test_solve_times` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_spectrum`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2`, `test_solve_times` | `tests/`, `tests/core/`, `tests/cpu/` |
 | `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`                                   | `tests/python/`, `tests/tools/`       |
-| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`                                              | `tests/python/`                       |
+| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`, `test_sbmc_spectrum`                        | `tests/python/`                       |
 | `tools`  | `test_sync_from_zip`, `test_build_info`; `test_cuda_rpath` (CUDA presets)                                         | `tests/scripts/`                      |
 | `gpu`    | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)                                          | `tests/smoke/`, `tests/gpu/`          |
 | `tile`   | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                 | `tests/smoke/`                        |
@@ -1234,8 +1473,8 @@ Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset
 `build/<preset>/tests/cpu/`, `build/<preset>/tests/tools/` (`sbmc_trace`, a tool of the tests, not
 a test), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
 `build/<preset>/tests/python/`, the files of `test_sbmc_run` to `build/<preset>/tests/apps/`, those
-of `test_sbmc_bruteforce` to `build/<preset>/tests/bruteforce/`, those of `test_sbmc_tts` to
-`build/<preset>/tests/tts/`.
+of `test_sbmc_bruteforce` to `build/<preset>/tests/bruteforce/`, those of `test_sbmc_spectrum` to
+`build/<preset>/tests/spectrum/`, those of `test_sbmc_tts` to `build/<preset>/tests/tts/`.
 `tests/data/` holds the input files of the tests: `four_nodes.rudy` (the 4-node example of the
 reference document); two 4 x 6 toroidal grids, `torus_4x6_unit.rudy` (unit weights, maximum
 cut 48) and `torus_4x6_pm1.rudy` (+-1 weights, maximum cut 24, 35 optimal partitions);
@@ -1244,9 +1483,9 @@ between 2 and 6, like the random graphs of the G-set (maximum cut 40, the instan
 T2-2); `weighted_isolated_13.rudy`, 13 nodes and 19 edges with weights of both signs up to
 2^31 - 1 and two isolated nodes (maximum cut 6,442,452,014, 4 optimal partitions), which tests the
 int64 sums of C3 (only C3: `auto_c0` rejects it, because Q overflows int64). `test_gset`,
-`test_data`, `test_results`, `test_instance`, `test_solve_times`, the case GS-G1, the cases SA-5
-and SA-9 read `data/`. Number of tests: 24 with `cpu` and `cpu-strict`, 30 with `cuda` and
-`cuda-strict`, 27 with `t4` and `t4-strict`. A
+`test_data`, `test_results`, `test_instance`, `test_spectrum`, `test_solve_times`,
+`test_sbmc_spectrum`, the case GS-G1, the cases SA-5 and SA-9 read `data/`. Number of tests: 26
+with `cpu` and `cpu-strict`, 32 with `cuda` and `cuda-strict`, 29 with `t4` and `t4-strict`. A
 test that cannot run on the current machine (no GPU, no NumPy, missing tool, missing data) exits
 with 77 and CTest reports it as skipped (for example `ctest --preset cuda -L tile` runs only the
 Tile tests): `test_k2000` needs `scripts/fetch_data.sh --k2000` first.
@@ -1264,7 +1503,11 @@ Tests in detail (the C++ ones use doctest):
   64 of `weighted_isolated_13.rudy` (sums beyond 2^31), 0 on graphs without edges;
   `detail::cut_dense_rows_unchecked` equal to `cut_direct` on `DenseSpinGlass{200, 7}` with
   ld = 200 and ld = 256 (padding columns overwritten with 77, never read), on
-  `torus_4x6_pm1.rudy` with ld = 24 and 32, and 0 for one spin;
+  `torus_4x6_pm1.rudy` with ld = 24 and 32, and 0 for one spin; since F07-R2 the case "detail:
+  cut_dense_rows_unchecked, product form", equal to `cut_direct` on `DenseSpinGlass{2000, 1}` with
+  ld = 2000 and 2048 (padding 77) and on a complete `Graph` with n = 300 and w = +-127 with
+  ld = 320 (8 vectors of a Philox stream, all +1, all -1), on every spin vector of
+  `DenseSpinGlass{2, 5}` and `{3, 9}`, and on the alternating vector of `DenseSpinGlass{300, 9}`;
 - `test_rudy` (T6 on example inputs): the accepted variants and every rejection rule, with the
   line numbers of the messages;
 - `test_initial_state`: reference bits of x0, layout, replica split, independence from the
@@ -1283,6 +1526,19 @@ Tests in detail (the C++ ones use doctest):
   `append_replica_rows` (header and rows, a second append without header, another header or a
   partial last line left unchanged, wrong rows before the file is touched, no rows),
   `read_best_known` on `data/best_known.csv` and on malformed tables;
+- `test_spectrum` (phase 07): `estimate_spectrum` with the default 100 iterations on the four
+  files of `tests/data/` with edges, G1, G11, G14 and `DenseSpinGlass{200, 7}` (lambda_min and
+  lambda_max within 1e-9 max(|lambda|) of the values of cldArchitect, iterations, restarts, 2 on
+  `weighted_isolated_13.rudy`; `spectral_dt` and `spectral_c0` within 1e-6 relative), and with 1,
+  5, 10 and 20 iterations (the values before convergence, which check the start vector); on G1
+  with 32, 64 and 100 iterations lambda_max not decreasing and lambda_min not increasing; G14 with
+  iterations = n = 800, the extremes of the spectrum (with one pass of Gram-Schmidt instead of
+  two they fall outside it, -31.1 and 33.4); the same bits with one and with three threads on G1
+  and `DenseSpinGlass{200, 7}`; `spectral_dt` with
+  factor 0.75; `RngDomain::spectrum_start` = 5; a graph without edges (0 and 0, `spectral_dt` and
+  `spectral_c0` throw), one spin; every precondition (iterations 0 and -1, an invalid `Graph`,
+  `DenseSpinGlass{32769, 1}`, the factor 0, -1, infinite and NaN, lambda_max <= 0 or not finite,
+  lambda_min > 0 or not finite);
 - `test_sb_sequential`: C0 on a short trajectory bit for bit, the reference cases G1-G6 (best cut,
   best step and final cut of every replica, fingerprint of the final state and of the whole
   trajectory), every step of G3-G6 recomputed from the specified operations, the domain case
@@ -1316,7 +1572,11 @@ Tests in detail (the C++ ones use doctest):
   four replicas; SA-9 on the last 70 global indices) with the reference and with C2; C2 equal to
   C0 field by field on 50 pairs of runs (ten instances that cover both formats of J, the three
   accumulators and both paths of the thresholds, five configurations of replicas, first replica
-  and threads), plus the int16 accumulator with direct thresholds; the same result with 1, 2, 3
+  and threads), plus the int16 accumulator with direct thresholds; since F07-R2 the dense path
+  (lane-major layout) equal to C0 field by field on 18 runs (`DenseSpinGlass{300, 9}` with beta
+  0.001 -> 0.01 and 1 -> 3, R = 1, 31, 33 and 65, one and three threads; `DenseSpinGlass{4200, 5}`,
+  int16 with direct thresholds; a complete `Graph` with n = 300 and w = +-127, int32), with the
+  table of the paths of C2 in the comment of the case; the same result with 1, 2, 3
   and the default number of threads (the team in `threads`, the OpenMP settings unchanged); the
   replica split; the last global indices (2^32 - 69 replicas: equal to C0; one more: rejected);
   RB; every precondition (`threads = -1` first, those of the reference, a `DenseSpinGlass` with
@@ -1375,13 +1635,21 @@ Tests in detail (the C++ ones use doctest):
   `--replica-out` on the `--out` file written in four ways, and exit status 1 for a loop of
   symbolic links in the path of `--replica-out`; with results schema 2 (phase 07): in every row of
   every run the three times >= 0 with their sum at most `t_solve_ms` + 0.002, `t_step_us` from
-  `t_run_ms`, `dt_rule` and `c0_rule`, `lambda_min`, `lambda_max` and `cpu_classes` empty,
+  `t_run_ms`, `dt_rule` and `c0_rule`, `cpu_classes` empty,
   `cpu_affinity` equal to the `Cpus_allowed_list` of the test, `omp_places` and `omp_proc_bind`;
   a run under `taskset -c 0` (skipped, and said so, without `taskset`), `OMP_PLACES=cores` and
   `OMP_PROC_BIND=close` in the environment and then neither, `OMP_PLACES` with a line break (exit
   status 1), `--tag "E2 cfg,1"` and `--tag` with a line break (exit status 2), an `--out` with the
   header of schema 1 (exit status 1, file unchanged), the lines on stdout with `t_run_ms` and
-  `t_check_ms`; final line `RUN_VERDICT`;
+  `t_check_ms`; since F07-R2 `dt_rule` `value` or `auto`, `c0_rule` `sigma`, `lambda` or `value`,
+  and `lambda_min` and `lambda_max` numbers in the rows with an estimate of the spectrum and empty
+  in the others; G1 with `--dt auto --c0 lambda` (dt 0.8175546 and c0 0.07533438 within 1e-6
+  relative, the rules, the lambdas within 1e-9), the same run with `--dt 0.8175546 --c0
+  0.07533438` (the same results, rules `value`, no lambdas), `--dt auto --dt-factor 0.75 --c0
+  auto` (dt 0.6131659), `four_nodes.rudy` with bSB and `--dt auto` (dt 1.0879054), the messages of
+  `--dt-factor` without `--dt auto`, `--dt-factor 0` and `x`, `--dt foo`, `--c0 lambdax`, `--dt
+  auto` and `--dt-factor` with SA, and exit status 1 without rows for `--dt auto` and for `--c0
+  lambda` on a graph without edges; final line `RUN_VERDICT`;
 - `test_sbmc_bruteforce` (label `apps`, standard library only): `sbmc_bruteforce` with absolute
   paths, its exit statuses (2 for the command line, among them `--threads 1025` and a default
   name taken from a file name with a space; 1 for the library and for reading; always with an
@@ -1390,6 +1658,15 @@ Tests in detail (the C++ ones use doctest):
   `four_nodes.rudy`, `weighted_isolated_13.rudy` and dense instances with 1, 16 and 20 spins (the
   last one with 1 and 4 threads), `--name`; one line `BF <check>: PASS|FAIL` per check and the
   final line `BF_VERDICT`;
+- `test_sbmc_spectrum` (label `apps`, standard library only): `sbmc_spectrum` with absolute
+  paths on `four_nodes.rudy`, G1 and `--dense 200 --instance-seed 7` (one line, the word
+  `SPECTRUM` and the 11 fields in order, n, m and the names, lambda_min and lambda_max within 1e-9
+  max(|lambda|), dt_auto and c0_lambda within 1e-6 relative), G1 with `--iterations 10`, a graph
+  without edges (`none` for dt_auto, c0_lambda and c0_sigma), the exit statuses (2 for the command
+  line: no instance, `--instance` with `--dense`, `--iterations` 0, 100001 and x, `--name` with a
+  space; 1 for a missing file; always with an empty stdout and a message that starts with
+  `sbmc_spectrum: `), an empty stderr in the cases of success; one line `SPECTRUM <check>:
+  PASS|FAIL` per check and the final line `SPECTRUM_VERDICT`;
 - `test_build_info` (label `tools`): `cmake/sbmc_build_info.cmake` run with `cmake -P` in a
   temporary git repository (git configuration isolated as in `test_sync_from_zip`): `dirty` stays 0
   for changes in `results/` (modified, untracked, deleted files) and becomes 1 for a modified or
@@ -1490,12 +1767,13 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 CMakeLists.txt, CMakePresets.json, cmake/   build system (cmake/sbmc_build_info.cmake: build
                      information of the results rows)
 include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
-                     solve_times, sb, sb_sequential, sb_openmp, sa, sa_sequential, sa_openmp,
-                     bruteforce, results
+                     solve_times, spectrum, sb, sb_sequential, sb_openmp, sa, sa_sequential,
+                     sa_openmp, bruteforce, results
 src/core/            rudy reader, Ising model, int64 cut and energy, dense INT8 rows, the
                      unchecked cut of the final check, initial positions, pressure schedule and
                      automatic c0, schedule of beta and acceptance threshold of SA, results
-                     schema 2, replica file and CSV, table of best-known values
+                     schema 2, replica file and CSV, table of best-known values, estimate of
+                     the spectrum of J with the automatic dt and c0 (phase 07)
 src/cpu/             sequential reference C0 (phase 04), OpenMP simulated bifurcation C1 and
                      exact enumeration C3 with OpenMP (phase 05), sequential reference of
                      simulated annealing and OpenMP simulated annealing C2 (phase 06)
@@ -1503,16 +1781,17 @@ src/gpu/             cuBLAS, cuBLASLt, bitwise and cuSPARSE products, update ker
 src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
 apps/                command-line programs: sbmc_run (phase 04, C1 from phase 05, SA, C2 and
-                     the replica file from phase 06), sbmc_bruteforce (phase 05)
+                     the replica file from phase 06, schema 2 and the automatic dt and c0 from
+                     phase 07), sbmc_bruteforce (phase 05), sbmc_spectrum (phase 07)
 tests/               unit, integration and smoke tests (ctest)
-tests/core/          unit tests of the core library (doctest)
+tests/core/          unit tests of the core library, the spectrum of J included (doctest)
 tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C2, C3), T2
                      and the times of the solvers (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
 tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run
-                     (test_sbmc_run), sbmc_bruteforce (test_sbmc_bruteforce), the time to
-                     solution (test_sbmc_tts)
+                     (test_sbmc_run), sbmc_bruteforce (test_sbmc_bruteforce), sbmc_spectrum
+                     (test_sbmc_spectrum), the time to solution (test_sbmc_tts)
 tests/smoke/         CUDA smoke tests and FMA probes
 tests/scripts/       tool tests and checks (sync_from_zip.sh, build information, RPATH)
 tests/tools/         tools of the tests (sbmc_trace)

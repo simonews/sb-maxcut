@@ -2,12 +2,13 @@
 // block (sbmc/sb_openmp.hpp).
 //
 // Preparation [t0, t1), outside the parallel regions of the run and of the check: the
-// preconditions; W (total_weight, the only full check of the instance, B5), c0, the pressure
-// schedule; the internal copy of J (dense INT8 with rows on 64-byte boundaries, or compressed
-// rows with increasing columns, int32 values); the integer accumulator from L = max_i sum_j
-// |J_ij|; the outputs and the trace; one work area per thread of the run, each on a 64-byte
-// boundary and made of whole cache lines; x0 of every replica in final_x (y = 0), computed in a
-// parallel loop with num_threads(min(T_req, B)) from the stream of initial_position.
+// preconditions; W (total_weight, which checks the instance in full, B5), c0 (auto_c0, with the
+// automatic c0, checks it in full once more), the pressure schedule; the internal copy of J (dense
+// INT8 with rows on 64-byte boundaries, or compressed rows with increasing columns, int32 values);
+// the integer accumulator from L = max_i sum_j |J_ij|; the outputs and the trace; one work area per
+// thread of the run, each on a 64-byte boundary and made of whole cache lines; x0 of every replica
+// in final_x (y = 0), computed in a parallel loop with num_threads(min(T_req, B)) from the stream
+// of initial_position.
 // Run [t1, t2): a parallel region with num_threads(min(T_req, B)); a single construct reads the
 // team size; a for loop with schedule(dynamic, 1) gives the blocks to the threads. A block reads
 // x0 of its replicas from final_x, runs all M steps in the work area of its thread, then writes

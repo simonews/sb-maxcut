@@ -15,9 +15,14 @@
 // 4. sb_update of every spin with p[m];
 // 5. if m < trace_steps, x and y are recorded as the state after step m + 1.
 // After the last step: s(M) is evaluated (every algorithm, every eval_every);
-// final_cut = (W - E(s(M))) / 2 and best_cut = (W - best_energy) / 2. The best cut of every
-// replica is then checked with one call of cut_direct (sbmc::Error with "internal" on mismatch).
-// No OpenMP in C0 itself, and no public function of the instance inside the step loop.
+// final_cut = (W - E(s(M))) / 2 and best_cut = (W - best_energy) / 2. Final check (decision L3 of
+// phase 07): the best cut of every replica is recomputed directly, without a second validation
+// of the instance, on the edges of a Graph or on the internal INT8 rows of a DenseSpinGlass
+// (sbmc::detail::cut_edges_unchecked, cut_dense_rows_unchecked), and must equal best_cut
+// (sbmc::Error with "internal" on mismatch). No OpenMP in C0 itself, and no public function of the
+// instance after the preparation. Times (sbmc/solve_times.hpp, result.times): preparation from the
+// entry to the replica loop (the checks, the internal J, c0, p, the outputs and x0 of every
+// replica), run (the replica loop), check (the final check).
 #pragma once
 
 #include <sbmc/instance.hpp>

@@ -2,7 +2,8 @@
 //
 // The replicas are independent and run one after the other, each for all M steps. The step loop
 // works only on internal copies (couplings, positions, momenta, signs): the instance is checked
-// once at the entry, by total_weight, and never again (B5). The final check recomputes the best
+// in full in the preparation, by total_weight and, with the automatic c0, also by auto_c0, and
+// never again (B5). The final check recomputes the best
 // cut of every replica directly, without any check of the instance (decision L3 of phase 07):
 // on the edges for a Graph (detail::cut_edges_unchecked), on the internal INT8 rows of J with
 // ld = n for a DenseSpinGlass (detail::cut_dense_rows_unchecked); no public function of the

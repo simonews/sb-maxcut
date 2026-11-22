@@ -2,23 +2,31 @@
 // with the results schema 2 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
 // sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
 // (variant c1, --threads). Simulated annealing (--algo sa), phase 06: the sequential reference
-// (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads).
+// (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads). Phase 07: the
+// automatic dt and c0 from the estimate of the spectrum of J (sbmc/spectrum.hpp).
 //
 //   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
-//            [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
-//            [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
+//            [--steps M --dt auto|X [--dt-factor F] | --sweeps S --beta0 X --beta1 X]
+//            [--name NAME] [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|lambda|X]
+//            [--eval-every K]
 //            [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
 //            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
 //
 // --steps and --dt are required with dsb and bsb, which take the variants c0 and c1; --sweeps,
 // --beta0 and --beta1 with sa, which takes the variants c0 and c2 and where --steps, --dt, --c0,
 // --a0 and --eval-every are not used. --threads only with c1 or c2. --replica-out needs --out and
-// another file (compared with std::filesystem::weakly_canonical).
+// another file (compared with std::filesystem::weakly_canonical). dt of SB: --dt auto, dt =
+// F * 1.25 * sqrt(2 / (1 - lambda_min / lambda_max)) with F = --dt-factor (default 1, allowed only
+// with --dt auto), or a finite number > 0. c0 of SB: --c0 auto, 1 / (2 sigma sqrt(n)) (auto_c0);
+// --c0 lambda, 1 / lambda_max; or a finite number > 0. lambda_min and lambda_max come from
+// estimate_spectrum with kSpectrumIterations steps, run once per invocation and only for --dt auto
+// or --c0 lambda.
 //
 // Run: at startup, before any run, the environment of the process is read once: the logical
 // processors allowed to it (the Cpus_allowed_list line of /proc/self/status, column cpu_affinity)
 // and the variables OMP_PLACES and OMP_PROC_BIND (columns omp_places and omp_proc_bind; empty when
-// missing). Then the instance is read (t_setup_ms); the target is resolved (with --target
+// missing). Then the instance is read and, with --dt auto or --c0 lambda, the spectrum of J is
+// estimated (t_setup_ms: both); the target is resolved (with --target
 // best-known the row of the table must have the n and m of the instance); --warmup runs with first
 // replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica
 // = k*R and the same seed, so different global replicas and different initial conditions
@@ -29,15 +37,16 @@
 // t_solve_ms is the duration of the call of the solver measured by sbmc_run; t_prep_ms, t_run_ms
 // and t_check_ms are the three phases measured inside it (sbmc/solve_times.hpp: preparation, run,
 // final check), whose sum is at most t_solve_ms; t_step_us is t_run_ms per step or sweep. The
-// column threads is the team of the solver (1 for c0); dt_rule and c0_rule say how dt and c0 of SB
-// were chosen; run_tag is the text of --tag.
+// column threads is the team of the solver (1 for c0); dt_rule (auto or value) and c0_rule (sigma,
+// lambda or value) say how dt and c0 of SB were chosen; lambda_min and lambda_max are the extremes
+// of the estimate, empty without it; run_tag is the text of --tag.
 //
 // Exit status: 0 on success; 1 for errors of the library (preconditions such as --replicas 0),
 // of reading or writing (an --out with another header than that of results schema 2 included),
 // for an instance that is not in the best-known table or that has another n or m than its row,
-// when the paths of --out and --replica-out cannot be compared, and when OMP_PLACES or
-// OMP_PROC_BIND contains a line break; 2 for errors of the command line, with a message on
-// stderr.
+// when the paths of --out and --replica-out cannot be compared, when OMP_PLACES or OMP_PROC_BIND
+// contains a line break, and when dt or c0 cannot be derived from the spectrum (J = 0: before any
+// run, no row written); 2 for errors of the command line, with a message on stderr.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -75,6 +84,7 @@
 #include <sbmc/sb_openmp.hpp>
 #include <sbmc/sb_sequential.hpp>
 #include <sbmc/solve_times.hpp>
+#include <sbmc/spectrum.hpp>
 
 namespace {
 
@@ -90,8 +100,9 @@ struct Options {
   std::string name;
   std::string algo;
   int replicas = 0;
-  int steps = 0;  // dsb and bsb
-  std::string dt;
+  int steps = 0;   // dsb and bsb
+  std::string dt;  // auto or a number
+  std::string dt_factor = "1";
   int sweeps = 0;     // sa
   std::string beta0;  // sa
   std::string beta1;  // sa
@@ -408,6 +419,20 @@ int run(const Options& options, bool dense) {
   if (dense) {
     nnz = n * (n - 1) / 2;
   }
+  // The spectrum of J, once, only when dt or c0 is derived from it; with J = 0 spectral_dt and
+  // spectral_c0 throw InvalidArgument here, before any run.
+  std::optional<sbmc::SpectrumEstimate> spectrum;
+  std::optional<float> spectral_dt;
+  std::optional<float> spectral_c0;
+  if (!sa && (options.dt == "auto" || options.c0 == "lambda")) {
+    spectrum = sbmc::estimate_spectrum(instance, sbmc::kSpectrumIterations);
+    if (options.dt == "auto") {
+      spectral_dt = sbmc::spectral_dt(*spectrum, *to_double(options.dt_factor));
+    }
+    if (options.c0 == "lambda") {
+      spectral_c0 = sbmc::spectral_c0(*spectrum);
+    }
+  }
   const double t_setup_ms =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - setup_start)
           .count();
@@ -467,9 +492,13 @@ int run(const Options& options, bool dense) {
         options.algo == "dsb" ? sbmc::SbAlgorithm::discrete : sbmc::SbAlgorithm::ballistic;
     sb_params.replicas = options.replicas;
     sb_params.steps = options.steps;
-    sb_params.dt = *to_float(options.dt);
+    sb_params.dt = spectral_dt ? *spectral_dt : *to_float(options.dt);
     sb_params.a0 = *to_float(options.a0);
-    sb_params.c0 = options.c0 == "auto" ? 0.0f : *to_float(options.c0);
+    if (options.c0 == "auto") {
+      sb_params.c0 = 0.0f;  // automatic in the library: auto_c0, the rule sigma
+    } else {
+      sb_params.c0 = spectral_c0 ? *spectral_c0 : *to_float(options.c0);
+    }
     sb_params.eval_every = options.eval_every;
     sb_params.seed = options.seed;
   }
@@ -597,8 +626,14 @@ int run(const Options& options, bool dense) {
     row.set("t_run_ms", t_run_ms);
     row.set("t_check_ms", t_check_ms);
     if (!sa) {
-      row.set("dt_rule", "value");
-      row.set("c0_rule", options.c0 == "auto" ? "sigma" : "value");
+      row.set("dt_rule", options.dt == "auto" ? "auto" : "value");
+      row.set("c0_rule", options.c0 == "auto"     ? "sigma"
+                         : options.c0 == "lambda" ? "lambda"
+                                                  : "value");
+    }
+    if (spectrum) {
+      row.set("lambda_min", shortest(spectrum->lambda_min));
+      row.set("lambda_max", shortest(spectrum->lambda_max));
     }
     row.set("cpu_affinity", affinity);
     row.set("omp_places", omp_places);
@@ -665,11 +700,15 @@ int main(int argc, char** argv) {
       "the duration of the call of the solver; t_prep_ms, t_run_ms and t_check_ms are its "
       "preparation, run and final check, measured inside it; t_step_us is t_run_ms per step or "
       "sweep. --tag fills the column run_tag; cpu_affinity, omp_places and omp_proc_bind record "
-      "the allowed processors and OMP_PLACES and OMP_PROC_BIND at startup. Exit status: 0 "
-      "success; 1 error of the library, of reading or writing (an --out with another header than "
-      "that of results schema 2 included), instance not in the best-known table or with another n "
-      "or m, paths of --out and --replica-out that cannot be compared, OMP_PLACES or "
-      "OMP_PROC_BIND with a line break; 2 error of the command line.");
+      "the allowed processors and OMP_PLACES and OMP_PROC_BIND at startup. --dt auto (dt = F * "
+      "1.25 sqrt(2 / (1 - lambda_min / lambda_max)), F = --dt-factor) and --c0 lambda (c0 = 1 / "
+      "lambda_max) estimate the spectrum of J once, with 100 Lanczos steps, after reading the "
+      "instance (inside t_setup_ms), and fill lambda_min and lambda_max. Exit status: 0 success; "
+      "1 error of the library, of reading or writing (an --out with another header than that of "
+      "results schema 2 included), instance not in the best-known table or with another n or m, "
+      "paths of --out and --replica-out that cannot be compared, OMP_PLACES or OMP_PROC_BIND with "
+      "a line break, dt or c0 not defined by the spectrum (J = 0); 2 error of the command "
+      "line.");
 
   const CLI::Validator decimal = decimal_integer();
   const CLI::Validator number = float_value();
@@ -714,10 +753,27 @@ int main(int argc, char** argv) {
       app.add_option("--steps", options.steps, "dsb and bsb: steps M")->transform(decimal);
   CLI::Option* dt =
       app.add_option("--dt", options.dt,
-                     "dsb and bsb: time step (no default: 1.25 suits random +-1 matrices and "
-                     "fails on graphs with positive weights; automatic choice in phase 07)")
-          ->type_name("X")
-          ->check(number);
+                     "dsb and bsb: time step, auto (--dt-factor * 1.25 sqrt(2 / (1 - lambda_min / "
+                     "lambda_max)), from the estimate of the spectrum of J) or a finite number > 0 "
+                     "(no default: 1.25 suits random +-1 matrices and fails on graphs with "
+                     "positive weights)")
+          ->type_name("auto|X")
+          ->check([](const std::string& value) -> std::string {
+            if (value == "auto") {
+              return {};
+            }
+            const std::optional<float> number = to_float(value);
+            return number && std::isfinite(*number) && *number > 0.0f
+                       ? std::string{}
+                       : "expected auto or a finite number > 0, got '" + value + "'";
+          });
+  CLI::Option* dt_factor =
+      app.add_option(
+             "--dt-factor", options.dt_factor,
+             "dsb and bsb with --dt auto: factor F of the automatic dt, a finite number > 0")
+          ->capture_default_str()
+          ->type_name("F")
+          ->check(positive);
   CLI::Option* sweeps = app.add_option("--sweeps", options.sweeps, "sa: sweeps S")
                             ->type_name("S")
                             ->transform(decimal)
@@ -750,16 +806,17 @@ int main(int argc, char** argv) {
                         ->check(number);
   CLI::Option* c0 =
       app.add_option("--c0", options.c0,
-                     "dsb and bsb: c0, auto (1/(2 sigma sqrt(n))) or a finite number > 0")
+                     "dsb and bsb: c0, auto (1/(2 sigma sqrt(n))), lambda (1/lambda_max, from the "
+                     "estimate of the spectrum of J) or a finite number > 0")
           ->capture_default_str()
-          ->type_name("auto|X")
+          ->type_name("auto|lambda|X")
           ->check([](const std::string& value) -> std::string {
-            if (value == "auto") {
+            if (value == "auto" || value == "lambda") {
               return {};
             }
             const std::optional<float> c0 = to_float(value);
             if (!c0 || !std::isfinite(*c0) || !(*c0 > 0.0f)) {
-              return "expected auto or a finite number > 0, got '" + value +
+              return "expected auto, lambda or a finite number > 0, got '" + value +
                      "' (0 is not accepted: in the library c0 = 0 means automatic)";
             }
             return {};
@@ -832,8 +889,8 @@ int main(int argc, char** argv) {
       }
     }
     for (const auto& [option, name] :
-         {std::pair{steps, "--steps"}, std::pair{dt, "--dt"}, std::pair{c0, "--c0"},
-          std::pair{a0, "--a0"}, std::pair{eval_every, "--eval-every"}}) {
+         {std::pair{steps, "--steps"}, std::pair{dt, "--dt"}, std::pair{dt_factor, "--dt-factor"},
+          std::pair{c0, "--c0"}, std::pair{a0, "--a0"}, std::pair{eval_every, "--eval-every"}}) {
       if (option->count() > 0) {
         return usage_error(std::string(name) + " is not used with --algo sa");
       }
@@ -858,6 +915,9 @@ int main(int argc, char** argv) {
     }
     if (options.variant == "c2") {
       return usage_error("--variant c2 requires --algo sa");
+    }
+    if (dt_factor->count() > 0 && options.dt != "auto") {
+      return usage_error("--dt-factor requires --dt auto");
     }
   }
   const bool use_dense = dense->count() > 0;

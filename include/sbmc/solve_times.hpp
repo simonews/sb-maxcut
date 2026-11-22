@@ -1,11 +1,12 @@
 // Times of the solvers (phase 07, decision L2): every solver of simulated bifurcation and of
-// simulated annealing (run_sb_sequential, run_sb_openmp, run_sa_sequential, run_sa_openmp)
-// measures inside the call three consecutive phases and returns them in the field times of its
-// result (SbResult, SaResult). Preparation: preconditions, the only full check of the instance,
-// the internal copy of J, the allocation of the outputs and of the work areas, the initial states
-// of every replica. Run: the steps or sweeps of every replica from its initial state, the best
-// states and the outputs. Check: the final check of the cuts of every replica. The times are
-// written only before a normal return. Standard C++ only: no CUDA type or header.
+// simulated annealing (run_sb_sequential, run_sb_openmp, run_sa_sequential, run_sa_openmp) measures
+// inside the call three consecutive phases and returns them in the field times of its result
+// (SbResult, SaResult). Preparation: preconditions, the full check of the instance (by total_weight
+// and, with the automatic c0 of SB, also by auto_c0), the internal copy of J, the allocation of the
+// outputs and of the work areas, the initial states of every replica. Run: the steps or sweeps of
+// every replica from its initial state, the best states and the outputs. Check: the final check of
+// the cuts of every replica. The times are written only before a normal return. Standard C++ only:
+// no CUDA type or header.
 #pragma once
 
 namespace sbmc {

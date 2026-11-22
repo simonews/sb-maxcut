@@ -48,9 +48,14 @@ inline constexpr int kSbOpenmpReplicasPerBlock = 32;
 // trace_steps), for every value of threads (test T7). In every build the result does not depend
 // on threads, on the size of the team or on the order of the blocks, and the results of local
 // replica r depend only on the instance, on the parameters other than replicas and first_replica,
-// and on its global index first_replica + r. The best cut of every replica is checked with
-// cut_direct, in parallel after its block (sbmc::Error with "internal" for the smallest replica
-// with a mismatch).
+// and on its global index first_replica + r. Final check (decision L3 of phase 07): the best cut of
+// every replica is recomputed directly, without a second validation of the instance, on the edges
+// of a Graph (whatever the format of its internal J) or on the internal INT8 rows of a
+// DenseSpinGlass, in a second parallel region after the region of the steps, with
+// num_threads(min(T_req, B)) (sbmc::Error with "internal" for the smallest replica with a
+// mismatch). Times (result.times, sbmc/solve_times.hpp): preparation (the checks, the internal J,
+// c0, the work areas, x0 of every replica), run (the region of the steps), check (the region of
+// the final check).
 SbResult run_sb_openmp(const Instance& inst, const SbParams& params, int threads = 0,
                        int trace_steps = 0);
 

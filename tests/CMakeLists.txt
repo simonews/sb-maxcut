@@ -1,17 +1,17 @@
 # Tests: doctest unit tests (cpu), Python tests (python), tests of the applications (apps), tool
 # tests (tools), CUDA tests and smoke tests (gpu, tile, probe). Folders: core/ (unit tests of
-# sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/ and K2000 on
-# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/: C0, C1 with
-# T7, the reference of simulated annealing, C2, the exact enumeration C3, T2 and the times of the
-# solvers), data/ (input files
-# of the tests), python/ (Python tests, run with the interpreter chosen by the root CMakeLists.txt:
-# the reference P0, T8 with traces in <build>/tests/python/, the data of data/, the tool of the time
-# to solution with its files in <build>/tests/tts/; and, label apps, sbmc_run with its files in
-# <build>/tests/apps/ and sbmc_bruteforce with its files in <build>/tests/bruteforce/), tools/ (test
-# tools, executables in <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in
-# <build>/tests/gpu/), smoke/ (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/
-# (tool tests and checks: sync_from_zip.sh, the build information, RPATH). Tests that cannot run on
-# the current machine exit with 77, registered as SKIP_RETURN_CODE.
+# sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/, K2000 on
+# data/raw/k2000/ and the estimate of the spectrum of J), cpu/ (unit tests of sbmc::cpu, executables
+# in <build>/tests/cpu/: C0, C1 with T7, the reference of simulated annealing, C2, the exact
+# enumeration C3, T2 and the times of the solvers), data/ (input files of the tests), python/
+# (Python tests, run with the interpreter chosen by the root CMakeLists.txt: the reference P0, T8
+# with traces in <build>/tests/python/, the data of data/, the tool of the time to solution with its
+# files in <build>/tests/tts/; and, label apps, sbmc_run with its files in <build>/tests/apps/,
+# sbmc_bruteforce with its files in <build>/tests/bruteforce/ and sbmc_spectrum with its files in
+# <build>/tests/spectrum/), tools/ (test tools, executables in <build>/tests/tools/: sbmc_trace),
+# gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/ (CUDA smoke tests, executables in
+# <build>/tests/smoke/), scripts/ (tool tests and checks: sync_from_zip.sh, the build information,
+# RPATH). Tests that cannot run on the current machine exit with 77, registered as SKIP_RETURN_CODE.
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
@@ -25,7 +25,7 @@ set_tests_properties(test_sanity PROPERTIES LABELS "cpu")
 
 # Unit tests of the core library: one doctest executable per file of core/.
 foreach(_sbmc_test IN ITEMS test_philox test_instance test_rudy test_initial_state test_sb
-                            test_gset test_k2000 test_results)
+                            test_gset test_k2000 test_results test_spectrum)
   add_executable(${_sbmc_test} core/${_sbmc_test}.cpp)
   set_target_properties(${_sbmc_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                  "${CMAKE_CURRENT_BINARY_DIR}/core")
@@ -40,7 +40,8 @@ target_compile_definitions(test_sb PRIVATE
                            "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 # T6 (data/gset/) and K2000 (data/raw/k2000/, skipped with 77 until scripts/fetch_data.sh --k2000
 # has downloaded it); test_results reads data/best_known.csv; test_instance (since phase 07) reads
-# files of tests/data/ and data/gset/ for the cut of the final check of the solvers.
+# files of tests/data/ and data/gset/ for the cut of the final check of the solvers; test_spectrum
+# (phase 07) reads files of tests/data/ and data/gset/ for the estimate of the spectrum of J.
 foreach(_sbmc_test IN ITEMS test_gset test_k2000)
   target_compile_definitions(${_sbmc_test} PRIVATE
                              "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\""
@@ -48,9 +49,11 @@ foreach(_sbmc_test IN ITEMS test_gset test_k2000)
 endforeach()
 set_tests_properties(test_k2000 PROPERTIES SKIP_RETURN_CODE 77)
 target_compile_definitions(test_results PRIVATE "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
-target_compile_definitions(test_instance PRIVATE
-                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
-                           "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+foreach(_sbmc_test IN ITEMS test_instance test_spectrum)
+  target_compile_definitions(${_sbmc_test} PRIVATE
+                             "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                             "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+endforeach()
 
 # Unit tests of the CPU solvers (sbmc::cpu): the sequential reference C0.
 add_executable(test_sb_sequential cpu/test_sb_sequential.cpp)
@@ -186,6 +189,12 @@ sbmc_add_python_test(test_sbmc_bruteforce apps
                      ARGS "--tool" "$<TARGET_FILE:sbmc_bruteforce>"
                           "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
                           "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/bruteforce")
+# sbmc_spectrum (apps/, phase 07), with absolute paths; its files go to <build>/tests/spectrum/.
+sbmc_add_python_test(test_sbmc_spectrum apps
+                     ARGS "--tool" "$<TARGET_FILE:sbmc_spectrum>"
+                          "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                          "--gset" "${PROJECT_SOURCE_DIR}/data/gset"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/spectrum")
 
 # --- Tools ----------------------------------------------------------------------------------
 add_test(NAME test_sync_from_zip

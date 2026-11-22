@@ -1,8 +1,10 @@
-# Applications, executables in <build>/apps/. Phase 04: sbmc_run, which runs the sequential
-# reference C0 on one instance and writes one CSV row per repetition (results schema 1,
+# Applications, executables in <build>/apps/. Phase 04: sbmc_run, which runs a solver of the
+# project on one instance and writes one CSV row per repetition (since phase 07 results schema 2,
 # sbmc/results.hpp). Phase 05: sbmc_bruteforce, which runs the exact enumeration C3
 # (sbmc/bruteforce.hpp) on one instance and writes one line on stdout, without CSV and without the
-# build information.
+# build information. Phase 07: sbmc_spectrum, which estimates the extremes of the spectrum of J of
+# one instance (sbmc/spectrum.hpp) and writes them, with the automatic dt and c0, as one line on
+# stdout, like sbmc_bruteforce.
 
 # CLI11 (third_party/CLI11, single header): command line parsing, for the applications only. The
 # public headers of the project never include it.
@@ -38,3 +40,8 @@ add_executable(sbmc_bruteforce sbmc_bruteforce.cpp)
 set_target_properties(sbmc_bruteforce PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                  "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(sbmc_bruteforce PRIVATE sbmc::flags sbmc::cpu sbmc::cli11)
+
+add_executable(sbmc_spectrum sbmc_spectrum.cpp)
+set_target_properties(sbmc_spectrum PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                               "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(sbmc_spectrum PRIVATE sbmc::flags sbmc::core sbmc::cli11)

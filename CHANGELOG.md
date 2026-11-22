@@ -3,6 +3,55 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R2] - 2026-11-22
+
+Phase 07, part 2 of 4: the estimate of the spectrum of J with the Lanczos method, the automatic dt
+and c0 of simulated bifurcation, `sbmc_spectrum`, C2 on dense J with the update of the accepting
+replicas only, the final check on dense rows in product form. No result of C0, C1, C2 or of the
+reference of SA changes: every field of `SbResult` and `SaResult` but the times is that of F07-R1.
+
+### Added
+
+- `include/sbmc/spectrum.hpp`, `src/core/spectrum.cpp`: `SpectrumEstimate`,
+  `kSpectrumIterations` (100), `estimate_spectrum` for `Graph`, `DenseSpinGlass` and `Instance`
+  (Lanczos in double with full reorthogonalization, a start vector with continuous components from
+  the Philox domain 5, restarts after a breakdown, extremes of the tridiagonal matrix by bisection
+  with Sturm counts; the same bits for every number of threads), `spectral_dt` (with a factor) and
+  `spectral_c0`.
+- `apps/sbmc_spectrum.cpp`: `sbmc_spectrum`, one line `SPECTRUM ...` with lambda_min, lambda_max,
+  the iterations, the restarts, dt_auto, c0_lambda, c0_sigma and the time.
+- `apps/sbmc_run.cpp`: `--dt auto`, `--dt-factor F` (only with `--dt auto`) and `--c0 lambda`; the
+  spectrum is estimated once per invocation, inside `t_setup_ms`, only when dt or c0 is derived
+  from it; the columns `dt_rule` (`auto`), `c0_rule` (`lambda`), `lambda_min` and `lambda_max`
+  filled; exit status 1, before any run, when J = 0.
+- Tests: `tests/core/test_spectrum.cpp` (label `cpu`) and `tests/python/test_sbmc_spectrum.py`
+  (label `apps`); the cases "detail: cut_dense_rows_unchecked, product form" of `test_instance`
+  and "C2: dense J, equal to C0" of `test_sa_openmp`; check 14 of `test_sbmc_run`. 26 tests with
+  the `cpu` presets, 32 with `cuda`, 29 with `t4`.
+
+### Changed
+
+- `include/sbmc/philox.hpp`: `RngDomain::spectrum_start` = 5, in the table of the domains.
+- `src/cpu/sa_openmp.cpp`: on dense J (a dense `Graph` or a `DenseSpinGlass`) the state of a
+  block in lane-major order, with ld = n rounded up to 64 bytes, and the update of the fields only
+  in the lanes that accept a proposal; the initial fields as sums of rows of J; the path with
+  compressed rows unchanged; both block functions on a 64-byte boundary; the header comment with
+  the two layouts, the rule (always lane-major on dense rows) and the measurement of the sandbox.
+  The results are those of F07-R1 bit for bit.
+- `src/core/instance.cpp`: the inner loop of `detail::cut_dense_rows_unchecked` in product form,
+  (S - R) / 2, which vectorizes with AVX2; signature, contract and values unchanged.
+- `src/core/CMakeLists.txt`, `apps/CMakeLists.txt`, `tests/CMakeLists.txt`: the new files and
+  targets.
+- `tests/core/test_instance.cpp`, `tests/cpu/test_sa_openmp.cpp`, `tests/python/test_sbmc_run.py`:
+  the new cases; in `test_sbmc_run` the check of every row accepts `dt_rule` `auto`, `c0_rule`
+  `lambda` and the lambdas of the rows with an estimate.
+- `include/sbmc/sb_sequential.hpp`, `sb_openmp.hpp`, `sa_sequential.hpp`, `sa_openmp.hpp`,
+  `solve_times.hpp`, `src/cpu/sb_sequential.cpp`, `src/cpu/sb_openmp.cpp`: comments only (the
+  final check and the times of F07-R1, the two layouts of C2; the instance is checked in full by
+  `total_weight` and, with the automatic c0, by `auto_c0`).
+- `README.md`: the sections "Spectrum of J, automatic dt and c0" and "Layouts of the block", the
+  options of `sbmc_run`, the product form in "Times of the solvers", the domain 5, the tests.
+
 ## [F07-R1] - 2026-11-21
 
 Phase 07, part 1 of 4 (measuring tools): results schema 2, the separate times of the solvers
