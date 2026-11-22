@@ -1,0 +1,11 @@
+2026-11-22T20:01:19Z start instance=- config=- seconds=- exit=- campaign=f07_dwave check=dwave notes=AC power; Windows power mode: Best performance; Armoury Crate: Performance; GPU mode: Ultimate
+2026-11-22T20:01:19Z run instance=G2 config=sa_a2.0_b3.0_S1000 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11593.000 t_solve_ms 2644.372 t_run_ms 2623.246 t_check_ms 18.582
+2026-11-22T20:01:24Z done instance=G2 config=sa_a2.0_b3.0_S1000 seconds=5.294 exit=0
+2026-11-22T20:01:31Z run instance=G12 config=sa_a2.0_b3.0_S1000 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 552.270 t_solve_ms 2735.602 t_run_ms 2731.287 t_check_ms 1.519
+2026-11-22T20:01:37Z done instance=G12 config=sa_a2.0_b3.0_S1000 seconds=5.472 exit=0
+2026-11-22T20:01:44Z run instance=G15 config=sa_a2.0_b3.0_S2000 seconds=- exit=-
+rep 0: best_cut 3050 mean_cut 3037.148 t_solve_ms 6226.971 t_run_ms 6220.463 t_check_ms 4.104
+2026-11-22T20:01:57Z done instance=G15 config=sa_a2.0_b3.0_S2000 seconds=12.469 exit=0
+2026-11-22T20:02:11Z stop instance=- config=- seconds=52.664 exit=0 check PASS
