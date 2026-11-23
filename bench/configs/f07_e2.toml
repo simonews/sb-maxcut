@@ -1,7 +1,12 @@
-# E2 of phase 07 (reference document, section 14.2; decision L6): the tuning of dSB (C1) and SA
-# (C2) on the tuning instances G2, G12 and G15 (families of G1, G11 and G14) and on
-# DenseSpinGlass{2000, 1} (family of K2000), with grids relative to the instance: 24
-# configurations per method and instance, R 1024, 16 threads, 5 repetitions after 1 warm-up run.
+# E2 of phase 07 (reference document, section 14.2; decisions L6 and N1): the tuning of dSB (C1)
+# and SA (C2) on the tuning instances G2, G12 and G15 (families of G1, G11 and G14) and on
+# DenseSpinGlass{2000, 1} (family of K2000), with grids relative to the instance and the same
+# number of configurations for the two methods (section 7, rule 2): 42 per method on G2, 48 on
+# G12, 24 on G15 and 24 on the dense instance, 138 per method and 276 in all (278 with the stage);
+# R 1024, 16 threads, 5 repetitions after 1 warm-up run.
+# The short steps of G2 (125, 250, 500) and of G12 (64, 125, 250, 500) come from F07-R3b
+# (decision N1: in F07-R3, SA on G2 and G12 and dSB on G12 chose the shortest steps of the grid;
+# see "E2: tuning" in the README).
 # The stage "target" runs first: its largest best_cut is the target of the dense instance
 # (best-found). Run with: python3 python/sbmc_campaign.py run bench/configs/f07_e2.toml --notes
 # "$NOTES"; then python3 python/sbmc_e2.py analyze bench/configs/f07_e2.toml.
@@ -47,7 +52,7 @@ id = "sa"
 variant = "c2"
 a = [0.5, 1.0, 2.0]
 b = [2.0, 3.0]
-steps = { G2 = [1000, 2000, 4000, 8000], G12 = [1000, 2000, 4000, 8000], G15 = [1000, 2000, 4000, 8000], dense_n2000_s1 = [500, 1000, 2000, 4000] }
+steps = { G2 = [125, 250, 500, 1000, 2000, 4000, 8000], G12 = [64, 125, 250, 500, 1000, 2000, 4000, 8000], G15 = [1000, 2000, 4000, 8000], dense_n2000_s1 = [500, 1000, 2000, 4000] }
 
 # dSB: dt = f * dt_auto (--dt auto --dt-factor f), c0 with the rule sigma (--c0 auto) or lambda.
 [[method]]
@@ -55,7 +60,7 @@ id = "dsb"
 variant = "c1"
 f = [0.25, 0.5, 1.0]
 c0 = ["sigma", "lambda"]
-steps = { G2 = [1000, 2000, 4000, 8000], G12 = [1000, 2000, 4000, 8000], G15 = [1000, 2000, 4000, 8000], dense_n2000_s1 = [500, 1000, 2000, 4000] }
+steps = { G2 = [125, 250, 500, 1000, 2000, 4000, 8000], G12 = [64, 125, 250, 500, 1000, 2000, 4000, 8000], G15 = [1000, 2000, 4000, 8000], dense_n2000_s1 = [500, 1000, 2000, 4000] }
 
 # The target of the dense instance: one long run per method, no warm-up, --target none.
 [[stage]]

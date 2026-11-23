@@ -3,6 +3,30 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R3b] - 2026-11-22
+
+Correction of phase 07, part 3 (decision N1): the grid of E2 extended to short S and M on G2 and
+G12 for both methods, where the choices of F07-R3 fell on the shortest steps, and the steps of E3
+to match. Configurations and documentation only: no executable line changes.
+
+### Changed
+
+- `bench/configs/f07_e2.toml`: S and M in {125, 250, 500, 1000, 2000, 4000, 8000} on G2 and in
+  {64, 125, ..., 8000} on G12, the same for SA and dSB; 42 configurations per method on G2, 48 on
+  G12, 24 on G15 and 24 on the dense instance, 138 per method and 276 in all, 278 with the stage
+  `target`. The 194 configurations of F07-R3 keep their ids; the runner runs only the 84 new ones.
+- `bench/configs/f07_e3.toml`: the steps of the grid of E2 of the family (7 on G1, 8 on G11, 4 on
+  G14 and K2000): 46 configurations in all.
+- `python/sbmc_e3.py`: the docstring of the module only ("the steps" of the grid of E2, not "the
+  four steps").
+- `README.md`: Status; the table of the campaigns (E2 2 + 276, E3 46); "E2: tuning" (the budget,
+  the grids, the factor covered, the paragraph on the extension with the facts of the laptop and of
+  the pilot run, and why the other edges are not extended); the external check and E3 after the
+  extension. With the extension the index of a configuration in the order of the grid changes, and
+  with it the seed of its bootstrap: the bootstrap intervals of the configurations already measured
+  change a little, within the noise of the bootstrap (more when the successes are few); P_s,
+  T_batch, TTS99 and the Wilson intervals do not.
+
 ## [F07-R3] - 2026-11-22
 
 Phase 07, part 3 of 4: the resumable runner of the measurement campaigns with TOML configurations,

@@ -53,7 +53,9 @@ of the solvers").
 Phase 07, part 3 of 4: the resumable runner of the campaigns, with TOML configurations in
 `bench/configs/`; the tuning E2 of dSB and SA, the external check of SA with dwave-samplers and E3
 on the CPU, with their analysis tools and plots (see "Campaigns"); matplotlib in the virtual
-environment, dwave-samplers as an option (`scripts/setup_python.sh --dwave`).
+environment, dwave-samplers as an option (`scripts/setup_python.sh --dwave`). Then the grid of E2
+was extended to short S and M on G2 and G12, with E3 and the external check run again on the new
+choices (F07-R3b, decision N1; see "E2: tuning").
 
 ## Requirements
 
@@ -1600,9 +1602,9 @@ manifest are versioned, the replica files stay on the machine with their hashes 
 
 | Configuration | Output | Instances | Configurations |
 |---------------|--------|-----------|----------------|
-| `bench/configs/f07_e2.toml` | `results/f07/e2/` | G2, G12, G15, `dense_n2000_s1` | 2 (stage `target`) + 192 |
+| `bench/configs/f07_e2.toml` | `results/f07/e2/` | G2, G12, G15, `dense_n2000_s1` | 2 (stage `target`) + 276 |
 | `bench/configs/f07_dwave.toml` | `results/f07/dwave/` | G2, G12, G15 | 3 (one thread) |
-| `bench/configs/f07_e3.toml` | `results/f07/e3/` | G1, G11, G14, K2000 | 32 |
+| `bench/configs/f07_e3.toml` | `results/f07/e3/` | G1, G11, G14, K2000 | 46 |
 
 E2 and E3 with R = 1024 (with R = 2048 the test of F07-R1 gained 3-5% at 16 threads, not worth
 twice the time), 16 threads, 5 repetitions after one warm-up run, seed 1; the check with R = 1024
@@ -1618,14 +1620,16 @@ and one thread. In this order (E3 and the check read `results/f07/e2/selected.cs
 
 ### E2: tuning
 
-E2 (reference document, section 14.2; decision L6 of phase 07) tunes dSB (C1) and SA (C2) with
-the same budget, 24 configurations per method and instance (section 7, rule 2), on the tuning
-instances G2, G12 and G15 (the families of G1, G11 and G14) and on `DenseSpinGlass{2000, 1}` (the
-family of K2000). The grids are relative to the instance, so that the parameters transfer to the
-evaluation instance of the family:
+E2 (reference document, section 14.2; decisions L6 and N1 of phase 07) tunes dSB (C1) and SA (C2)
+with the same budget, the same number of configurations for the two methods (section 7, rule 2):
+138 per method, 42 on G2, 48 on G12, 24 on G15 and 24 on the dense instance. The instances are the
+tuning instances G2, G12 and G15 (the families of G1, G11 and G14) and `DenseSpinGlass{2000, 1}`
+(the family of K2000). The grids are relative to the instance, so that the parameters transfer to
+the evaluation instance of the family:
 
-- SA: beta0 = a / h with a in {0.5, 1, 2} and beta1 = b / w with b in {2, 3}; S in {1000, 2000,
-  4000, 8000} on the G-set and {500, 1000, 2000, 4000} on the dense instance;
+- SA: beta0 = a / h with a in {0.5, 1, 2} and beta1 = b / w with b in {2, 3}; S in {125, 250, 500,
+  1000, 2000, 4000, 8000} on G2, {64, 125, 250, 500, 1000, 2000, 4000, 8000} on G12, {1000, 2000,
+  4000, 8000} on G15 and {500, 1000, 2000, 4000} on the dense instance;
 - dSB: dt = f x dt_auto (`--dt auto --dt-factor f`) with f in {0.25, 0.5, 1}, c0 with the rule
   sigma or lambda; M as S.
 
@@ -1639,7 +1643,60 @@ best on G12, G15 and (with f = 0.75) on the dense instance, f = 0.25-0.5 on G2, 
 collapses (mean cut 11374 against 11567 with f = 0.5, M 1000): the sensitivity plots show it; the
 rule sigma beats lambda on G12 and G15 and ties on G2 and on the dense instance. With R = 1024 one
 batch reaches the 99% (TTS99 = T_batch) as soon as P_s >= 0.45%: the choice rewards the shortest
-configuration that gets there, so the grids start from short runs and cover a factor 8.
+configuration that gets there, so the grids start from short runs and cover a factor 64 on G2,
+125 on G12 and 8 elsewhere.
+
+Extension of the grid (F07-R3b, decision N1). The first grid had S and M from 1000 on the G-set.
+On the laptop (F07-R3, level 1000, R 1024, 5 repetitions: 5120 replicas) three choices fell on
+its shortest steps, with P_s well above the 0.45% that one batch needs, so the minimum of TTS99
+was outside the grid:
+
+- SA on G2: a 2, b 3, S 1000, TTS99 = T_batch = 376.624 ms, P_s 0.80% (41 of 5120); all six
+  configurations of SA with S 1000 had P_s between 0.80% and 3.05%;
+- SA on G12: a 2, b 3, S 1000, 365.397 ms, P_s 7.17% (367 of 5120); with S 1000, P_s went from
+  4.16% to 12.17%;
+- dSB on G12: f 1, sigma, M 1000 (the shortest), TTS99 144.290 ms (T_batch 125.574, P_s 0.39%, 20
+  of 5120).
+
+A pilot run of cldArchitect (sandbox, preset `cpu`, 2 threads, seed 11, R 1024 with 3 repetitions
+on the G-set; TTS99 of the sandbox, to be read only as ratios) fixed the new values:
+
+- SA on G2: the best was a 0.5, b 2, S 250 (P_s 0.52%, TTS99 664) against a 2, b 3, S 1000 (P_s
+  0.94%, TTS99 2009), about 3 times better; S 125 was worse for every (a, b) tried (P_s <= 0.16%,
+  TTS99 >= 907), and a = 0.25 was worse (TTS99 >= 1100 with S 250 and 500);
+- SA on G12: the best was a 2, b 3, S 250 (P_s 0.65%, TTS99 472), with a 1, b 2, S 125 almost
+  equal (P_s 0.26%, 499); with S 64, P_s <= 0.03%;
+- dSB on G12: M 500 was worse than M 1000 (f 1, sigma: P_s 0.10% against 0.55%, TTS99 1268
+  against 559); with M 250, P_s <= 0.03%.
+
+So S and M in {125, 250, 500} were added on G2 and in {64, 125, 250, 500} on G12, for both methods
+(18 and 24 configurations more per method), with a, b, f and c0 unchanged; G15, the dense
+instance and the stage `target` are unchanged. The other edges of the grid are not extended, for
+these reasons (same pilot run, with R 1024 and 2 repetitions for dSB on G15 and for SA on the dense
+instance, R 256 and 1 repetition for dSB on the dense instance):
+
+- f > 1: dSB collapses already with f = 1.25 (P_s = 0, and the mean cut drops on G12, M 1000,
+  sigma: 539.4 against 548.5 with f = 1; on G15, M 8000, sigma: 2993.4 against 3039.8; on the
+  dense instance, M 1000, lambda: 32837.6 against 33245.5), and worse still with f = 1.5 and 2;
+  f = 1 is dt = dt_auto, the limit of stability;
+- a = 4: P_s <= 0.03% on G2 (S 250 to 1000), on G12 (S 125 to 500) and on G15 (S 2000);
+- b = 4: P_s about half that with b = 3 (G2, a 2, S 1000: 0.46% against 0.94%; G12, a 2, S 250:
+  0.29% against 0.65%; G15, a 2, S 2000: 0.16% against 0.55%);
+- b = 1 on the dense instance (a 1, S 1000, 2048 replicas): P_s 0.49% against 0.39% with b = 2 (10
+  against 8 successes), TTS99 equal within the noise; and b = 1 fails on G12 (pilot run of
+  F07-C3);
+- M 16000 on G15, where dSB chose f 1, sigma, M 8000 (the longest; TTS99 1355.70 ms, T_batch
+  1120.75, P_s 0.37%): T_batch grows in proportion to M (560.5 ms with M 4000, 1120.75 with M
+  8000), so with M 16000 it would be about 2241 ms, already above 1355.70, and TTS99 is never
+  smaller than T_batch.
+
+In F07-R3 the choices also fell on the edges a = 2 (SA on G2, G12 and G15), b = 3 (SA on G2, G12
+and G15), b = 2 (SA on the dense instance) and f = 1 (dSB on G12, G15 and the dense instance):
+with these facts they stay on the edge of the grid, without extending it. With the extension the
+index of a configuration in the order of the grid changes, and with it the seed of its bootstrap:
+the bootstrap intervals of the configurations already measured in F07-R3 change a little, within
+the noise of the bootstrap (more when the successes are few); P_s, T_batch, TTS99 and the Wilson
+intervals do not.
 
 Target: the best-known values for the G-set; for the dense instance, which has no published
 value, the best cut found (`best-found`), declared as such: the stage `target` runs first, one
@@ -1698,7 +1755,10 @@ and the verdict), `final_cuts_<instance>.csv` (columns `ours` and `dwave`, R row
 either way). Without dwave-samplers (`scripts/setup_python.sh --dwave`) the tool writes
 `DWAVE_VERDICT: SKIP (dwave-samplers not installed)` and nothing else. In the sandbox of
 cldArchitect, with 256 reads, the mean final cuts agreed (z -1.64, 0.97, 1.15 on G2, G12, G15) and
-ours cost 5.9-8.1 ns per proposal against 16.6-21.6 of dwave-samplers.
+ours cost 5.9-8.1 ns per proposal against 16.6-21.6 of dwave-samplers. The check follows the
+choice of E2: after the extension of the grid (F07-R3b) it runs again on the new a, b and S; our
+side runs only the configurations not yet complete, the side of dwave-samplers is always
+recomputed, with the same seed.
 
 ### E3 on the CPU
 
@@ -1706,21 +1766,25 @@ E3 (sections 14.2 and 14.5; decision L8) compares dSB (C1) and SA (C2) on the ev
 G1, G11, G14 and K2000 with the parameters of E2 transferred, without tuning on the evaluation
 instance: the relative parameters of the family (G2 -> G1, G12 -> G11, G15 -> G14,
 `dense_n2000_s1` -> K2000; `selection = "results/f07/e2/selected.csv"`), recomputed with h, w and
-the spectrum of the evaluation instance, and the four steps of the grid of E2 of the family: 8
-configurations per instance, 32 in all (fewer when E2 chose `none` for a method). The target of
-K2000 is preliminary: its two sources come from the same group.
+the spectrum of the evaluation instance, and the steps of the grid of E2 of the family (7 on G1, 8
+on G11, 4 on G14 and K2000): 46 configurations in all (fewer when E2 chose `none` for a method).
+The steps chosen by E2 must be among them (`python/sbmc_e3.py` checks it). The target of K2000 is
+preliminary: its two sources come from the same group. When the choice of E2 changes (as after the
+extension of F07-R3b), the files of the configurations no longer chosen stay in `results/f07/e3/`
+and in its manifest; the analysis does not read them, it reads only the configurations of the
+current campaign.
 
 `python/sbmc_e3.py analyze` writes, in `results/f07/e3/`:
 
 - `e3_summary.csv`: as `e2_summary.csv`, per instance, method, steps and level;
 - `e3_tts.csv`, the main table, one row per instance and level: for dSB (`sb_` columns) and SA
   (`sa_`) the TTS99 at the configuration with the steps chosen in E2, its Wilson and bootstrap
-  intervals, and the smallest TTS99 over the four steps with its steps; the ratio SA/SB at the
+  intervals, and the smallest TTS99 over the steps with its steps; the ratio SA/SB at the
   transferred configurations with the conservative interval [lo_SA / hi_SB, hi_SA / lo_SB] from
   the Wilson bounds; `common_level` = 1 in the row of the most severe level where both methods
   have P_s > 0; a note (for K2000 "preliminary target (one source)");
 - `quality_equal_time.csv`, the quality at equal time (section 7): per instance and method the
-  points of the four steps (median of `t_run_ms`, medians of the mean and of the best cut over the
+  points of the steps (median of `t_run_ms`, medians of the mean and of the best cut over the
   repetitions); the budgets of the intersection of the two time ranges, [max of the minima, min of
   the maxima], its ends and their geometric mean, with the mean and the best cut of each method
   interpolated linearly in ln t between the two points that contain the budget (no

@@ -6,7 +6,8 @@ Usage (from the repository root, or with --root):
 
 CONFIG is the campaign of E3 (bench/configs/f07_e3.toml): on every evaluation instance, each
 method with the relative parameters chosen by E2 on the tuning instance of its family (the
-selection of the campaign, results/f07/e2/selected.csv) and the four steps of the grid of E2.
+selection of the campaign, results/f07/e2/selected.csv) and the steps of the grid of E2 of the
+family.
 The statistics of a configuration are those of python/sbmc_e2.py (the functions of
 python/sbmc_tts.py), with the same seeds of the bootstrap ([S, index of the configuration in the
 campaign, index of the level]). Files, in the output folder of the campaign:
@@ -15,12 +16,12 @@ campaign, index of the level]). Files, in the output folder of the campaign:
 - e3_tts.csv, the main table, one row per instance and level f in {1000, 995, 990}: for each
   method (prefix sb_ for dSB, sa_ for SA) the TTS99 at the configuration with the steps chosen in
   E2 (transfer, without tuning on the evaluation instance), its Wilson and bootstrap intervals,
-  and the minimum over the four steps with the steps that give it; the ratio SA/SB of the TTS99
+  and the minimum over the steps with the steps that give it; the ratio SA/SB of the TTS99
   at the transferred configuration with the conservative interval [lo_SA / hi_SB, hi_SA / lo_SB]
   from the Wilson bounds of TTS99; common_level = 1 in the row of the most severe level where
   both methods, at the transferred configuration, have P_s > 0; note: the note of the instance in
   the campaign (for K2000 "preliminary target (one source)") and the methods without a selection;
-- quality_equal_time.csv: per instance and method the points of the four steps ("point": median
+- quality_equal_time.csv: per instance and method the points of the steps ("point": median
   of t_run_ms over the repetitions, median of the mean cuts, median of the best cuts); the
   budgets B of the intersection of the time ranges of the two methods, [max of the minima, min of
   the maxima], its ends and their geometric mean ("budget": the mean cut and the best cut of each
