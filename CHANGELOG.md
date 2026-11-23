@@ -3,6 +3,26 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R4d] - 2026-11-23
+
+Correction of F07-R4b and F07-R4c: on the laptop the build of `win-cpu-strict` failed once
+(`FAILED: [code=1] apps/sbmc_bruteforce.exe`, `file COPY_FILE failed to copy`), since the copies
+of the runtime DLLs of `sbmc_run`, `sbmc_bruteforce` and `sbmc_spectrum` write the same files in
+`apps/` and Ninja ran two of them in parallel; on Windows a file being written by one copy cannot
+be opened by another. No change to the binaries, to their options or to the list of the DLLs.
+
+### Changed
+
+- `cmake/SbmcWindowsRuntime.cmake`: the links of the targets that copy (their POST_BUILD command
+  is part of the link step in Ninja) go to the job pool `sbmc_runtime_copy` of depth 1
+  (`JOB_POOL_LINK`), so the copies never run in parallel.
+- `cmake/sbmc_copy_runtime.cmake`: a copy that fails stops the build with the DLL, the source,
+  the destination and the error (`file(COPY_FILE ... RESULT)`).
+- `scripts/windows/build.ps1`: when a build fails, the first line `FAILED:` and the first line
+  with `error` of the log, with the lines after it up to an empty line (at most 5), go to
+  `build_summary.txt`.
+- `README.md`: the race and its correction, in "E9 on Windows native".
+
 ## [F07-R4c] - 2026-11-23
 
 Correction of F07-R4b: on the laptop the presets `win-cpu` and `win-cpu-strict` configured, but

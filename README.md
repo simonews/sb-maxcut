@@ -1876,6 +1876,20 @@ of System32 and Windows only; the line `runtime <preset> dlls=<DLL,...> standalo
 `standalone=PASS` in both presets. Without the DLLs next to it, `sbmc_run.exe` does not start (under
 wine: exit status 53).
 
+Copies one at a time (F07-R4d). `sbmc_run`, `sbmc_bruteforce` and `sbmc_spectrum` copy the same
+DLLs into `apps/`, and Ninja can run their links, with the copy that follows each of them, in
+parallel; on Windows a file being written by one copy cannot be opened by another, and on the
+laptop the build of `win-cpu-strict` failed once in this way (`FAILED: [code=1]
+apps/sbmc_bruteforce.exe`, `file COPY_FILE failed to copy`), depending on the order of the jobs.
+In the Ninja generator the POST_BUILD command is part of the link step, so the links of the four
+targets that copy go to the job pool `sbmc_runtime_copy` of depth 1 (`JOB_POOL_LINK`): one link
+and its copy at a time, while the compilations stay parallel; each executable still gets its
+DLLs right after its own link. A copy that fails stops the build with the DLL, the source, the
+destination and the error. When a build fails, `build.ps1` writes in `build_summary.txt` the
+first line `FAILED:` of the log (`failed <preset>: ...`) and the first line with `error`
+(`error <preset>: ...`, not a progress line of Ninja) with the lines after it up to an empty
+line, at most 5.
+
 `sbmc_run` on Windows (`apps/win_platform.cpp`, the only file with Windows API, and
 `apps/cpu_topology.hpp`, portable and tested on Linux): the logical processors, their core and
 efficiency class come from `GetLogicalProcessorInformationEx`; `--affinity` sets the process mask

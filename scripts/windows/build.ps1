@@ -21,6 +21,9 @@ build_summary.txt, whose lines are also written on the console:
   source git_hash=<git_hash of DEST\src\.sbmc_build_info>
   preset <name> configure=<exit> build=<exit> warnings=<lines> tests=<passed>/<total>
     failed=<n> skipped=<n> ctest=<exit>     (one line per preset)
+  failed <name>: <first line "FAILED:" of the build log>       (only when the build fails)
+  error <name>: <first line with "error" of the build log>     (only when the build fails)
+    | <the lines after it, up to an empty line, at most 5>      (CMake writes its message there)
   runtime <name> dlls=<DLL,...> standalone=PASS|FAIL     (one line per preset)
   WIN_BUILD: PASS|FAIL
 
@@ -194,6 +197,53 @@ function Get-DllImport([string]$File) {
   return ,$names.ToArray()
 }
 
+# The lines of the summary for a failed build: the first line "FAILED:" of Ninja and the first
+# line with "error" (any case; not a progress line "[n/m]" of Ninja), with the lines after it up
+# to an empty line, at most 5, where CMake writes the text of its errors. Lines longer than 300
+# characters are cut.
+function Get-BuildFailure([string]$Preset, [string]$Log) {
+  $result = New-Object System.Collections.Generic.List[string]
+  $all = @(Get-Content -LiteralPath $Log)
+  $failedIndex = -1
+  $errorIndex = -1
+  for ($i = 0; $i -lt $all.Count; $i++) {
+    $line = [string]$all[$i]
+    if (($failedIndex -lt 0) -and $line.Contains('FAILED:')) {
+      $failedIndex = $i
+    }
+    if (($errorIndex -lt 0) -and ($line -match 'error') -and ($line -notmatch '^\[\d+/\d+\]')) {
+      $errorIndex = $i
+    }
+  }
+  if ($failedIndex -ge 0) {
+    $result.Add("failed ${Preset}: $(Limit-Line $all[$failedIndex])")
+  } else {
+    $result.Add("failed ${Preset}: (no line FAILED:)")
+  }
+  if ($errorIndex -ge 0) {
+    $result.Add("error ${Preset}: $(Limit-Line $all[$errorIndex])")
+    $last = [Math]::Min($errorIndex + 5, $all.Count - 1)
+    for ($i = $errorIndex + 1; $i -le $last; $i++) {
+      $text = Limit-Line $all[$i]
+      if ($text.Length -eq 0) {
+        break
+      }
+      $result.Add("  | $text")
+    }
+  } else {
+    $result.Add("error ${Preset}: (no line with error)")
+  }
+  return ,$result.ToArray()
+}
+
+function Limit-Line($Line) {
+  $text = ([string]$Line).Trim()
+  if ($text.Length -gt 300) {
+    $text = $text.Substring(0, 300) + ' ...'
+  }
+  return $text
+}
+
 # The runtime check of one preset: the imports of the executables, followed through the DLLs
 # found next to them, then sbmc_run.exe --version with the clean PATH. Writes the log and
 # returns the runtime line of the summary.
@@ -315,6 +365,11 @@ try {
     $format += 'tests={4}/{5} failed={6} skipped={7} ctest={8}'
     Write-Summary ($format -f $preset, $configure, $build, $warnings, $passed, $total, $failed,
       $skipped, $test)
+    if (($configure -eq 0) -and ($build -ne 0)) {
+      foreach ($line in (Get-BuildFailure $preset $buildLog)) {
+        Write-Summary $line
+      }
+    }
     $runtime = "runtime $preset dlls=- standalone=FAIL"
     if (($configure -eq 0) -and ($build -eq 0)) {
       $runtime = Test-Runtime $preset (Join-Path $Logs "${preset}_runtime.log")

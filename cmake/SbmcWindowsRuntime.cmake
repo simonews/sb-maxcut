@@ -22,6 +22,14 @@
 # system (KERNEL32.dll, msvcrt.dll) and stays where it is. scripts/windows/build.ps1 checks the
 # result: the imported DLLs that are not in System32 are next to the executable, and
 # sbmc_run.exe --version runs with a PATH without CLion.
+#
+# Part 4d: the copies of different executables write the same files (sbmc_run, sbmc_bruteforce
+# and sbmc_spectrum share apps/), and on Windows a file being written by one copy cannot be
+# opened by another: on the laptop two of them ran in parallel and the build of win-cpu-strict
+# failed ("file COPY_FILE failed to copy"). In the Ninja generator the POST_BUILD command is part
+# of the link step, so the links of the targets that copy go to the job pool sbmc_runtime_copy of
+# depth 1: one link and its copy at a time, the compilations still in parallel. Other generators
+# ignore job pools; the presets use Ninja.
 include_guard(GLOBAL)
 
 if(NOT WIN32)
@@ -69,6 +77,8 @@ foreach(_sbmc_dir IN LISTS SBMC_RUNTIME_DIRS)
 endforeach()
 file(CONFIGURE OUTPUT "${SBMC_RUNTIME_CONFIG}" CONTENT "${_sbmc_config_text}" @ONLY)
 
+set_property(GLOBAL APPEND PROPERTY JOB_POOLS sbmc_runtime_copy=1)
+
 function(sbmc_copy_runtime_dlls target)
   add_custom_command(TARGET ${target} POST_BUILD
     COMMAND "${CMAKE_COMMAND}"
@@ -76,4 +86,5 @@ function(sbmc_copy_runtime_dlls target)
             "-DSBMC_RUNTIME_CONFIG=${SBMC_RUNTIME_CONFIG}"
             -P "${PROJECT_SOURCE_DIR}/cmake/sbmc_copy_runtime.cmake"
     VERBATIM)
+  set_property(TARGET ${target} PROPERTY JOB_POOL_LINK sbmc_runtime_copy)
 endfunction()

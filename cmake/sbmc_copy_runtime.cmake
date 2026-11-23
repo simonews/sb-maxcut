@@ -9,7 +9,9 @@
 # the toolchain). Every DLL imported by the executable (objdump -p, lines "DLL Name: <name>")
 # that exists in one of those folders is copied next to it when different, and its own imports
 # are followed the same way; an imported DLL found in none of the folders belongs to the system
-# and is not copied. The last line names the copied DLLs.
+# and is not copied. The last line names the copied DLLs. A copy that fails stops the build with
+# the DLL, the source, the destination and the error. The copies never run in parallel (the job
+# pool sbmc_runtime_copy of cmake/SbmcWindowsRuntime.cmake).
 cmake_minimum_required(VERSION 3.28)
 
 foreach(_sbmc_required IN ITEMS SBMC_EXE SBMC_RUNTIME_CONFIG)
@@ -46,7 +48,12 @@ while(_sbmc_queue)
     foreach(_sbmc_dir IN LISTS SBMC_RUNTIME_DIRS)
       if(EXISTS "${_sbmc_dir}/${_sbmc_name}")
         file(COPY_FILE "${_sbmc_dir}/${_sbmc_name}" "${_sbmc_dest}/${_sbmc_name}"
-             ONLY_IF_DIFFERENT)
+             RESULT _sbmc_copy_result ONLY_IF_DIFFERENT)
+        if(NOT _sbmc_copy_result STREQUAL "0")
+          message(FATAL_ERROR
+            "cannot copy ${_sbmc_name} for ${_sbmc_exe_name}: from ${_sbmc_dir}/${_sbmc_name} "
+            "to ${_sbmc_dest}/${_sbmc_name}: ${_sbmc_copy_result}")
+        endif()
         list(APPEND _sbmc_copied "${_sbmc_name}")
         list(APPEND _sbmc_queue "${_sbmc_dir}/${_sbmc_name}")
         break()
