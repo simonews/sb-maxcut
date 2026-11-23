@@ -39,7 +39,8 @@
       "hidden": true,
       "binaryDir": "${sourceParentDir}/build-${presetName}",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "g++"
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXE_LINKER_FLAGS": "-fopenmp"
       }
     },
     {

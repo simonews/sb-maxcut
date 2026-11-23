@@ -3,6 +3,19 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R4c] - 2026-11-23
+
+Correction of F07-R4b: on the laptop the presets `win-cpu` and `win-cpu-strict` configured, but
+the link failed (`GOMP_parallel`, `omp_get_thread_num` and other symbols of libgomp undefined),
+since with the MinGW-w64 of CLion FindOpenMP finds no library (`OpenMP_CXX_LIB_NAMES` empty) and
+passes `-fopenmp` only to the compilation.
+
+### Changed
+
+- `CMakePresets.json`: `win-base` sets `CMAKE_EXE_LINKER_FLAGS` to `-fopenmp`, as in the test
+  made by hand on the laptop; g++ then links libgomp and its threads.
+- `README.md`: the reason, in the build on Windows of "E9 on Windows native".
+
 ## [F07-R4b] - 2026-11-23
 
 Correction of F07-R4 before the campaign E9 (decision W5): on the laptop the presets `win-cpu`

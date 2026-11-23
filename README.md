@@ -1852,26 +1852,29 @@ one line per preset with the exit statuses, warnings and tests, one `runtime` li
 `WIN_BUILD: PASS|FAIL`) to `DEST\logs`. On Windows only the 18 C++ tests of the label `cpu` and
 the tool `sbmc_sa_thresholds` are built.
 
-Dynamic link (W5, F07-R4b). With the MinGW-w64 of CLion (g++ 15.2.0) a static link of OpenMP
-fails: `g++ -fopenmp -static` leaves `__intrinsic_setjmpex` (from `libpthread.a`) and
-`__ms_vsnprintf` (from `libmsvcrt.a`) undefined, so FindOpenMP does not find OpenMP, while the
-dynamic link of the same program works. The presets link dynamically and FindOpenMP finds
-`-fopenmp` by itself. So that the executables started outside ctest (from WSL, without the
-folders of CLion in PATH) find their runtime, `cmake/SbmcWindowsRuntime.cmake` (Windows only)
-checks at configure time that the toolchain holds `libgomp-1.dll`, `libwinpthread-1.dll`,
-`libstdc++-6.dll` and `libgcc_s_seh-1.dll` (next to the compiler, otherwise from
-`g++ -print-file-name`; a missing DLL is a configure error that names it), and after every link of
-`sbmc_run`, `sbmc_bruteforce`, `sbmc_spectrum` and `sbmc_sa_thresholds`
-`cmake/sbmc_copy_runtime.cmake` copies next to the executable the DLLs it imports
-(`objdump -p`) that the toolchain holds, followed through their own imports; the DLLs of the
-system (`KERNEL32.dll`, `msvcrt.dll`) are not copied. The test executables run under ctest with
-the folder of CLion in PATH. `build.ps1` checks the result for `sbmc_run.exe` and
-`sbmc_sa_thresholds.exe`: every imported DLL, followed through the DLLs next to the executable,
-is next to it, in System32 or an API set, and then `sbmc_run.exe --version` exits with 0 with a
-PATH of System32 and Windows only; the line `runtime <preset> dlls=<DLL,...>
-standalone=PASS|FAIL` (details in `<preset>_runtime.log`) enters `WIN_BUILD`, and
-`scripts/laptop/f07r4.sh` requires `standalone=PASS` in both presets. Without the DLLs next to it,
-`sbmc_run.exe` does not start (under wine: exit status 53).
+Dynamic link (W5, F07-R4b). With the MinGW-w64 of CLion (g++ 15.2.0) a static link of OpenMP fails:
+`g++ -fopenmp -static` leaves `__intrinsic_setjmpex` (from `libpthread.a`) and `__ms_vsnprintf`
+(from `libmsvcrt.a`) undefined, so FindOpenMP does not find OpenMP, while the dynamic link of the
+same program works. The presets link dynamically, and FindOpenMP finds `-fopenmp` by itself for the
+compilation. With the MinGW-w64 of CLion, though, it finds no library (`OpenMP_CXX_LIB_NAMES` empty,
+F07-R4c): the compilation gets `-fopenmp`, the link nothing, and the executables miss
+`GOMP_parallel`, `omp_get_thread_num` and the other symbols of libgomp. So `win-base` sets
+`CMAKE_EXE_LINKER_FLAGS` to `-fopenmp`, which makes g++ link libgomp and its threads (the fix tried
+by hand on the laptop). So that the executables started outside ctest (from WSL, without the folders
+of CLion in PATH) find their runtime, `cmake/SbmcWindowsRuntime.cmake` (Windows only) checks at
+configure time that the toolchain holds `libgomp-1.dll`, `libwinpthread-1.dll`, `libstdc++-6.dll`
+and `libgcc_s_seh-1.dll` (next to the compiler, otherwise from `g++ -print-file-name`; a missing DLL
+is a configure error that names it), and after every link of `sbmc_run`, `sbmc_bruteforce`,
+`sbmc_spectrum` and `sbmc_sa_thresholds` `cmake/sbmc_copy_runtime.cmake` copies next to the
+executable the DLLs it imports (`objdump -p`) that the toolchain holds, followed through their own
+imports; the DLLs of the system (`KERNEL32.dll`, `msvcrt.dll`) are not copied. The test executables
+run under ctest with the folder of CLion in PATH. `build.ps1` checks the result for `sbmc_run.exe`
+and `sbmc_sa_thresholds.exe`: every imported DLL, followed through the DLLs next to the executable,
+is next to it, in System32 or an API set, and then `sbmc_run.exe --version` exits with 0 with a PATH
+of System32 and Windows only; the line `runtime <preset> dlls=<DLL,...> standalone=PASS|FAIL`
+(details in `<preset>_runtime.log`) enters `WIN_BUILD`, and `scripts/laptop/f07r4.sh` requires
+`standalone=PASS` in both presets. Without the DLLs next to it, `sbmc_run.exe` does not start (under
+wine: exit status 53).
 
 `sbmc_run` on Windows (`apps/win_platform.cpp`, the only file with Windows API, and
 `apps/cpu_topology.hpp`, portable and tested on Linux): the logical processors, their core and
