@@ -1350,3 +1350,787 @@ rep 3: best_cut 33462 mean_cut 33370.619 n_success 25/1024 t_solve_ms 51412.193 
 rep 4: best_cut 33462 mean_cut 33367.661 n_success 26/1024 t_solve_ms 52131.948 t_run_ms 52090.862 t_check_ms 33.148
 2026-11-22T20:01:03Z done instance=dense_n2000_s1 config=dsb_f1.0_clambda_M4000 seconds=308.105 exit=0
 2026-11-22T20:01:03Z stop instance=- config=- seconds=5148.840 exit=0 complete; manifest of 194 files
+2026-11-23T09:08:14Z start instance=- config=- seconds=- exit=- campaign=f07_e2 stage=all configurations=278 notes=AC power; Windows power mode: Best performance; Armoury Crate: Performance; GPU mode: Ultimate
+2026-11-23T09:08:14Z skip instance=dense_n2000_s1 config=target_sa_a1.0_b2.0_S16000 seconds=- exit=- complete
+2026-11-23T09:08:14Z skip instance=dense_n2000_s1 config=target_dsb_f1.0_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:08:14Z run instance=G2 config=sa_a0.5_b2.0_S125 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11578.233 n_success 1/1024 t_solve_ms 80.420 t_run_ms 76.587 t_check_ms 2.522
+rep 1: best_cut 11620 mean_cut 11578.797 n_success 1/1024 t_solve_ms 88.929 t_run_ms 84.993 t_check_ms 3.309
+rep 2: best_cut 11620 mean_cut 11578.128 n_success 2/1024 t_solve_ms 83.995 t_run_ms 78.090 t_check_ms 5.454
+rep 3: best_cut 11620 mean_cut 11577.919 n_success 2/1024 t_solve_ms 81.758 t_run_ms 78.425 t_check_ms 2.436
+rep 4: best_cut 11620 mean_cut 11578.643 n_success 1/1024 t_solve_ms 92.420 t_run_ms 79.800 t_check_ms 11.997
+2026-11-23T09:08:15Z done instance=G2 config=sa_a0.5_b2.0_S125 seconds=0.517 exit=0
+2026-11-23T09:08:15Z run instance=G2 config=sa_a0.5_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11590.465 n_success 4/1024 t_solve_ms 168.176 t_run_ms 164.867 t_check_ms 2.288
+rep 1: best_cut 11620 mean_cut 11590.236 n_success 7/1024 t_solve_ms 148.316 t_run_ms 144.166 t_check_ms 2.536
+rep 2: best_cut 11617 mean_cut 11590.621 n_success 0/1024 t_solve_ms 147.832 t_run_ms 145.012 t_check_ms 2.305
+rep 3: best_cut 11620 mean_cut 11589.804 n_success 4/1024 t_solve_ms 155.466 t_run_ms 151.825 t_check_ms 3.141
+rep 4: best_cut 11620 mean_cut 11590.559 n_success 3/1024 t_solve_ms 177.670 t_run_ms 167.017 t_check_ms 8.705
+2026-11-23T09:08:15Z done instance=G2 config=sa_a0.5_b2.0_S250 seconds=0.967 exit=0
+2026-11-23T09:08:15Z run instance=G2 config=sa_a0.5_b2.0_S500 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11597.743 n_success 18/1024 t_solve_ms 295.776 t_run_ms 288.425 t_check_ms 6.237
+rep 1: best_cut 11620 mean_cut 11598.297 n_success 9/1024 t_solve_ms 301.643 t_run_ms 292.611 t_check_ms 7.799
+rep 2: best_cut 11620 mean_cut 11598.357 n_success 16/1024 t_solve_ms 288.512 t_run_ms 285.444 t_check_ms 2.601
+rep 3: best_cut 11620 mean_cut 11598.585 n_success 16/1024 t_solve_ms 293.694 t_run_ms 290.728 t_check_ms 2.506
+rep 4: best_cut 11620 mean_cut 11598.355 n_success 8/1024 t_solve_ms 290.657 t_run_ms 284.833 t_check_ms 5.308
+2026-11-23T09:08:17Z done instance=G2 config=sa_a0.5_b2.0_S500 seconds=1.795 exit=0
+2026-11-23T09:08:17Z skip instance=G2 config=sa_a0.5_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:17Z skip instance=G2 config=sa_a0.5_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:17Z skip instance=G2 config=sa_a0.5_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:17Z skip instance=G2 config=sa_a0.5_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:17Z run instance=G2 config=sa_a0.5_b3.0_S125 seconds=- exit=-
+rep 0: best_cut 11616 mean_cut 11576.646 n_success 0/1024 t_solve_ms 77.013 t_run_ms 73.480 t_check_ms 2.435
+rep 1: best_cut 11617 mean_cut 11576.322 n_success 0/1024 t_solve_ms 76.629 t_run_ms 73.474 t_check_ms 2.601
+rep 2: best_cut 11617 mean_cut 11575.812 n_success 0/1024 t_solve_ms 77.357 t_run_ms 74.207 t_check_ms 2.356
+rep 3: best_cut 11620 mean_cut 11575.788 n_success 1/1024 t_solve_ms 76.540 t_run_ms 73.439 t_check_ms 2.333
+rep 4: best_cut 11620 mean_cut 11576.120 n_success 1/1024 t_solve_ms 77.582 t_run_ms 74.288 t_check_ms 2.720
+2026-11-23T09:08:18Z done instance=G2 config=sa_a0.5_b3.0_S125 seconds=0.498 exit=0
+2026-11-23T09:08:18Z run instance=G2 config=sa_a0.5_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11588.081 n_success 5/1024 t_solve_ms 142.282 t_run_ms 138.982 t_check_ms 2.255
+rep 1: best_cut 11620 mean_cut 11588.060 n_success 3/1024 t_solve_ms 141.529 t_run_ms 138.802 t_check_ms 2.211
+rep 2: best_cut 11620 mean_cut 11588.017 n_success 3/1024 t_solve_ms 148.503 t_run_ms 145.762 t_check_ms 2.281
+rep 3: best_cut 11620 mean_cut 11588.159 n_success 3/1024 t_solve_ms 142.196 t_run_ms 139.239 t_check_ms 2.436
+rep 4: best_cut 11620 mean_cut 11588.784 n_success 5/1024 t_solve_ms 142.352 t_run_ms 139.393 t_check_ms 2.370
+2026-11-23T09:08:19Z done instance=G2 config=sa_a0.5_b3.0_S250 seconds=0.866 exit=0
+2026-11-23T09:08:19Z run instance=G2 config=sa_a0.5_b3.0_S500 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11596.804 n_success 5/1024 t_solve_ms 272.622 t_run_ms 267.573 t_check_ms 4.127
+rep 1: best_cut 11620 mean_cut 11596.924 n_success 8/1024 t_solve_ms 273.775 t_run_ms 267.033 t_check_ms 6.258
+rep 2: best_cut 11620 mean_cut 11597.078 n_success 6/1024 t_solve_ms 272.064 t_run_ms 269.109 t_check_ms 2.473
+rep 3: best_cut 11620 mean_cut 11597.617 n_success 9/1024 t_solve_ms 271.358 t_run_ms 266.908 t_check_ms 3.987
+rep 4: best_cut 11620 mean_cut 11597.194 n_success 8/1024 t_solve_ms 279.082 t_run_ms 271.105 t_check_ms 7.170
+2026-11-23T09:08:20Z done instance=G2 config=sa_a0.5_b3.0_S500 seconds=1.659 exit=0
+2026-11-23T09:08:20Z skip instance=G2 config=sa_a0.5_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:20Z skip instance=G2 config=sa_a0.5_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:20Z skip instance=G2 config=sa_a0.5_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:20Z skip instance=G2 config=sa_a0.5_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:20Z run instance=G2 config=sa_a1.0_b2.0_S125 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11582.187 n_success 1/1024 t_solve_ms 75.226 t_run_ms 71.167 t_check_ms 2.873
+rep 1: best_cut 11617 mean_cut 11581.946 n_success 0/1024 t_solve_ms 74.543 t_run_ms 71.502 t_check_ms 2.373
+rep 2: best_cut 11620 mean_cut 11581.621 n_success 1/1024 t_solve_ms 72.409 t_run_ms 69.533 t_check_ms 2.426
+rep 3: best_cut 11620 mean_cut 11580.881 n_success 2/1024 t_solve_ms 72.506 t_run_ms 69.431 t_check_ms 2.411
+rep 4: best_cut 11620 mean_cut 11582.340 n_success 1/1024 t_solve_ms 72.258 t_run_ms 69.480 t_check_ms 2.220
+2026-11-23T09:08:21Z done instance=G2 config=sa_a1.0_b2.0_S125 seconds=0.455 exit=0
+2026-11-23T09:08:21Z run instance=G2 config=sa_a1.0_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11592.864 n_success 6/1024 t_solve_ms 132.711 t_run_ms 128.033 t_check_ms 3.194
+rep 1: best_cut 11620 mean_cut 11593.192 n_success 6/1024 t_solve_ms 131.473 t_run_ms 128.611 t_check_ms 2.281
+rep 2: best_cut 11620 mean_cut 11592.884 n_success 9/1024 t_solve_ms 132.149 t_run_ms 129.241 t_check_ms 2.294
+rep 3: best_cut 11620 mean_cut 11592.407 n_success 8/1024 t_solve_ms 131.080 t_run_ms 127.700 t_check_ms 2.737
+rep 4: best_cut 11620 mean_cut 11593.491 n_success 8/1024 t_solve_ms 136.578 t_run_ms 133.378 t_check_ms 2.619
+2026-11-23T09:08:22Z done instance=G2 config=sa_a1.0_b2.0_S250 seconds=0.807 exit=0
+2026-11-23T09:08:22Z run instance=G2 config=sa_a1.0_b2.0_S500 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11600.105 n_success 21/1024 t_solve_ms 296.227 t_run_ms 284.002 t_check_ms 11.202
+rep 1: best_cut 11620 mean_cut 11600.854 n_success 19/1024 t_solve_ms 318.094 t_run_ms 304.644 t_check_ms 11.423
+rep 2: best_cut 11620 mean_cut 11600.916 n_success 13/1024 t_solve_ms 298.237 t_run_ms 284.421 t_check_ms 12.084
+rep 3: best_cut 11620 mean_cut 11600.119 n_success 15/1024 t_solve_ms 333.976 t_run_ms 320.273 t_check_ms 12.400
+rep 4: best_cut 11620 mean_cut 11600.328 n_success 19/1024 t_solve_ms 283.409 t_run_ms 266.635 t_check_ms 11.155
+2026-11-23T09:08:23Z done instance=G2 config=sa_a1.0_b2.0_S500 seconds=1.811 exit=0
+2026-11-23T09:08:23Z skip instance=G2 config=sa_a1.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:23Z skip instance=G2 config=sa_a1.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:23Z skip instance=G2 config=sa_a1.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:23Z skip instance=G2 config=sa_a1.0_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:23Z run instance=G2 config=sa_a1.0_b3.0_S125 seconds=- exit=-
+rep 0: best_cut 11616 mean_cut 11579.163 n_success 0/1024 t_solve_ms 118.079 t_run_ms 101.053 t_check_ms 11.479
+rep 1: best_cut 11617 mean_cut 11578.776 n_success 0/1024 t_solve_ms 110.910 t_run_ms 95.212 t_check_ms 11.965
+rep 2: best_cut 11620 mean_cut 11579.375 n_success 1/1024 t_solve_ms 112.775 t_run_ms 96.260 t_check_ms 10.580
+rep 3: best_cut 11620 mean_cut 11579.132 n_success 2/1024 t_solve_ms 109.765 t_run_ms 96.973 t_check_ms 11.255
+rep 4: best_cut 11620 mean_cut 11579.428 n_success 2/1024 t_solve_ms 77.841 t_run_ms 73.894 t_check_ms 2.235
+2026-11-23T09:08:24Z done instance=G2 config=sa_a1.0_b3.0_S125 seconds=0.660 exit=0
+2026-11-23T09:08:24Z run instance=G2 config=sa_a1.0_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11590.984 n_success 7/1024 t_solve_ms 133.777 t_run_ms 126.937 t_check_ms 5.728
+rep 1: best_cut 11620 mean_cut 11590.211 n_success 3/1024 t_solve_ms 127.280 t_run_ms 124.477 t_check_ms 2.283
+rep 2: best_cut 11620 mean_cut 11590.577 n_success 5/1024 t_solve_ms 125.145 t_run_ms 122.295 t_check_ms 2.352
+rep 3: best_cut 11620 mean_cut 11590.981 n_success 3/1024 t_solve_ms 125.801 t_run_ms 122.604 t_check_ms 2.501
+rep 4: best_cut 11620 mean_cut 11591.047 n_success 2/1024 t_solve_ms 125.146 t_run_ms 122.053 t_check_ms 2.474
+2026-11-23T09:08:25Z done instance=G2 config=sa_a1.0_b3.0_S250 seconds=0.781 exit=0
+2026-11-23T09:08:25Z run instance=G2 config=sa_a1.0_b3.0_S500 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11598.823 n_success 18/1024 t_solve_ms 244.424 t_run_ms 239.500 t_check_ms 2.868
+rep 1: best_cut 11620 mean_cut 11598.499 n_success 14/1024 t_solve_ms 241.232 t_run_ms 236.128 t_check_ms 4.619
+rep 2: best_cut 11620 mean_cut 11599.029 n_success 10/1024 t_solve_ms 233.591 t_run_ms 230.399 t_check_ms 2.584
+rep 3: best_cut 11620 mean_cut 11598.617 n_success 11/1024 t_solve_ms 241.781 t_run_ms 236.011 t_check_ms 5.129
+rep 4: best_cut 11620 mean_cut 11599.534 n_success 17/1024 t_solve_ms 245.883 t_run_ms 237.756 t_check_ms 7.552
+2026-11-23T09:08:26Z done instance=G2 config=sa_a1.0_b3.0_S500 seconds=1.481 exit=0
+2026-11-23T09:08:26Z skip instance=G2 config=sa_a1.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:26Z skip instance=G2 config=sa_a1.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:26Z skip instance=G2 config=sa_a1.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:26Z skip instance=G2 config=sa_a1.0_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:26Z run instance=G2 config=sa_a2.0_b2.0_S125 seconds=- exit=-
+rep 0: best_cut 11616 mean_cut 11564.904 n_success 0/1024 t_solve_ms 66.560 t_run_ms 63.148 t_check_ms 2.339
+rep 1: best_cut 11620 mean_cut 11565.228 n_success 1/1024 t_solve_ms 65.412 t_run_ms 62.331 t_check_ms 2.384
+rep 2: best_cut 11620 mean_cut 11564.987 n_success 1/1024 t_solve_ms 68.057 t_run_ms 64.164 t_check_ms 2.590
+rep 3: best_cut 11616 mean_cut 11565.734 n_success 0/1024 t_solve_ms 65.901 t_run_ms 62.770 t_check_ms 2.587
+rep 4: best_cut 11615 mean_cut 11564.667 n_success 0/1024 t_solve_ms 65.953 t_run_ms 62.829 t_check_ms 2.335
+2026-11-23T09:08:27Z done instance=G2 config=sa_a2.0_b2.0_S125 seconds=0.426 exit=0
+2026-11-23T09:08:27Z run instance=G2 config=sa_a2.0_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11577.922 n_success 2/1024 t_solve_ms 116.933 t_run_ms 113.297 t_check_ms 2.562
+rep 1: best_cut 11617 mean_cut 11578.965 n_success 0/1024 t_solve_ms 120.162 t_run_ms 115.069 t_check_ms 4.535
+rep 2: best_cut 11620 mean_cut 11577.944 n_success 1/1024 t_solve_ms 118.766 t_run_ms 115.818 t_check_ms 2.405
+rep 3: best_cut 11620 mean_cut 11579.109 n_success 2/1024 t_solve_ms 114.994 t_run_ms 111.832 t_check_ms 2.665
+rep 4: best_cut 11620 mean_cut 11578.666 n_success 3/1024 t_solve_ms 115.914 t_run_ms 112.643 t_check_ms 2.421
+2026-11-23T09:08:28Z done instance=G2 config=sa_a2.0_b2.0_S250 seconds=0.714 exit=0
+2026-11-23T09:08:28Z run instance=G2 config=sa_a2.0_b2.0_S500 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11588.563 n_success 3/1024 t_solve_ms 221.823 t_run_ms 215.908 t_check_ms 4.616
+rep 1: best_cut 11620 mean_cut 11588.539 n_success 3/1024 t_solve_ms 215.385 t_run_ms 211.712 t_check_ms 2.503
+rep 2: best_cut 11620 mean_cut 11587.353 n_success 1/1024 t_solve_ms 228.638 t_run_ms 225.238 t_check_ms 2.867
+rep 3: best_cut 11620 mean_cut 11588.508 n_success 6/1024 t_solve_ms 219.844 t_run_ms 212.396 t_check_ms 6.887
+rep 4: best_cut 11620 mean_cut 11587.811 n_success 6/1024 t_solve_ms 222.027 t_run_ms 216.530 t_check_ms 5.025
+2026-11-23T09:08:29Z done instance=G2 config=sa_a2.0_b2.0_S500 seconds=1.374 exit=0
+2026-11-23T09:08:29Z skip instance=G2 config=sa_a2.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:29Z skip instance=G2 config=sa_a2.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:29Z skip instance=G2 config=sa_a2.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:29Z skip instance=G2 config=sa_a2.0_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:29Z run instance=G2 config=sa_a2.0_b3.0_S125 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11559.882 n_success 1/1024 t_solve_ms 61.882 t_run_ms 58.416 t_check_ms 2.454
+rep 1: best_cut 11612 mean_cut 11560.565 n_success 0/1024 t_solve_ms 61.858 t_run_ms 59.028 t_check_ms 2.307
+rep 2: best_cut 11616 mean_cut 11560.071 n_success 0/1024 t_solve_ms 62.058 t_run_ms 59.179 t_check_ms 2.265
+rep 3: best_cut 11612 mean_cut 11560.583 n_success 0/1024 t_solve_ms 61.434 t_run_ms 58.108 t_check_ms 2.829
+rep 4: best_cut 11614 mean_cut 11560.981 n_success 0/1024 t_solve_ms 62.585 t_run_ms 59.789 t_check_ms 2.127
+2026-11-23T09:08:29Z done instance=G2 config=sa_a2.0_b3.0_S125 seconds=0.386 exit=0
+2026-11-23T09:08:29Z run instance=G2 config=sa_a2.0_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 11617 mean_cut 11574.404 n_success 0/1024 t_solve_ms 108.795 t_run_ms 104.980 t_check_ms 2.485
+rep 1: best_cut 11617 mean_cut 11574.765 n_success 0/1024 t_solve_ms 108.803 t_run_ms 105.980 t_check_ms 2.283
+rep 2: best_cut 11620 mean_cut 11574.782 n_success 1/1024 t_solve_ms 108.592 t_run_ms 105.547 t_check_ms 2.559
+rep 3: best_cut 11620 mean_cut 11575.195 n_success 1/1024 t_solve_ms 108.596 t_run_ms 105.424 t_check_ms 2.522
+rep 4: best_cut 11620 mean_cut 11574.806 n_success 1/1024 t_solve_ms 108.864 t_run_ms 105.709 t_check_ms 2.608
+2026-11-23T09:08:30Z done instance=G2 config=sa_a2.0_b3.0_S250 seconds=0.667 exit=0
+2026-11-23T09:08:30Z run instance=G2 config=sa_a2.0_b3.0_S500 seconds=- exit=-
+rep 0: best_cut 11617 mean_cut 11585.652 n_success 0/1024 t_solve_ms 213.385 t_run_ms 209.595 t_check_ms 2.321
+rep 1: best_cut 11620 mean_cut 11585.780 n_success 2/1024 t_solve_ms 215.312 t_run_ms 210.322 t_check_ms 3.066
+rep 2: best_cut 11620 mean_cut 11585.897 n_success 2/1024 t_solve_ms 210.037 t_run_ms 205.838 t_check_ms 3.636
+rep 3: best_cut 11620 mean_cut 11585.770 n_success 6/1024 t_solve_ms 223.928 t_run_ms 206.783 t_check_ms 16.526
+rep 4: best_cut 11620 mean_cut 11585.064 n_success 3/1024 t_solve_ms 228.622 t_run_ms 217.975 t_check_ms 3.083
+2026-11-23T09:08:31Z done instance=G2 config=sa_a2.0_b3.0_S500 seconds=1.308 exit=0
+2026-11-23T09:08:31Z skip instance=G2 config=sa_a2.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:31Z skip instance=G2 config=sa_a2.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:31Z skip instance=G2 config=sa_a2.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:31Z skip instance=G2 config=sa_a2.0_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:31Z run instance=G2 config=dsb_f0.25_csigma_M125 seconds=- exit=-
+rep 0: best_cut 11560 mean_cut 11469.461 n_success 0/1024 t_solve_ms 43.974 t_run_ms 39.276 t_check_ms 2.270
+rep 1: best_cut 11557 mean_cut 11470.754 n_success 0/1024 t_solve_ms 40.969 t_run_ms 37.255 t_check_ms 1.120
+rep 2: best_cut 11548 mean_cut 11471.409 n_success 0/1024 t_solve_ms 40.483 t_run_ms 36.831 t_check_ms 1.380
+rep 3: best_cut 11550 mean_cut 11469.981 n_success 0/1024 t_solve_ms 42.003 t_run_ms 38.471 t_check_ms 1.188
+rep 4: best_cut 11557 mean_cut 11470.132 n_success 0/1024 t_solve_ms 41.381 t_run_ms 37.873 t_check_ms 1.169
+2026-11-23T09:08:32Z done instance=G2 config=dsb_f0.25_csigma_M125 seconds=0.369 exit=0
+2026-11-23T09:08:32Z run instance=G2 config=dsb_f0.25_csigma_M250 seconds=- exit=-
+rep 0: best_cut 11602 mean_cut 11530.650 n_success 0/1024 t_solve_ms 71.972 t_run_ms 65.704 t_check_ms 1.767
+rep 1: best_cut 11588 mean_cut 11530.901 n_success 0/1024 t_solve_ms 71.806 t_run_ms 66.981 t_check_ms 1.676
+rep 2: best_cut 11602 mean_cut 11531.521 n_success 0/1024 t_solve_ms 74.348 t_run_ms 70.246 t_check_ms 1.322
+rep 3: best_cut 11603 mean_cut 11531.005 n_success 0/1024 t_solve_ms 71.908 t_run_ms 67.382 t_check_ms 2.011
+rep 4: best_cut 11607 mean_cut 11530.729 n_success 0/1024 t_solve_ms 71.388 t_run_ms 66.653 t_check_ms 1.766
+2026-11-23T09:08:32Z done instance=G2 config=dsb_f0.25_csigma_M250 seconds=0.470 exit=0
+2026-11-23T09:08:32Z run instance=G2 config=dsb_f0.25_csigma_M500 seconds=- exit=-
+rep 0: best_cut 11607 mean_cut 11548.428 n_success 0/1024 t_solve_ms 129.577 t_run_ms 125.214 t_check_ms 1.769
+rep 1: best_cut 11607 mean_cut 11546.799 n_success 0/1024 t_solve_ms 131.676 t_run_ms 127.570 t_check_ms 1.323
+rep 2: best_cut 11613 mean_cut 11546.411 n_success 0/1024 t_solve_ms 128.556 t_run_ms 123.264 t_check_ms 1.444
+rep 3: best_cut 11613 mean_cut 11548.211 n_success 0/1024 t_solve_ms 127.556 t_run_ms 123.450 t_check_ms 1.508
+rep 4: best_cut 11613 mean_cut 11546.784 n_success 0/1024 t_solve_ms 138.758 t_run_ms 134.440 t_check_ms 1.536
+2026-11-23T09:08:33Z done instance=G2 config=dsb_f0.25_csigma_M500 seconds=0.869 exit=0
+2026-11-23T09:08:33Z skip instance=G2 config=dsb_f0.25_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:08:33Z skip instance=G2 config=dsb_f0.25_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:08:33Z skip instance=G2 config=dsb_f0.25_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:08:33Z skip instance=G2 config=dsb_f0.25_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:08:33Z run instance=G2 config=dsb_f0.25_clambda_M125 seconds=- exit=-
+rep 0: best_cut 11555 mean_cut 11469.418 n_success 0/1024 t_solve_ms 44.133 t_run_ms 39.403 t_check_ms 1.151
+rep 1: best_cut 11546 mean_cut 11469.872 n_success 0/1024 t_solve_ms 41.923 t_run_ms 38.086 t_check_ms 1.125
+rep 2: best_cut 11551 mean_cut 11471.419 n_success 0/1024 t_solve_ms 45.234 t_run_ms 41.376 t_check_ms 1.350
+rep 3: best_cut 11572 mean_cut 11470.348 n_success 0/1024 t_solve_ms 43.864 t_run_ms 39.124 t_check_ms 1.168
+rep 4: best_cut 11551 mean_cut 11470.322 n_success 0/1024 t_solve_ms 42.359 t_run_ms 37.786 t_check_ms 1.109
+2026-11-23T09:08:33Z done instance=G2 config=dsb_f0.25_clambda_M125 seconds=0.295 exit=0
+2026-11-23T09:08:33Z run instance=G2 config=dsb_f0.25_clambda_M250 seconds=- exit=-
+rep 0: best_cut 11597 mean_cut 11531.433 n_success 0/1024 t_solve_ms 71.483 t_run_ms 66.490 t_check_ms 2.048
+rep 1: best_cut 11593 mean_cut 11529.812 n_success 0/1024 t_solve_ms 72.891 t_run_ms 68.558 t_check_ms 1.386
+rep 2: best_cut 11602 mean_cut 11531.505 n_success 0/1024 t_solve_ms 69.849 t_run_ms 65.908 t_check_ms 1.418
+rep 3: best_cut 11604 mean_cut 11530.854 n_success 0/1024 t_solve_ms 74.035 t_run_ms 68.548 t_check_ms 1.589
+rep 4: best_cut 11588 mean_cut 11530.846 n_success 0/1024 t_solve_ms 70.387 t_run_ms 65.864 t_check_ms 1.816
+2026-11-23T09:08:34Z done instance=G2 config=dsb_f0.25_clambda_M250 seconds=0.522 exit=0
+2026-11-23T09:08:34Z run instance=G2 config=dsb_f0.25_clambda_M500 seconds=- exit=-
+rep 0: best_cut 11614 mean_cut 11547.394 n_success 0/1024 t_solve_ms 129.894 t_run_ms 125.743 t_check_ms 1.228
+rep 1: best_cut 11616 mean_cut 11548.618 n_success 0/1024 t_solve_ms 128.086 t_run_ms 123.583 t_check_ms 1.646
+rep 2: best_cut 11619 mean_cut 11546.908 n_success 0/1024 t_solve_ms 135.790 t_run_ms 126.199 t_check_ms 6.665
+rep 3: best_cut 11615 mean_cut 11548.657 n_success 0/1024 t_solve_ms 128.948 t_run_ms 124.828 t_check_ms 1.294
+rep 4: best_cut 11614 mean_cut 11547.218 n_success 0/1024 t_solve_ms 128.813 t_run_ms 123.640 t_check_ms 1.335
+2026-11-23T09:08:35Z done instance=G2 config=dsb_f0.25_clambda_M500 seconds=0.859 exit=0
+2026-11-23T09:08:35Z skip instance=G2 config=dsb_f0.25_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:08:35Z skip instance=G2 config=dsb_f0.25_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:08:35Z skip instance=G2 config=dsb_f0.25_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:08:35Z skip instance=G2 config=dsb_f0.25_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:08:35Z run instance=G2 config=dsb_f0.5_csigma_M125 seconds=- exit=-
+rep 0: best_cut 11590 mean_cut 11525.916 n_success 0/1024 t_solve_ms 42.030 t_run_ms 38.476 t_check_ms 1.225
+rep 1: best_cut 11600 mean_cut 11526.045 n_success 0/1024 t_solve_ms 42.244 t_run_ms 38.611 t_check_ms 1.175
+rep 2: best_cut 11588 mean_cut 11526.484 n_success 0/1024 t_solve_ms 44.042 t_run_ms 39.141 t_check_ms 1.143
+rep 3: best_cut 11591 mean_cut 11523.799 n_success 0/1024 t_solve_ms 43.571 t_run_ms 39.902 t_check_ms 1.174
+rep 4: best_cut 11588 mean_cut 11525.965 n_success 0/1024 t_solve_ms 45.607 t_run_ms 41.732 t_check_ms 1.510
+2026-11-23T09:08:35Z done instance=G2 config=dsb_f0.5_csigma_M125 seconds=0.375 exit=0
+2026-11-23T09:08:35Z run instance=G2 config=dsb_f0.5_csigma_M250 seconds=- exit=-
+rep 0: best_cut 11612 mean_cut 11522.895 n_success 0/1024 t_solve_ms 74.470 t_run_ms 68.860 t_check_ms 1.374
+rep 1: best_cut 11608 mean_cut 11521.346 n_success 0/1024 t_solve_ms 71.411 t_run_ms 67.005 t_check_ms 1.445
+rep 2: best_cut 11609 mean_cut 11522.062 n_success 0/1024 t_solve_ms 75.399 t_run_ms 70.199 t_check_ms 1.440
+rep 3: best_cut 11613 mean_cut 11522.644 n_success 0/1024 t_solve_ms 73.149 t_run_ms 69.496 t_check_ms 1.109
+rep 4: best_cut 11617 mean_cut 11522.479 n_success 0/1024 t_solve_ms 72.599 t_run_ms 67.215 t_check_ms 1.761
+2026-11-23T09:08:36Z done instance=G2 config=dsb_f0.5_csigma_M250 seconds=0.511 exit=0
+2026-11-23T09:08:36Z run instance=G2 config=dsb_f0.5_csigma_M500 seconds=- exit=-
+rep 0: best_cut 11608 mean_cut 11543.884 n_success 0/1024 t_solve_ms 140.520 t_run_ms 130.529 t_check_ms 6.965
+rep 1: best_cut 11604 mean_cut 11544.453 n_success 0/1024 t_solve_ms 152.798 t_run_ms 147.852 t_check_ms 1.301
+rep 2: best_cut 11604 mean_cut 11544.518 n_success 0/1024 t_solve_ms 154.332 t_run_ms 142.707 t_check_ms 5.567
+rep 3: best_cut 11598 mean_cut 11545.525 n_success 0/1024 t_solve_ms 147.896 t_run_ms 142.501 t_check_ms 1.451
+rep 4: best_cut 11602 mean_cut 11544.100 n_success 0/1024 t_solve_ms 134.539 t_run_ms 130.458 t_check_ms 1.307
+2026-11-23T09:08:37Z done instance=G2 config=dsb_f0.5_csigma_M500 seconds=0.891 exit=0
+2026-11-23T09:08:37Z skip instance=G2 config=dsb_f0.5_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:08:37Z skip instance=G2 config=dsb_f0.5_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:08:37Z skip instance=G2 config=dsb_f0.5_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:08:37Z skip instance=G2 config=dsb_f0.5_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:08:37Z run instance=G2 config=dsb_f0.5_clambda_M125 seconds=- exit=-
+rep 0: best_cut 11601 mean_cut 11526.106 n_success 0/1024 t_solve_ms 43.031 t_run_ms 39.503 t_check_ms 1.174
+rep 1: best_cut 11597 mean_cut 11525.752 n_success 0/1024 t_solve_ms 44.757 t_run_ms 39.600 t_check_ms 1.339
+rep 2: best_cut 11592 mean_cut 11524.936 n_success 0/1024 t_solve_ms 42.537 t_run_ms 38.904 t_check_ms 1.212
+rep 3: best_cut 11589 mean_cut 11526.182 n_success 0/1024 t_solve_ms 41.049 t_run_ms 37.475 t_check_ms 1.175
+rep 4: best_cut 11594 mean_cut 11525.608 n_success 0/1024 t_solve_ms 41.209 t_run_ms 37.734 t_check_ms 1.156
+2026-11-23T09:08:37Z done instance=G2 config=dsb_f0.5_clambda_M125 seconds=0.277 exit=0
+2026-11-23T09:08:37Z run instance=G2 config=dsb_f0.5_clambda_M250 seconds=- exit=-
+rep 0: best_cut 11611 mean_cut 11523.753 n_success 0/1024 t_solve_ms 73.399 t_run_ms 69.163 t_check_ms 1.521
+rep 1: best_cut 11609 mean_cut 11522.514 n_success 0/1024 t_solve_ms 73.270 t_run_ms 68.307 t_check_ms 2.193
+rep 2: best_cut 11614 mean_cut 11521.365 n_success 0/1024 t_solve_ms 70.621 t_run_ms 66.330 t_check_ms 1.213
+rep 3: best_cut 11601 mean_cut 11523.409 n_success 0/1024 t_solve_ms 73.383 t_run_ms 69.344 t_check_ms 1.187
+rep 4: best_cut 11609 mean_cut 11523.801 n_success 0/1024 t_solve_ms 72.337 t_run_ms 67.038 t_check_ms 1.638
+2026-11-23T09:08:37Z done instance=G2 config=dsb_f0.5_clambda_M250 seconds=0.519 exit=0
+2026-11-23T09:08:37Z run instance=G2 config=dsb_f0.5_clambda_M500 seconds=- exit=-
+rep 0: best_cut 11614 mean_cut 11544.973 n_success 0/1024 t_solve_ms 141.507 t_run_ms 137.224 t_check_ms 1.520
+rep 1: best_cut 11600 mean_cut 11544.765 n_success 0/1024 t_solve_ms 135.382 t_run_ms 129.811 t_check_ms 1.364
+rep 2: best_cut 11604 mean_cut 11544.677 n_success 0/1024 t_solve_ms 131.103 t_run_ms 126.988 t_check_ms 1.435
+rep 3: best_cut 11613 mean_cut 11545.347 n_success 0/1024 t_solve_ms 135.274 t_run_ms 129.887 t_check_ms 1.357
+rep 4: best_cut 11600 mean_cut 11544.641 n_success 0/1024 t_solve_ms 133.748 t_run_ms 129.147 t_check_ms 1.353
+2026-11-23T09:08:38Z done instance=G2 config=dsb_f0.5_clambda_M500 seconds=0.838 exit=0
+2026-11-23T09:08:38Z skip instance=G2 config=dsb_f0.5_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:08:38Z skip instance=G2 config=dsb_f0.5_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:08:38Z skip instance=G2 config=dsb_f0.5_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:08:38Z skip instance=G2 config=dsb_f0.5_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:08:38Z run instance=G2 config=dsb_f1.0_csigma_M125 seconds=- exit=-
+rep 0: best_cut 11584 mean_cut 11407.502 n_success 0/1024 t_solve_ms 41.665 t_run_ms 38.061 t_check_ms 1.148
+rep 1: best_cut 11571 mean_cut 11395.404 n_success 0/1024 t_solve_ms 44.329 t_run_ms 40.652 t_check_ms 1.181
+rep 2: best_cut 11590 mean_cut 11399.279 n_success 0/1024 t_solve_ms 43.390 t_run_ms 39.629 t_check_ms 1.223
+rep 3: best_cut 11583 mean_cut 11400.133 n_success 0/1024 t_solve_ms 55.138 t_run_ms 43.787 t_check_ms 8.997
+rep 4: best_cut 11584 mean_cut 11398.111 n_success 0/1024 t_solve_ms 41.067 t_run_ms 37.230 t_check_ms 1.161
+2026-11-23T09:08:39Z done instance=G2 config=dsb_f1.0_csigma_M125 seconds=0.301 exit=0
+2026-11-23T09:08:39Z run instance=G2 config=dsb_f1.0_csigma_M250 seconds=- exit=-
+rep 0: best_cut 11592 mean_cut 11475.706 n_success 0/1024 t_solve_ms 76.294 t_run_ms 71.794 t_check_ms 1.563
+rep 1: best_cut 11585 mean_cut 11474.116 n_success 0/1024 t_solve_ms 72.267 t_run_ms 68.071 t_check_ms 1.309
+rep 2: best_cut 11601 mean_cut 11473.745 n_success 0/1024 t_solve_ms 72.626 t_run_ms 68.224 t_check_ms 1.318
+rep 3: best_cut 11598 mean_cut 11473.825 n_success 0/1024 t_solve_ms 71.722 t_run_ms 67.103 t_check_ms 1.612
+rep 4: best_cut 11593 mean_cut 11474.877 n_success 0/1024 t_solve_ms 78.344 t_run_ms 72.607 t_check_ms 1.460
+2026-11-23T09:08:39Z done instance=G2 config=dsb_f1.0_csigma_M250 seconds=0.551 exit=0
+2026-11-23T09:08:39Z run instance=G2 config=dsb_f1.0_csigma_M500 seconds=- exit=-
+rep 0: best_cut 11602 mean_cut 11506.270 n_success 0/1024 t_solve_ms 129.796 t_run_ms 123.969 t_check_ms 1.533
+rep 1: best_cut 11601 mean_cut 11506.699 n_success 0/1024 t_solve_ms 141.713 t_run_ms 137.475 t_check_ms 1.214
+rep 2: best_cut 11593 mean_cut 11507.441 n_success 0/1024 t_solve_ms 136.296 t_run_ms 132.196 t_check_ms 1.372
+rep 3: best_cut 11594 mean_cut 11508.075 n_success 0/1024 t_solve_ms 124.949 t_run_ms 120.990 t_check_ms 1.290
+rep 4: best_cut 11587 mean_cut 11505.616 n_success 0/1024 t_solve_ms 132.685 t_run_ms 128.812 t_check_ms 1.388
+2026-11-23T09:08:40Z done instance=G2 config=dsb_f1.0_csigma_M500 seconds=0.898 exit=0
+2026-11-23T09:08:40Z skip instance=G2 config=dsb_f1.0_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:08:40Z skip instance=G2 config=dsb_f1.0_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:08:40Z skip instance=G2 config=dsb_f1.0_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:08:40Z skip instance=G2 config=dsb_f1.0_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:08:40Z run instance=G2 config=dsb_f1.0_clambda_M125 seconds=- exit=-
+rep 0: best_cut 11603 mean_cut 11393.392 n_success 0/1024 t_solve_ms 44.454 t_run_ms 39.411 t_check_ms 1.352
+rep 1: best_cut 11587 mean_cut 11389.419 n_success 0/1024 t_solve_ms 46.801 t_run_ms 41.650 t_check_ms 1.315
+rep 2: best_cut 11577 mean_cut 11394.286 n_success 0/1024 t_solve_ms 41.584 t_run_ms 36.943 t_check_ms 1.141
+rep 3: best_cut 11602 mean_cut 11391.716 n_success 0/1024 t_solve_ms 45.745 t_run_ms 40.259 t_check_ms 1.879
+rep 4: best_cut 11580 mean_cut 11384.865 n_success 0/1024 t_solve_ms 40.218 t_run_ms 36.445 t_check_ms 1.148
+2026-11-23T09:08:40Z done instance=G2 config=dsb_f1.0_clambda_M125 seconds=0.293 exit=0
+2026-11-23T09:08:40Z run instance=G2 config=dsb_f1.0_clambda_M250 seconds=- exit=-
+rep 0: best_cut 11596 mean_cut 11471.050 n_success 0/1024 t_solve_ms 72.421 t_run_ms 68.198 t_check_ms 1.538
+rep 1: best_cut 11596 mean_cut 11471.181 n_success 0/1024 t_solve_ms 75.039 t_run_ms 70.574 t_check_ms 1.372
+rep 2: best_cut 11584 mean_cut 11468.427 n_success 0/1024 t_solve_ms 75.364 t_run_ms 71.045 t_check_ms 1.842
+rep 3: best_cut 11594 mean_cut 11469.989 n_success 0/1024 t_solve_ms 74.141 t_run_ms 70.252 t_check_ms 1.165
+rep 4: best_cut 11598 mean_cut 11470.410 n_success 0/1024 t_solve_ms 74.807 t_run_ms 69.913 t_check_ms 1.571
+2026-11-23T09:08:41Z done instance=G2 config=dsb_f1.0_clambda_M250 seconds=0.588 exit=0
+2026-11-23T09:08:41Z run instance=G2 config=dsb_f1.0_clambda_M500 seconds=- exit=-
+rep 0: best_cut 11589 mean_cut 11502.396 n_success 0/1024 t_solve_ms 130.996 t_run_ms 126.887 t_check_ms 1.313
+rep 1: best_cut 11581 mean_cut 11502.814 n_success 0/1024 t_solve_ms 129.419 t_run_ms 123.422 t_check_ms 1.437
+rep 2: best_cut 11600 mean_cut 11503.739 n_success 0/1024 t_solve_ms 127.199 t_run_ms 123.226 t_check_ms 1.469
+rep 3: best_cut 11613 mean_cut 11502.340 n_success 0/1024 t_solve_ms 132.419 t_run_ms 126.968 t_check_ms 1.388
+rep 4: best_cut 11579 mean_cut 11503.717 n_success 0/1024 t_solve_ms 131.720 t_run_ms 126.420 t_check_ms 1.339
+2026-11-23T09:08:42Z done instance=G2 config=dsb_f1.0_clambda_M500 seconds=0.803 exit=0
+2026-11-23T09:08:42Z skip instance=G2 config=dsb_f1.0_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:08:42Z skip instance=G2 config=dsb_f1.0_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:08:42Z skip instance=G2 config=dsb_f1.0_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:08:42Z skip instance=G2 config=dsb_f1.0_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:08:42Z run instance=G12 config=sa_a0.5_b2.0_S64 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 542.152 n_success 0/1024 t_solve_ms 41.140 t_run_ms 40.199 t_check_ms 0.191
+rep 1: best_cut 552 mean_cut 542.268 n_success 0/1024 t_solve_ms 40.918 t_run_ms 40.248 t_check_ms 0.197
+rep 2: best_cut 554 mean_cut 542.357 n_success 0/1024 t_solve_ms 41.649 t_run_ms 41.117 t_check_ms 0.220
+rep 3: best_cut 552 mean_cut 542.107 n_success 0/1024 t_solve_ms 40.512 t_run_ms 40.019 t_check_ms 0.186
+rep 4: best_cut 554 mean_cut 542.148 n_success 0/1024 t_solve_ms 41.108 t_run_ms 40.517 t_check_ms 0.184
+2026-11-23T09:08:42Z done instance=G12 config=sa_a0.5_b2.0_S64 seconds=0.253 exit=0
+2026-11-23T09:08:42Z run instance=G12 config=sa_a0.5_b2.0_S125 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 545.297 n_success 0/1024 t_solve_ms 78.328 t_run_ms 75.303 t_check_ms 0.182
+rep 1: best_cut 554 mean_cut 545.385 n_success 0/1024 t_solve_ms 76.566 t_run_ms 75.562 t_check_ms 0.211
+rep 2: best_cut 556 mean_cut 545.201 n_success 1/1024 t_solve_ms 74.907 t_run_ms 74.367 t_check_ms 0.190
+rep 3: best_cut 554 mean_cut 545.402 n_success 0/1024 t_solve_ms 75.519 t_run_ms 74.994 t_check_ms 0.192
+rep 4: best_cut 554 mean_cut 545.193 n_success 0/1024 t_solve_ms 76.744 t_run_ms 75.890 t_check_ms 0.184
+2026-11-23T09:08:43Z done instance=G12 config=sa_a0.5_b2.0_S125 seconds=0.493 exit=0
+2026-11-23T09:08:43Z run instance=G12 config=sa_a0.5_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 547.879 n_success 2/1024 t_solve_ms 164.453 t_run_ms 147.403 t_check_ms 16.009
+rep 1: best_cut 556 mean_cut 547.859 n_success 5/1024 t_solve_ms 170.141 t_run_ms 146.811 t_check_ms 15.789
+rep 2: best_cut 556 mean_cut 547.900 n_success 5/1024 t_solve_ms 163.464 t_run_ms 153.014 t_check_ms 0.229
+rep 3: best_cut 556 mean_cut 547.840 n_success 6/1024 t_solve_ms 141.826 t_run_ms 141.245 t_check_ms 0.210
+rep 4: best_cut 556 mean_cut 547.805 n_success 3/1024 t_solve_ms 142.392 t_run_ms 141.842 t_check_ms 0.204
+2026-11-23T09:08:44Z done instance=G12 config=sa_a0.5_b2.0_S250 seconds=0.946 exit=0
+2026-11-23T09:08:44Z run instance=G12 config=sa_a0.5_b2.0_S500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 549.773 n_success 17/1024 t_solve_ms 284.149 t_run_ms 278.037 t_check_ms 5.310
+rep 1: best_cut 556 mean_cut 549.854 n_success 11/1024 t_solve_ms 281.543 t_run_ms 276.668 t_check_ms 4.035
+rep 2: best_cut 556 mean_cut 549.852 n_success 17/1024 t_solve_ms 272.275 t_run_ms 271.394 t_check_ms 0.416
+rep 3: best_cut 556 mean_cut 549.887 n_success 23/1024 t_solve_ms 282.048 t_run_ms 279.700 t_check_ms 1.997
+rep 4: best_cut 556 mean_cut 549.811 n_success 13/1024 t_solve_ms 282.389 t_run_ms 279.798 t_check_ms 0.233
+2026-11-23T09:08:45Z done instance=G12 config=sa_a0.5_b2.0_S500 seconds=1.706 exit=0
+2026-11-23T09:08:45Z skip instance=G12 config=sa_a0.5_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:45Z skip instance=G12 config=sa_a0.5_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:45Z skip instance=G12 config=sa_a0.5_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:45Z skip instance=G12 config=sa_a0.5_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:45Z run instance=G12 config=sa_a0.5_b3.0_S64 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 543.143 n_success 0/1024 t_solve_ms 41.932 t_run_ms 40.987 t_check_ms 0.194
+rep 1: best_cut 552 mean_cut 543.143 n_success 0/1024 t_solve_ms 39.366 t_run_ms 38.852 t_check_ms 0.183
+rep 2: best_cut 554 mean_cut 543.271 n_success 0/1024 t_solve_ms 39.191 t_run_ms 38.675 t_check_ms 0.197
+rep 3: best_cut 554 mean_cut 543.014 n_success 0/1024 t_solve_ms 40.044 t_run_ms 39.555 t_check_ms 0.183
+rep 4: best_cut 554 mean_cut 543.143 n_success 0/1024 t_solve_ms 39.466 t_run_ms 38.975 t_check_ms 0.184
+2026-11-23T09:08:46Z done instance=G12 config=sa_a0.5_b3.0_S64 seconds=0.273 exit=0
+2026-11-23T09:08:46Z run instance=G12 config=sa_a0.5_b3.0_S125 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 545.857 n_success 1/1024 t_solve_ms 73.536 t_run_ms 72.489 t_check_ms 0.186
+rep 1: best_cut 556 mean_cut 545.977 n_success 1/1024 t_solve_ms 73.312 t_run_ms 72.806 t_check_ms 0.185
+rep 2: best_cut 554 mean_cut 546.012 n_success 0/1024 t_solve_ms 72.807 t_run_ms 72.268 t_check_ms 0.194
+rep 3: best_cut 556 mean_cut 545.943 n_success 2/1024 t_solve_ms 71.900 t_run_ms 71.380 t_check_ms 0.192
+rep 4: best_cut 554 mean_cut 545.842 n_success 0/1024 t_solve_ms 73.260 t_run_ms 72.749 t_check_ms 0.192
+2026-11-23T09:08:46Z done instance=G12 config=sa_a0.5_b3.0_S125 seconds=0.454 exit=0
+2026-11-23T09:08:46Z run instance=G12 config=sa_a0.5_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 548.021 n_success 8/1024 t_solve_ms 135.156 t_run_ms 134.166 t_check_ms 0.220
+rep 1: best_cut 556 mean_cut 547.990 n_success 4/1024 t_solve_ms 138.226 t_run_ms 137.636 t_check_ms 0.198
+rep 2: best_cut 556 mean_cut 548.160 n_success 4/1024 t_solve_ms 133.560 t_run_ms 132.999 t_check_ms 0.209
+rep 3: best_cut 556 mean_cut 548.000 n_success 4/1024 t_solve_ms 137.661 t_run_ms 137.114 t_check_ms 0.197
+rep 4: best_cut 556 mean_cut 548.031 n_success 3/1024 t_solve_ms 148.212 t_run_ms 135.835 t_check_ms 11.997
+2026-11-23T09:08:47Z done instance=G12 config=sa_a0.5_b3.0_S250 seconds=0.861 exit=0
+2026-11-23T09:08:47Z run instance=G12 config=sa_a0.5_b3.0_S500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 549.781 n_success 21/1024 t_solve_ms 280.159 t_run_ms 276.351 t_check_ms 2.638
+rep 1: best_cut 556 mean_cut 549.771 n_success 10/1024 t_solve_ms 269.550 t_run_ms 266.723 t_check_ms 0.366
+rep 2: best_cut 556 mean_cut 549.924 n_success 11/1024 t_solve_ms 260.471 t_run_ms 259.870 t_check_ms 0.236
+rep 3: best_cut 556 mean_cut 549.789 n_success 17/1024 t_solve_ms 267.241 t_run_ms 265.173 t_check_ms 1.737
+rep 4: best_cut 556 mean_cut 549.721 n_success 10/1024 t_solve_ms 259.895 t_run_ms 258.978 t_check_ms 0.555
+2026-11-23T09:08:49Z done instance=G12 config=sa_a0.5_b3.0_S500 seconds=1.634 exit=0
+2026-11-23T09:08:49Z skip instance=G12 config=sa_a0.5_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:49Z skip instance=G12 config=sa_a0.5_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:49Z skip instance=G12 config=sa_a0.5_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:49Z skip instance=G12 config=sa_a0.5_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:49Z run instance=G12 config=sa_a1.0_b2.0_S64 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 544.256 n_success 0/1024 t_solve_ms 37.377 t_run_ms 36.109 t_check_ms 0.229
+rep 1: best_cut 554 mean_cut 544.332 n_success 0/1024 t_solve_ms 39.813 t_run_ms 39.246 t_check_ms 0.198
+rep 2: best_cut 554 mean_cut 544.295 n_success 0/1024 t_solve_ms 44.677 t_run_ms 40.748 t_check_ms 3.557
+rep 3: best_cut 554 mean_cut 544.340 n_success 0/1024 t_solve_ms 38.664 t_run_ms 37.721 t_check_ms 0.437
+rep 4: best_cut 554 mean_cut 544.328 n_success 0/1024 t_solve_ms 37.243 t_run_ms 36.708 t_check_ms 0.185
+2026-11-23T09:08:49Z done instance=G12 config=sa_a1.0_b2.0_S64 seconds=0.252 exit=0
+2026-11-23T09:08:49Z run instance=G12 config=sa_a1.0_b2.0_S125 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 546.906 n_success 2/1024 t_solve_ms 68.357 t_run_ms 67.410 t_check_ms 0.198
+rep 1: best_cut 556 mean_cut 546.855 n_success 3/1024 t_solve_ms 67.859 t_run_ms 67.350 t_check_ms 0.191
+rep 2: best_cut 556 mean_cut 546.945 n_success 1/1024 t_solve_ms 67.348 t_run_ms 66.829 t_check_ms 0.186
+rep 3: best_cut 556 mean_cut 546.922 n_success 1/1024 t_solve_ms 67.069 t_run_ms 66.498 t_check_ms 0.182
+rep 4: best_cut 554 mean_cut 546.904 n_success 0/1024 t_solve_ms 67.621 t_run_ms 67.126 t_check_ms 0.186
+2026-11-23T09:08:49Z done instance=G12 config=sa_a1.0_b2.0_S125 seconds=0.415 exit=0
+2026-11-23T09:08:49Z run instance=G12 config=sa_a1.0_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 548.889 n_success 0/1024 t_solve_ms 127.425 t_run_ms 126.414 t_check_ms 0.213
+rep 1: best_cut 556 mean_cut 549.000 n_success 7/1024 t_solve_ms 126.189 t_run_ms 125.590 t_check_ms 0.245
+rep 2: best_cut 556 mean_cut 548.990 n_success 8/1024 t_solve_ms 124.342 t_run_ms 123.720 t_check_ms 0.222
+rep 3: best_cut 556 mean_cut 548.945 n_success 9/1024 t_solve_ms 125.234 t_run_ms 123.904 t_check_ms 0.276
+rep 4: best_cut 556 mean_cut 549.021 n_success 14/1024 t_solve_ms 123.630 t_run_ms 123.048 t_check_ms 0.216
+2026-11-23T09:08:50Z done instance=G12 config=sa_a1.0_b2.0_S250 seconds=0.781 exit=0
+2026-11-23T09:08:50Z run instance=G12 config=sa_a1.0_b2.0_S500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 550.809 n_success 26/1024 t_solve_ms 253.441 t_run_ms 245.915 t_check_ms 6.383
+rep 1: best_cut 556 mean_cut 550.557 n_success 19/1024 t_solve_ms 241.767 t_run_ms 239.675 t_check_ms 0.250
+rep 2: best_cut 556 mean_cut 550.771 n_success 30/1024 t_solve_ms 235.506 t_run_ms 234.773 t_check_ms 0.363
+rep 3: best_cut 556 mean_cut 550.705 n_success 31/1024 t_solve_ms 240.959 t_run_ms 240.361 t_check_ms 0.239
+rep 4: best_cut 556 mean_cut 550.771 n_success 32/1024 t_solve_ms 237.826 t_run_ms 237.284 t_check_ms 0.214
+2026-11-23T09:08:52Z done instance=G12 config=sa_a1.0_b2.0_S500 seconds=1.484 exit=0
+2026-11-23T09:08:52Z skip instance=G12 config=sa_a1.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:52Z skip instance=G12 config=sa_a1.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:52Z skip instance=G12 config=sa_a1.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:52Z skip instance=G12 config=sa_a1.0_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:52Z run instance=G12 config=sa_a1.0_b3.0_S64 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 544.672 n_success 0/1024 t_solve_ms 47.063 t_run_ms 39.206 t_check_ms 0.197
+rep 1: best_cut 556 mean_cut 544.588 n_success 2/1024 t_solve_ms 35.650 t_run_ms 35.111 t_check_ms 0.196
+rep 2: best_cut 554 mean_cut 544.645 n_success 0/1024 t_solve_ms 36.116 t_run_ms 35.623 t_check_ms 0.187
+rep 3: best_cut 556 mean_cut 544.703 n_success 2/1024 t_solve_ms 36.777 t_run_ms 36.283 t_check_ms 0.188
+rep 4: best_cut 554 mean_cut 544.529 n_success 0/1024 t_solve_ms 36.497 t_run_ms 36.007 t_check_ms 0.186
+2026-11-23T09:08:52Z done instance=G12 config=sa_a1.0_b3.0_S64 seconds=0.261 exit=0
+2026-11-23T09:08:52Z run instance=G12 config=sa_a1.0_b3.0_S125 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 546.998 n_success 1/1024 t_solve_ms 67.247 t_run_ms 65.984 t_check_ms 0.191
+rep 1: best_cut 556 mean_cut 546.965 n_success 4/1024 t_solve_ms 64.727 t_run_ms 64.231 t_check_ms 0.192
+rep 2: best_cut 556 mean_cut 547.086 n_success 2/1024 t_solve_ms 65.432 t_run_ms 64.893 t_check_ms 0.183
+rep 3: best_cut 556 mean_cut 546.834 n_success 2/1024 t_solve_ms 65.937 t_run_ms 65.425 t_check_ms 0.186
+rep 4: best_cut 556 mean_cut 546.949 n_success 1/1024 t_solve_ms 64.506 t_run_ms 63.961 t_check_ms 0.187
+2026-11-23T09:08:52Z done instance=G12 config=sa_a1.0_b3.0_S125 seconds=0.403 exit=0
+2026-11-23T09:08:52Z run instance=G12 config=sa_a1.0_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 548.926 n_success 7/1024 t_solve_ms 125.649 t_run_ms 119.726 t_check_ms 0.207
+rep 1: best_cut 556 mean_cut 549.010 n_success 5/1024 t_solve_ms 119.446 t_run_ms 118.887 t_check_ms 0.218
+rep 2: best_cut 556 mean_cut 549.062 n_success 13/1024 t_solve_ms 118.207 t_run_ms 117.593 t_check_ms 0.227
+rep 3: best_cut 556 mean_cut 548.873 n_success 8/1024 t_solve_ms 120.712 t_run_ms 120.145 t_check_ms 0.216
+rep 4: best_cut 556 mean_cut 549.070 n_success 6/1024 t_solve_ms 118.627 t_run_ms 118.047 t_check_ms 0.213
+2026-11-23T09:08:53Z done instance=G12 config=sa_a1.0_b3.0_S250 seconds=0.738 exit=0
+2026-11-23T09:08:53Z run instance=G12 config=sa_a1.0_b3.0_S500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 550.537 n_success 20/1024 t_solve_ms 235.839 t_run_ms 230.652 t_check_ms 4.097
+rep 1: best_cut 556 mean_cut 550.484 n_success 23/1024 t_solve_ms 232.671 t_run_ms 228.722 t_check_ms 3.613
+rep 2: best_cut 556 mean_cut 550.461 n_success 24/1024 t_solve_ms 232.024 t_run_ms 230.117 t_check_ms 0.193
+rep 3: best_cut 556 mean_cut 550.430 n_success 16/1024 t_solve_ms 229.482 t_run_ms 228.903 t_check_ms 0.213
+rep 4: best_cut 556 mean_cut 550.393 n_success 29/1024 t_solve_ms 231.627 t_run_ms 230.498 t_check_ms 0.787
+2026-11-23T09:08:54Z done instance=G12 config=sa_a1.0_b3.0_S500 seconds=1.404 exit=0
+2026-11-23T09:08:54Z skip instance=G12 config=sa_a1.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:54Z skip instance=G12 config=sa_a1.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:54Z skip instance=G12 config=sa_a1.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:54Z skip instance=G12 config=sa_a1.0_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:54Z run instance=G12 config=sa_a2.0_b2.0_S64 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 544.701 n_success 0/1024 t_solve_ms 32.667 t_run_ms 31.747 t_check_ms 0.185
+rep 1: best_cut 554 mean_cut 544.617 n_success 0/1024 t_solve_ms 33.285 t_run_ms 32.755 t_check_ms 0.197
+rep 2: best_cut 554 mean_cut 544.777 n_success 0/1024 t_solve_ms 37.901 t_run_ms 34.011 t_check_ms 0.192
+rep 3: best_cut 556 mean_cut 544.475 n_success 1/1024 t_solve_ms 33.156 t_run_ms 32.630 t_check_ms 0.184
+rep 4: best_cut 554 mean_cut 544.707 n_success 0/1024 t_solve_ms 32.872 t_run_ms 32.363 t_check_ms 0.185
+2026-11-23T09:08:55Z done instance=G12 config=sa_a2.0_b2.0_S64 seconds=0.227 exit=0
+2026-11-23T09:08:55Z run instance=G12 config=sa_a2.0_b2.0_S125 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 547.402 n_success 2/1024 t_solve_ms 61.029 t_run_ms 60.081 t_check_ms 0.191
+rep 1: best_cut 556 mean_cut 547.359 n_success 2/1024 t_solve_ms 62.941 t_run_ms 61.039 t_check_ms 1.294
+rep 2: best_cut 556 mean_cut 547.461 n_success 3/1024 t_solve_ms 61.468 t_run_ms 60.908 t_check_ms 0.198
+rep 3: best_cut 556 mean_cut 547.164 n_success 1/1024 t_solve_ms 60.545 t_run_ms 60.028 t_check_ms 0.182
+rep 4: best_cut 556 mean_cut 547.326 n_success 2/1024 t_solve_ms 60.349 t_run_ms 59.846 t_check_ms 0.184
+2026-11-23T09:08:55Z done instance=G12 config=sa_a2.0_b2.0_S125 seconds=0.377 exit=0
+2026-11-23T09:08:55Z run instance=G12 config=sa_a2.0_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 549.471 n_success 10/1024 t_solve_ms 133.120 t_run_ms 127.550 t_check_ms 4.580
+rep 1: best_cut 556 mean_cut 549.688 n_success 13/1024 t_solve_ms 130.703 t_run_ms 125.945 t_check_ms 3.504
+rep 2: best_cut 556 mean_cut 549.367 n_success 12/1024 t_solve_ms 135.565 t_run_ms 132.419 t_check_ms 1.426
+rep 3: best_cut 556 mean_cut 549.551 n_success 14/1024 t_solve_ms 147.327 t_run_ms 143.450 t_check_ms 2.713
+rep 4: best_cut 556 mean_cut 549.551 n_success 13/1024 t_solve_ms 152.960 t_run_ms 149.255 t_check_ms 2.441
+2026-11-23T09:08:56Z done instance=G12 config=sa_a2.0_b2.0_S250 seconds=0.819 exit=0
+2026-11-23T09:08:56Z run instance=G12 config=sa_a2.0_b2.0_S500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 551.367 n_success 49/1024 t_solve_ms 251.074 t_run_ms 245.735 t_check_ms 3.093
+rep 1: best_cut 556 mean_cut 551.404 n_success 48/1024 t_solve_ms 236.501 t_run_ms 232.242 t_check_ms 2.469
+rep 2: best_cut 556 mean_cut 551.273 n_success 48/1024 t_solve_ms 235.093 t_run_ms 227.806 t_check_ms 5.670
+rep 3: best_cut 556 mean_cut 551.311 n_success 45/1024 t_solve_ms 255.913 t_run_ms 248.362 t_check_ms 6.240
+rep 4: best_cut 556 mean_cut 551.289 n_success 48/1024 t_solve_ms 209.980 t_run_ms 207.464 t_check_ms 0.428
+2026-11-23T09:08:57Z done instance=G12 config=sa_a2.0_b2.0_S500 seconds=1.447 exit=0
+2026-11-23T09:08:57Z skip instance=G12 config=sa_a2.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:08:57Z skip instance=G12 config=sa_a2.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:08:57Z skip instance=G12 config=sa_a2.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:08:57Z skip instance=G12 config=sa_a2.0_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:08:57Z run instance=G12 config=sa_a2.0_b3.0_S64 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 544.135 n_success 0/1024 t_solve_ms 33.263 t_run_ms 32.316 t_check_ms 0.186
+rep 1: best_cut 554 mean_cut 544.084 n_success 0/1024 t_solve_ms 32.707 t_run_ms 32.188 t_check_ms 0.195
+rep 2: best_cut 554 mean_cut 544.086 n_success 0/1024 t_solve_ms 32.921 t_run_ms 32.407 t_check_ms 0.186
+rep 3: best_cut 554 mean_cut 543.963 n_success 0/1024 t_solve_ms 34.379 t_run_ms 33.866 t_check_ms 0.191
+rep 4: best_cut 554 mean_cut 544.039 n_success 0/1024 t_solve_ms 32.459 t_run_ms 31.970 t_check_ms 0.181
+2026-11-23T09:08:58Z done instance=G12 config=sa_a2.0_b3.0_S64 seconds=0.222 exit=0
+2026-11-23T09:08:58Z run instance=G12 config=sa_a2.0_b3.0_S125 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 546.568 n_success 0/1024 t_solve_ms 58.677 t_run_ms 57.616 t_check_ms 0.184
+rep 1: best_cut 554 mean_cut 546.656 n_success 0/1024 t_solve_ms 58.023 t_run_ms 57.510 t_check_ms 0.192
+rep 2: best_cut 556 mean_cut 546.551 n_success 1/1024 t_solve_ms 58.247 t_run_ms 57.735 t_check_ms 0.186
+rep 3: best_cut 554 mean_cut 546.377 n_success 0/1024 t_solve_ms 59.274 t_run_ms 58.750 t_check_ms 0.192
+rep 4: best_cut 556 mean_cut 546.494 n_success 1/1024 t_solve_ms 58.707 t_run_ms 58.168 t_check_ms 0.193
+2026-11-23T09:08:58Z done instance=G12 config=sa_a2.0_b3.0_S125 seconds=0.377 exit=0
+2026-11-23T09:08:58Z run instance=G12 config=sa_a2.0_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 548.711 n_success 9/1024 t_solve_ms 105.087 t_run_ms 103.736 t_check_ms 0.217
+rep 1: best_cut 556 mean_cut 548.771 n_success 6/1024 t_solve_ms 106.001 t_run_ms 105.403 t_check_ms 0.236
+rep 2: best_cut 556 mean_cut 548.520 n_success 5/1024 t_solve_ms 105.231 t_run_ms 104.626 t_check_ms 0.224
+rep 3: best_cut 556 mean_cut 548.693 n_success 5/1024 t_solve_ms 104.215 t_run_ms 103.541 t_check_ms 0.285
+rep 4: best_cut 556 mean_cut 548.621 n_success 7/1024 t_solve_ms 104.034 t_run_ms 103.200 t_check_ms 0.461
+2026-11-23T09:08:59Z done instance=G12 config=sa_a2.0_b3.0_S250 seconds=0.657 exit=0
+2026-11-23T09:08:59Z run instance=G12 config=sa_a2.0_b3.0_S500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 550.395 n_success 25/1024 t_solve_ms 213.009 t_run_ms 207.393 t_check_ms 4.496
+rep 1: best_cut 556 mean_cut 550.488 n_success 22/1024 t_solve_ms 195.266 t_run_ms 194.597 t_check_ms 0.217
+rep 2: best_cut 556 mean_cut 550.475 n_success 29/1024 t_solve_ms 207.216 t_run_ms 200.912 t_check_ms 5.923
+rep 3: best_cut 556 mean_cut 550.363 n_success 22/1024 t_solve_ms 206.508 t_run_ms 203.167 t_check_ms 3.014
+rep 4: best_cut 556 mean_cut 550.549 n_success 25/1024 t_solve_ms 200.063 t_run_ms 195.437 t_check_ms 4.302
+2026-11-23T09:09:00Z done instance=G12 config=sa_a2.0_b3.0_S500 seconds=1.239 exit=0
+2026-11-23T09:09:00Z skip instance=G12 config=sa_a2.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:00Z skip instance=G12 config=sa_a2.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:00Z skip instance=G12 config=sa_a2.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:00Z skip instance=G12 config=sa_a2.0_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:00Z run instance=G12 config=dsb_f0.25_csigma_M64 seconds=- exit=-
+rep 0: best_cut 538 mean_cut 519.293 n_success 0/1024 t_solve_ms 14.824 t_run_ms 12.129 t_check_ms 0.157
+rep 1: best_cut 538 mean_cut 519.559 n_success 0/1024 t_solve_ms 13.875 t_run_ms 11.444 t_check_ms 0.106
+rep 2: best_cut 536 mean_cut 519.271 n_success 0/1024 t_solve_ms 15.040 t_run_ms 12.671 t_check_ms 0.149
+rep 3: best_cut 540 mean_cut 519.406 n_success 0/1024 t_solve_ms 15.351 t_run_ms 12.781 t_check_ms 0.134
+rep 4: best_cut 536 mean_cut 519.568 n_success 0/1024 t_solve_ms 16.030 t_run_ms 13.692 t_check_ms 0.138
+2026-11-23T09:09:00Z done instance=G12 config=dsb_f0.25_csigma_M64 seconds=0.190 exit=0
+2026-11-23T09:09:00Z run instance=G12 config=dsb_f0.25_csigma_M125 seconds=- exit=-
+rep 0: best_cut 546 mean_cut 531.207 n_success 0/1024 t_solve_ms 25.495 t_run_ms 23.021 t_check_ms 0.128
+rep 1: best_cut 546 mean_cut 531.426 n_success 0/1024 t_solve_ms 22.903 t_run_ms 20.461 t_check_ms 0.126
+rep 2: best_cut 548 mean_cut 531.443 n_success 0/1024 t_solve_ms 23.474 t_run_ms 20.823 t_check_ms 0.125
+rep 3: best_cut 548 mean_cut 531.326 n_success 0/1024 t_solve_ms 24.819 t_run_ms 22.557 t_check_ms 0.125
+rep 4: best_cut 546 mean_cut 531.336 n_success 0/1024 t_solve_ms 22.730 t_run_ms 20.471 t_check_ms 0.095
+2026-11-23T09:09:00Z done instance=G12 config=dsb_f0.25_csigma_M125 seconds=0.160 exit=0
+2026-11-23T09:09:00Z run instance=G12 config=dsb_f0.25_csigma_M250 seconds=- exit=-
+rep 0: best_cut 550 mean_cut 537.596 n_success 0/1024 t_solve_ms 43.860 t_run_ms 41.292 t_check_ms 0.138
+rep 1: best_cut 550 mean_cut 537.633 n_success 0/1024 t_solve_ms 45.453 t_run_ms 42.933 t_check_ms 0.120
+rep 2: best_cut 552 mean_cut 537.799 n_success 0/1024 t_solve_ms 43.101 t_run_ms 39.390 t_check_ms 0.139
+rep 3: best_cut 552 mean_cut 537.787 n_success 0/1024 t_solve_ms 45.177 t_run_ms 41.826 t_check_ms 0.125
+rep 4: best_cut 554 mean_cut 537.922 n_success 0/1024 t_solve_ms 42.705 t_run_ms 40.420 t_check_ms 0.117
+2026-11-23T09:09:01Z done instance=G12 config=dsb_f0.25_csigma_M250 seconds=0.352 exit=0
+2026-11-23T09:09:01Z run instance=G12 config=dsb_f0.25_csigma_M500 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 541.695 n_success 0/1024 t_solve_ms 73.600 t_run_ms 70.825 t_check_ms 0.206
+rep 1: best_cut 554 mean_cut 541.539 n_success 0/1024 t_solve_ms 71.698 t_run_ms 67.870 t_check_ms 0.132
+rep 2: best_cut 552 mean_cut 541.766 n_success 0/1024 t_solve_ms 76.513 t_run_ms 73.337 t_check_ms 0.157
+rep 3: best_cut 552 mean_cut 541.498 n_success 0/1024 t_solve_ms 72.182 t_run_ms 69.629 t_check_ms 0.111
+rep 4: best_cut 552 mean_cut 541.582 n_success 0/1024 t_solve_ms 73.392 t_run_ms 70.767 t_check_ms 0.146
+2026-11-23T09:09:01Z done instance=G12 config=dsb_f0.25_csigma_M500 seconds=0.541 exit=0
+2026-11-23T09:09:01Z skip instance=G12 config=dsb_f0.25_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:01Z skip instance=G12 config=dsb_f0.25_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:01Z skip instance=G12 config=dsb_f0.25_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:01Z skip instance=G12 config=dsb_f0.25_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:09:01Z run instance=G12 config=dsb_f0.25_clambda_M64 seconds=- exit=-
+rep 0: best_cut 538 mean_cut 519.262 n_success 0/1024 t_solve_ms 17.933 t_run_ms 14.024 t_check_ms 0.155
+rep 1: best_cut 536 mean_cut 519.396 n_success 0/1024 t_solve_ms 18.703 t_run_ms 14.643 t_check_ms 0.129
+rep 2: best_cut 538 mean_cut 519.414 n_success 0/1024 t_solve_ms 13.750 t_run_ms 10.393 t_check_ms 0.145
+rep 3: best_cut 542 mean_cut 519.295 n_success 0/1024 t_solve_ms 17.081 t_run_ms 13.675 t_check_ms 0.149
+rep 4: best_cut 540 mean_cut 519.873 n_success 0/1024 t_solve_ms 13.872 t_run_ms 10.565 t_check_ms 0.157
+2026-11-23T09:09:01Z done instance=G12 config=dsb_f0.25_clambda_M64 seconds=0.210 exit=0
+2026-11-23T09:09:01Z run instance=G12 config=dsb_f0.25_clambda_M125 seconds=- exit=-
+rep 0: best_cut 548 mean_cut 530.959 n_success 0/1024 t_solve_ms 23.911 t_run_ms 20.046 t_check_ms 0.108
+rep 1: best_cut 548 mean_cut 531.076 n_success 0/1024 t_solve_ms 24.510 t_run_ms 20.874 t_check_ms 0.095
+rep 2: best_cut 546 mean_cut 531.324 n_success 0/1024 t_solve_ms 25.343 t_run_ms 21.733 t_check_ms 0.099
+rep 3: best_cut 546 mean_cut 530.994 n_success 0/1024 t_solve_ms 24.415 t_run_ms 21.104 t_check_ms 0.109
+rep 4: best_cut 546 mean_cut 531.275 n_success 0/1024 t_solve_ms 28.325 t_run_ms 25.007 t_check_ms 0.097
+2026-11-23T09:09:02Z done instance=G12 config=dsb_f0.25_clambda_M125 seconds=0.184 exit=0
+2026-11-23T09:09:02Z run instance=G12 config=dsb_f0.25_clambda_M250 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 537.291 n_success 0/1024 t_solve_ms 41.745 t_run_ms 37.930 t_check_ms 0.125
+rep 1: best_cut 554 mean_cut 537.076 n_success 0/1024 t_solve_ms 40.543 t_run_ms 38.122 t_check_ms 0.124
+rep 2: best_cut 550 mean_cut 537.225 n_success 0/1024 t_solve_ms 41.107 t_run_ms 38.665 t_check_ms 0.106
+rep 3: best_cut 552 mean_cut 537.244 n_success 0/1024 t_solve_ms 40.879 t_run_ms 38.677 t_check_ms 0.122
+rep 4: best_cut 550 mean_cut 537.086 n_success 0/1024 t_solve_ms 41.851 t_run_ms 38.490 t_check_ms 0.118
+2026-11-23T09:09:02Z done instance=G12 config=dsb_f0.25_clambda_M250 seconds=0.334 exit=0
+2026-11-23T09:09:02Z run instance=G12 config=dsb_f0.25_clambda_M500 seconds=- exit=-
+rep 0: best_cut 550 mean_cut 540.707 n_success 0/1024 t_solve_ms 72.993 t_run_ms 69.902 t_check_ms 0.152
+rep 1: best_cut 552 mean_cut 540.666 n_success 0/1024 t_solve_ms 72.378 t_run_ms 69.273 t_check_ms 0.158
+rep 2: best_cut 552 mean_cut 540.643 n_success 0/1024 t_solve_ms 71.842 t_run_ms 69.099 t_check_ms 0.125
+rep 3: best_cut 552 mean_cut 540.791 n_success 0/1024 t_solve_ms 72.504 t_run_ms 70.224 t_check_ms 0.183
+rep 4: best_cut 552 mean_cut 540.904 n_success 0/1024 t_solve_ms 72.813 t_run_ms 70.304 t_check_ms 0.162
+2026-11-23T09:09:02Z done instance=G12 config=dsb_f0.25_clambda_M500 seconds=0.454 exit=0
+2026-11-23T09:09:02Z skip instance=G12 config=dsb_f0.25_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:02Z skip instance=G12 config=dsb_f0.25_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:02Z skip instance=G12 config=dsb_f0.25_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:02Z skip instance=G12 config=dsb_f0.25_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:09:02Z run instance=G12 config=dsb_f0.5_csigma_M64 seconds=- exit=-
+rep 0: best_cut 546 mean_cut 531.441 n_success 0/1024 t_solve_ms 13.315 t_run_ms 10.713 t_check_ms 0.120
+rep 1: best_cut 546 mean_cut 531.732 n_success 0/1024 t_solve_ms 13.489 t_run_ms 11.014 t_check_ms 0.112
+rep 2: best_cut 546 mean_cut 531.529 n_success 0/1024 t_solve_ms 13.640 t_run_ms 11.345 t_check_ms 0.140
+rep 3: best_cut 546 mean_cut 531.547 n_success 0/1024 t_solve_ms 14.680 t_run_ms 12.447 t_check_ms 0.109
+rep 4: best_cut 546 mean_cut 531.500 n_success 0/1024 t_solve_ms 13.206 t_run_ms 10.879 t_check_ms 0.136
+2026-11-23T09:09:03Z done instance=G12 config=dsb_f0.5_csigma_M64 seconds=0.145 exit=0
+2026-11-23T09:09:03Z run instance=G12 config=dsb_f0.5_csigma_M125 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 537.918 n_success 0/1024 t_solve_ms 25.227 t_run_ms 21.566 t_check_ms 0.122
+rep 1: best_cut 552 mean_cut 537.984 n_success 0/1024 t_solve_ms 24.152 t_run_ms 20.426 t_check_ms 0.115
+rep 2: best_cut 552 mean_cut 537.799 n_success 0/1024 t_solve_ms 31.087 t_run_ms 27.272 t_check_ms 0.136
+rep 3: best_cut 550 mean_cut 537.973 n_success 0/1024 t_solve_ms 24.070 t_run_ms 20.668 t_check_ms 0.125
+rep 4: best_cut 550 mean_cut 537.775 n_success 0/1024 t_solve_ms 24.769 t_run_ms 21.496 t_check_ms 0.107
+2026-11-23T09:09:03Z done instance=G12 config=dsb_f0.5_csigma_M125 seconds=0.242 exit=0
+2026-11-23T09:09:03Z run instance=G12 config=dsb_f0.5_csigma_M250 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 541.992 n_success 0/1024 t_solve_ms 49.561 t_run_ms 44.650 t_check_ms 2.402
+rep 1: best_cut 552 mean_cut 541.820 n_success 0/1024 t_solve_ms 43.176 t_run_ms 39.297 t_check_ms 0.098
+rep 2: best_cut 552 mean_cut 541.883 n_success 0/1024 t_solve_ms 41.860 t_run_ms 39.233 t_check_ms 0.128
+rep 3: best_cut 554 mean_cut 541.775 n_success 0/1024 t_solve_ms 42.417 t_run_ms 40.210 t_check_ms 0.093
+rep 4: best_cut 552 mean_cut 541.775 n_success 0/1024 t_solve_ms 42.592 t_run_ms 40.351 t_check_ms 0.104
+2026-11-23T09:09:03Z done instance=G12 config=dsb_f0.5_csigma_M250 seconds=0.359 exit=0
+2026-11-23T09:09:03Z run instance=G12 config=dsb_f0.5_csigma_M500 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 544.512 n_success 0/1024 t_solve_ms 72.822 t_run_ms 69.896 t_check_ms 0.168
+rep 1: best_cut 556 mean_cut 544.547 n_success 1/1024 t_solve_ms 72.434 t_run_ms 69.361 t_check_ms 0.169
+rep 2: best_cut 554 mean_cut 544.412 n_success 0/1024 t_solve_ms 70.249 t_run_ms 67.280 t_check_ms 0.128
+rep 3: best_cut 554 mean_cut 544.570 n_success 0/1024 t_solve_ms 88.156 t_run_ms 73.843 t_check_ms 11.986
+rep 4: best_cut 554 mean_cut 544.289 n_success 0/1024 t_solve_ms 85.340 t_run_ms 78.224 t_check_ms 0.275
+2026-11-23T09:09:04Z done instance=G12 config=dsb_f0.5_csigma_M500 seconds=0.577 exit=0
+2026-11-23T09:09:04Z skip instance=G12 config=dsb_f0.5_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:04Z skip instance=G12 config=dsb_f0.5_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:04Z skip instance=G12 config=dsb_f0.5_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:04Z skip instance=G12 config=dsb_f0.5_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:09:04Z run instance=G12 config=dsb_f0.5_clambda_M64 seconds=- exit=-
+rep 0: best_cut 546 mean_cut 530.969 n_success 0/1024 t_solve_ms 15.990 t_run_ms 13.512 t_check_ms 0.167
+rep 1: best_cut 544 mean_cut 531.074 n_success 0/1024 t_solve_ms 13.505 t_run_ms 10.966 t_check_ms 0.142
+rep 2: best_cut 548 mean_cut 531.162 n_success 0/1024 t_solve_ms 13.472 t_run_ms 11.180 t_check_ms 0.142
+rep 3: best_cut 546 mean_cut 531.195 n_success 0/1024 t_solve_ms 15.299 t_run_ms 12.972 t_check_ms 0.129
+rep 4: best_cut 546 mean_cut 531.109 n_success 0/1024 t_solve_ms 14.584 t_run_ms 12.145 t_check_ms 0.117
+2026-11-23T09:09:04Z done instance=G12 config=dsb_f0.5_clambda_M64 seconds=0.167 exit=0
+2026-11-23T09:09:04Z run instance=G12 config=dsb_f0.5_clambda_M125 seconds=- exit=-
+rep 0: best_cut 550 mean_cut 537.391 n_success 0/1024 t_solve_ms 25.475 t_run_ms 21.744 t_check_ms 0.125
+rep 1: best_cut 550 mean_cut 537.432 n_success 0/1024 t_solve_ms 24.527 t_run_ms 20.366 t_check_ms 0.094
+rep 2: best_cut 550 mean_cut 537.473 n_success 0/1024 t_solve_ms 24.625 t_run_ms 20.907 t_check_ms 0.132
+rep 3: best_cut 548 mean_cut 537.539 n_success 0/1024 t_solve_ms 25.093 t_run_ms 20.519 t_check_ms 0.096
+rep 4: best_cut 550 mean_cut 537.412 n_success 0/1024 t_solve_ms 25.251 t_run_ms 21.677 t_check_ms 0.133
+2026-11-23T09:09:04Z done instance=G12 config=dsb_f0.5_clambda_M125 seconds=0.181 exit=0
+2026-11-23T09:09:04Z run instance=G12 config=dsb_f0.5_clambda_M250 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 541.379 n_success 0/1024 t_solve_ms 42.695 t_run_ms 40.227 t_check_ms 0.130
+rep 1: best_cut 552 mean_cut 541.301 n_success 0/1024 t_solve_ms 41.375 t_run_ms 38.732 t_check_ms 0.123
+rep 2: best_cut 554 mean_cut 541.299 n_success 0/1024 t_solve_ms 43.067 t_run_ms 39.409 t_check_ms 0.128
+rep 3: best_cut 552 mean_cut 541.135 n_success 0/1024 t_solve_ms 43.218 t_run_ms 40.462 t_check_ms 0.192
+rep 4: best_cut 552 mean_cut 541.230 n_success 0/1024 t_solve_ms 43.035 t_run_ms 40.389 t_check_ms 0.128
+2026-11-23T09:09:04Z done instance=G12 config=dsb_f0.5_clambda_M250 seconds=0.342 exit=0
+2026-11-23T09:09:04Z run instance=G12 config=dsb_f0.5_clambda_M500 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 543.768 n_success 1/1024 t_solve_ms 74.022 t_run_ms 70.746 t_check_ms 0.143
+rep 1: best_cut 554 mean_cut 543.766 n_success 0/1024 t_solve_ms 72.976 t_run_ms 70.419 t_check_ms 0.121
+rep 2: best_cut 554 mean_cut 543.787 n_success 0/1024 t_solve_ms 70.924 t_run_ms 68.040 t_check_ms 0.108
+rep 3: best_cut 554 mean_cut 543.715 n_success 0/1024 t_solve_ms 71.652 t_run_ms 69.309 t_check_ms 0.121
+rep 4: best_cut 552 mean_cut 543.736 n_success 0/1024 t_solve_ms 75.300 t_run_ms 72.708 t_check_ms 0.130
+2026-11-23T09:09:05Z done instance=G12 config=dsb_f0.5_clambda_M500 seconds=0.528 exit=0
+2026-11-23T09:09:05Z skip instance=G12 config=dsb_f0.5_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:05Z skip instance=G12 config=dsb_f0.5_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:05Z skip instance=G12 config=dsb_f0.5_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:05Z skip instance=G12 config=dsb_f0.5_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:09:05Z run instance=G12 config=dsb_f1.0_csigma_M64 seconds=- exit=-
+rep 0: best_cut 548 mean_cut 534.883 n_success 0/1024 t_solve_ms 14.471 t_run_ms 10.739 t_check_ms 0.142
+rep 1: best_cut 548 mean_cut 534.801 n_success 0/1024 t_solve_ms 15.601 t_run_ms 12.035 t_check_ms 0.112
+rep 2: best_cut 550 mean_cut 534.791 n_success 0/1024 t_solve_ms 14.761 t_run_ms 11.387 t_check_ms 0.144
+rep 3: best_cut 550 mean_cut 535.006 n_success 0/1024 t_solve_ms 15.932 t_run_ms 12.556 t_check_ms 0.113
+rep 4: best_cut 548 mean_cut 534.855 n_success 0/1024 t_solve_ms 14.255 t_run_ms 10.619 t_check_ms 0.109
+2026-11-23T09:09:05Z done instance=G12 config=dsb_f1.0_csigma_M64 seconds=0.121 exit=0
+2026-11-23T09:09:05Z run instance=G12 config=dsb_f1.0_csigma_M125 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 540.186 n_success 0/1024 t_solve_ms 23.602 t_run_ms 19.920 t_check_ms 0.129
+rep 1: best_cut 552 mean_cut 540.363 n_success 0/1024 t_solve_ms 23.878 t_run_ms 21.455 t_check_ms 0.093
+rep 2: best_cut 552 mean_cut 540.291 n_success 0/1024 t_solve_ms 24.645 t_run_ms 22.273 t_check_ms 0.114
+rep 3: best_cut 552 mean_cut 540.205 n_success 0/1024 t_solve_ms 22.928 t_run_ms 20.656 t_check_ms 0.126
+rep 4: best_cut 552 mean_cut 540.355 n_success 0/1024 t_solve_ms 23.400 t_run_ms 21.164 t_check_ms 0.106
+2026-11-23T09:09:05Z done instance=G12 config=dsb_f1.0_csigma_M125 seconds=0.247 exit=0
+2026-11-23T09:09:05Z run instance=G12 config=dsb_f1.0_csigma_M250 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 543.953 n_success 0/1024 t_solve_ms 41.353 t_run_ms 38.884 t_check_ms 0.127
+rep 1: best_cut 554 mean_cut 543.885 n_success 0/1024 t_solve_ms 43.983 t_run_ms 41.309 t_check_ms 0.127
+rep 2: best_cut 556 mean_cut 544.047 n_success 1/1024 t_solve_ms 43.223 t_run_ms 40.569 t_check_ms 0.133
+rep 3: best_cut 554 mean_cut 543.941 n_success 0/1024 t_solve_ms 43.203 t_run_ms 39.820 t_check_ms 0.122
+rep 4: best_cut 554 mean_cut 543.959 n_success 0/1024 t_solve_ms 41.730 t_run_ms 39.426 t_check_ms 0.126
+2026-11-23T09:09:06Z done instance=G12 config=dsb_f1.0_csigma_M250 seconds=0.328 exit=0
+2026-11-23T09:09:06Z run instance=G12 config=dsb_f1.0_csigma_M500 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 546.512 n_success 0/1024 t_solve_ms 72.843 t_run_ms 69.824 t_check_ms 0.167
+rep 1: best_cut 554 mean_cut 546.650 n_success 0/1024 t_solve_ms 72.267 t_run_ms 69.124 t_check_ms 0.561
+rep 2: best_cut 554 mean_cut 546.664 n_success 0/1024 t_solve_ms 70.417 t_run_ms 67.579 t_check_ms 0.123
+rep 3: best_cut 554 mean_cut 546.529 n_success 0/1024 t_solve_ms 72.307 t_run_ms 69.700 t_check_ms 0.159
+rep 4: best_cut 556 mean_cut 546.705 n_success 1/1024 t_solve_ms 76.453 t_run_ms 69.024 t_check_ms 5.047
+2026-11-23T09:09:06Z done instance=G12 config=dsb_f1.0_csigma_M500 seconds=0.537 exit=0
+2026-11-23T09:09:06Z skip instance=G12 config=dsb_f1.0_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:06Z skip instance=G12 config=dsb_f1.0_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:06Z skip instance=G12 config=dsb_f1.0_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:06Z skip instance=G12 config=dsb_f1.0_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:09:06Z run instance=G12 config=dsb_f1.0_clambda_M64 seconds=- exit=-
+rep 0: best_cut 548 mean_cut 533.582 n_success 0/1024 t_solve_ms 15.126 t_run_ms 11.285 t_check_ms 0.113
+rep 1: best_cut 550 mean_cut 533.525 n_success 0/1024 t_solve_ms 16.496 t_run_ms 12.876 t_check_ms 0.111
+rep 2: best_cut 546 mean_cut 533.146 n_success 0/1024 t_solve_ms 14.470 t_run_ms 11.143 t_check_ms 0.112
+rep 3: best_cut 546 mean_cut 533.193 n_success 0/1024 t_solve_ms 14.155 t_run_ms 10.755 t_check_ms 0.149
+rep 4: best_cut 548 mean_cut 533.572 n_success 0/1024 t_solve_ms 15.733 t_run_ms 12.330 t_check_ms 0.114
+2026-11-23T09:09:06Z done instance=G12 config=dsb_f1.0_clambda_M64 seconds=0.199 exit=0
+2026-11-23T09:09:06Z run instance=G12 config=dsb_f1.0_clambda_M125 seconds=- exit=-
+rep 0: best_cut 552 mean_cut 539.107 n_success 0/1024 t_solve_ms 23.010 t_run_ms 20.326 t_check_ms 0.094
+rep 1: best_cut 552 mean_cut 538.910 n_success 0/1024 t_solve_ms 23.977 t_run_ms 21.445 t_check_ms 0.227
+rep 2: best_cut 550 mean_cut 538.795 n_success 0/1024 t_solve_ms 23.166 t_run_ms 20.771 t_check_ms 0.125
+rep 3: best_cut 552 mean_cut 539.051 n_success 0/1024 t_solve_ms 22.939 t_run_ms 20.591 t_check_ms 0.174
+rep 4: best_cut 552 mean_cut 538.875 n_success 0/1024 t_solve_ms 25.287 t_run_ms 22.893 t_check_ms 0.309
+2026-11-23T09:09:07Z done instance=G12 config=dsb_f1.0_clambda_M125 seconds=0.235 exit=0
+2026-11-23T09:09:07Z run instance=G12 config=dsb_f1.0_clambda_M250 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 542.619 n_success 0/1024 t_solve_ms 41.088 t_run_ms 38.568 t_check_ms 0.127
+rep 1: best_cut 552 mean_cut 542.461 n_success 0/1024 t_solve_ms 45.210 t_run_ms 41.631 t_check_ms 0.098
+rep 2: best_cut 552 mean_cut 542.502 n_success 0/1024 t_solve_ms 45.398 t_run_ms 41.257 t_check_ms 1.708
+rep 3: best_cut 554 mean_cut 542.418 n_success 0/1024 t_solve_ms 45.869 t_run_ms 42.268 t_check_ms 0.099
+rep 4: best_cut 554 mean_cut 542.547 n_success 0/1024 t_solve_ms 41.517 t_run_ms 38.562 t_check_ms 0.670
+2026-11-23T09:09:07Z done instance=G12 config=dsb_f1.0_clambda_M250 seconds=0.298 exit=0
+2026-11-23T09:09:07Z run instance=G12 config=dsb_f1.0_clambda_M500 seconds=- exit=-
+rep 0: best_cut 554 mean_cut 545.062 n_success 0/1024 t_solve_ms 75.771 t_run_ms 72.915 t_check_ms 0.166
+rep 1: best_cut 554 mean_cut 544.982 n_success 0/1024 t_solve_ms 72.627 t_run_ms 68.745 t_check_ms 0.133
+rep 2: best_cut 554 mean_cut 545.176 n_success 0/1024 t_solve_ms 72.492 t_run_ms 69.880 t_check_ms 0.189
+rep 3: best_cut 556 mean_cut 544.963 n_success 1/1024 t_solve_ms 71.948 t_run_ms 69.150 t_check_ms 0.146
+rep 4: best_cut 554 mean_cut 545.238 n_success 0/1024 t_solve_ms 72.677 t_run_ms 69.114 t_check_ms 0.132
+2026-11-23T09:09:08Z done instance=G12 config=dsb_f1.0_clambda_M500 seconds=0.476 exit=0
+2026-11-23T09:09:08Z skip instance=G12 config=dsb_f1.0_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G12 config=dsb_f1.0_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G12 config=dsb_f1.0_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G12 config=dsb_f1.0_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a0.5_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a1.0_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b2.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=sa_a2.0_b3.0_S8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.25_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f0.5_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_csigma_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=G15 config=dsb_f1.0_clambda_M8000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b2.0_S500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b3.0_S500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a0.5_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b2.0_S500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b3.0_S500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a1.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b2.0_S500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b2.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b2.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b2.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b3.0_S500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b3.0_S1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=sa_a2.0_b3.0_S4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_csigma_M500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_clambda_M500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.25_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_csigma_M500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_clambda_M500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f0.5_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_csigma_M500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_csigma_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_csigma_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_csigma_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_clambda_M500 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_clambda_M1000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_clambda_M2000 seconds=- exit=- complete
+2026-11-23T09:09:08Z skip instance=dense_n2000_s1 config=dsb_f1.0_clambda_M4000 seconds=- exit=- complete
+2026-11-23T09:09:08Z stop instance=- config=- seconds=54.656 exit=0 complete; manifest of 278 files

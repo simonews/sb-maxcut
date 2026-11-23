@@ -9,3 +9,12 @@ rep 0: best_cut 556 mean_cut 552.270 t_solve_ms 2735.602 t_run_ms 2731.287 t_che
 rep 0: best_cut 3050 mean_cut 3037.148 t_solve_ms 6226.971 t_run_ms 6220.463 t_check_ms 4.104
 2026-11-22T20:01:57Z done instance=G15 config=sa_a2.0_b3.0_S2000 seconds=12.469 exit=0
 2026-11-22T20:02:11Z stop instance=- config=- seconds=52.664 exit=0 check PASS
+2026-11-23T09:09:29Z start instance=- config=- seconds=- exit=- campaign=f07_dwave check=dwave notes=AC power; Windows power mode: Best performance; Armoury Crate: Performance; GPU mode: Ultimate
+2026-11-23T09:09:29Z run instance=G2 config=sa_a1.0_b2.0_S250 seconds=- exit=-
+rep 0: best_cut 11620 mean_cut 11592.864 t_solve_ms 930.642 t_run_ms 910.047 t_check_ms 17.985
+2026-11-23T09:09:31Z done instance=G2 config=sa_a1.0_b2.0_S250 seconds=1.894 exit=0
+2026-11-23T09:09:34Z run instance=G12 config=sa_a2.0_b3.0_S250 seconds=- exit=-
+rep 0: best_cut 556 mean_cut 548.711 t_solve_ms 739.399 t_run_ms 735.559 t_check_ms 1.470
+2026-11-23T09:09:35Z done instance=G12 config=sa_a2.0_b3.0_S250 seconds=1.482 exit=0
+2026-11-23T09:09:37Z skip instance=G15 config=sa_a2.0_b3.0_S2000 seconds=- exit=- complete
+2026-11-23T09:09:52Z stop instance=- config=- seconds=23.595 exit=0 check PASS
