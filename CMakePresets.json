@@ -35,6 +35,34 @@
       }
     },
     {
+      "name": "win-base",
+      "hidden": true,
+      "binaryDir": "${sourceParentDir}/build-${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXE_LINKER_FLAGS": "-static",
+        "OpenMP_CXX_LIB_NAMES": "gomp;pthread",
+        "OpenMP_gomp_LIBRARY": "gomp",
+        "OpenMP_pthread_LIBRARY": "pthread"
+      }
+    },
+    {
+      "name": "win-cpu",
+      "displayName": "Windows, MinGW-w64 GCC (Release), static",
+      "inherits": [
+        "win-base",
+        "cpu"
+      ]
+    },
+    {
+      "name": "win-cpu-strict",
+      "displayName": "Windows, MinGW-w64 GCC (Release), static, no FMA contraction",
+      "inherits": [
+        "win-base",
+        "cpu-strict"
+      ]
+    },
+    {
       "name": "cuda-base",
       "hidden": true,
       "inherits": "base",
@@ -81,6 +109,14 @@
     {
       "name": "cpu-strict",
       "configurePreset": "cpu-strict"
+    },
+    {
+      "name": "win-cpu",
+      "configurePreset": "win-cpu"
+    },
+    {
+      "name": "win-cpu-strict",
+      "configurePreset": "win-cpu-strict"
     }
   ],
   "testPresets": [
@@ -94,6 +130,20 @@
     {
       "name": "cpu-strict",
       "configurePreset": "cpu-strict",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "win-cpu",
+      "configurePreset": "win-cpu",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "win-cpu-strict",
+      "configurePreset": "win-cpu-strict",
       "output": {
         "outputOnFailure": true
       }

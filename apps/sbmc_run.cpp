@@ -3,7 +3,9 @@
 // sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
 // (variant c1, --threads). Simulated annealing (--algo sa), phase 06: the sequential reference
 // (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads). Phase 07: the
-// automatic dt and c0 from the estimate of the spectrum of J (sbmc/spectrum.hpp).
+// automatic dt and c0 from the estimate of the spectrum of J (sbmc/spectrum.hpp); part 4, the
+// build for Windows (E9): --affinity and --print-topology, Windows only (apps/win_platform.cpp,
+// the only file with Windows API), and --version on every platform.
 //
 //   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
 //            [--steps M --dt auto|X [--dt-factor F] | --sweeps S --beta0 X --beta1 X]
@@ -11,6 +13,9 @@
 //            [--eval-every K]
 //            [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
 //            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
+//            [--affinity p1|p|e|all]
+//   sbmc_run --print-topology [--affinity p1|p|e|all]
+//   sbmc_run --version
 //
 // --steps and --dt are required with dsb and bsb, which take the variants c0 and c1; --sweeps,
 // --beta0 and --beta1 with sa, which takes the variants c0 and c2 and where --steps, --dt, --c0,
@@ -22,10 +27,24 @@
 // estimate_spectrum with kSpectrumIterations steps, run once per invocation and only for --dt auto
 // or --c0 lambda.
 //
+// Windows (phase 07, part 4): --affinity applies the process mask of the class rules of
+// apps/cpu_topology.hpp (p1: one logical processor per P core; p: the P cores; e: the E cores;
+// all) with SetProcessAffinityMask, right after the command line is read and before any call of
+// OpenMP, so that the threads of the solver run free inside the mask; e on a processor with one
+// efficiency class is an error of the command line. --print-topology writes the logical
+// processors (index, core, class), the classes, the masks of the four rules, the effective mask
+// and omp_get_num_procs, omp_get_max_threads and omp_get_proc_bind, after --affinity when given,
+// and exits with 0. On the other platforms both options are errors of the command line (exit
+// status 2). --version writes "sbmc_run git_hash=<hash> dirty=<0|1|-1> compiler=<compiler>
+// build_type=<type>" and exits with 0.
+//
 // Run: at startup, before any run, the environment of the process is read once: the logical
-// processors allowed to it (the Cpus_allowed_list line of /proc/self/status, column cpu_affinity)
-// and the variables OMP_PLACES and OMP_PROC_BIND (columns omp_places and omp_proc_bind; empty when
-// missing). Then the instance is read and, with --dt auto or --c0 lambda, the spectrum of J is
+// processors allowed to it (the Cpus_allowed_list line of /proc/self/status, column cpu_affinity;
+// on Windows the cpulist of the process mask, and the column cpu_classes, the efficiency classes
+// of its processors) and the variables OMP_PLACES and OMP_PROC_BIND (columns omp_places and
+// omp_proc_bind; empty when missing); host and os (on Windows the computer name and "Windows
+// <major>.<minor>.<build>"). Then the instance is read and, with --dt auto or --c0 lambda, the
+// spectrum of J is
 // estimated (t_setup_ms: both); the target is resolved (with --target
 // best-known the row of the table must have the n and m of the instance); --warmup runs with first
 // replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica
@@ -46,7 +65,8 @@
 // for an instance that is not in the best-known table or that has another n or m than its row,
 // when the paths of --out and --replica-out cannot be compared, when OMP_PLACES or OMP_PROC_BIND
 // contains a line break, and when dt or c0 cannot be derived from the spectrum (J = 0: before any
-// run, no row written); 2 for errors of the command line, with a message on stderr.
+// run, no row written), and on Windows when the processors or the mask cannot be read or set; 2
+// for errors of the command line, with a message on stderr.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -63,6 +83,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -85,6 +106,10 @@
 #include <sbmc/sb_sequential.hpp>
 #include <sbmc/solve_times.hpp>
 #include <sbmc/spectrum.hpp>
+
+#ifdef _WIN32
+#include "win_platform.hpp"
+#endif
 
 namespace {
 
@@ -120,6 +145,8 @@ struct Options {
   std::string replica_out;
   std::string notes;
   std::string tag;
+  std::string affinity;         // Windows only
+  bool print_topology = false;  // Windows only
 };
 
 // Float over the whole text, as std::from_chars reads it (shortest round trip, no locale).
@@ -228,6 +255,7 @@ std::string utc_timestamp(std::chrono::system_clock::time_point when) {
   return text.data();
 }
 
+#ifndef _WIN32
 std::string trim(std::string text) {
   const std::size_t first = text.find_first_not_of(" \t\r\n");
   if (first == std::string::npos) {
@@ -274,6 +302,7 @@ std::string os_pretty_name() {
   }
   return "unknown";
 }
+#endif  // !_WIN32
 
 // One row of results schema 2, filled by column name.
 class ResultsRow {
@@ -337,6 +366,7 @@ void check_output_file(const std::filesystem::path& file, std::string_view optio
   }
 }
 
+#ifndef _WIN32
 // The text after "Cpus_allowed_list:" in its line of /proc/self/status, without leading and
 // trailing spaces and tabs: the logical processors allowed to the process, in the cpulist format
 // (for example 0-15 or 0-3,8). Empty when the file or the line is missing.
@@ -358,6 +388,23 @@ std::string cpu_affinity() {
   }
   return {};
 }
+
+// The columns of the process environment on Linux: cpu_affinity, cpu_classes (empty), host and
+// os.
+struct ProcessEnvironment {
+  std::string cpu_affinity;
+  std::string cpu_classes;
+  std::string host;
+  std::string os;
+};
+
+ProcessEnvironment process_environment() {
+  return {cpu_affinity(), std::string(), first_line_of("/proc/sys/kernel/hostname"),
+          os_pretty_name() + " / " + first_line_of("/proc/sys/kernel/osrelease")};
+}
+#else
+using sbmc_win::process_environment;
+#endif  // !_WIN32
 
 // The value of an environment variable, empty when it does not exist; a line break in the value
 // is an error (one CSV row per line).
@@ -400,7 +447,7 @@ int run(const Options& options, bool dense) {
   const bool sa = options.algo == "sa";
 
   // 0. The environment of the process, read once at startup, before any run.
-  const std::string affinity = cpu_affinity();
+  const auto environment = process_environment();
   const std::string omp_places = environment_variable("OMP_PLACES");
   const std::string omp_proc_bind = environment_variable("OMP_PROC_BIND");
 
@@ -546,8 +593,6 @@ int run(const Options& options, bool dense) {
   }
 
   // Columns that do not change between repetitions.
-  const std::string host = first_line_of("/proc/sys/kernel/hostname");
-  const std::string os = os_pretty_name() + " / " + first_line_of("/proc/sys/kernel/osrelease");
   const std::string dirty =
       sbmc::build_info::dirty < 0 ? std::string() : std::to_string(sbmc::build_info::dirty);
 
@@ -584,8 +629,8 @@ int run(const Options& options, bool dense) {
     row.set("timestamp", timestamp);
     row.set("git_hash", std::string(sbmc::build_info::git_hash));
     row.set("dirty", dirty);
-    row.set("host", host);
-    row.set("os", os);
+    row.set("host", environment.host);
+    row.set("os", environment.os);
     row.set("compiler", std::string(sbmc::build_info::compiler));
     row.set("algo", options.algo);
     row.set("variant", options.variant);
@@ -635,7 +680,8 @@ int run(const Options& options, bool dense) {
       row.set("lambda_min", shortest(spectrum->lambda_min));
       row.set("lambda_max", shortest(spectrum->lambda_max));
     }
-    row.set("cpu_affinity", affinity);
+    row.set("cpu_affinity", environment.cpu_affinity);
+    row.set("cpu_classes", environment.cpu_classes);
     row.set("omp_places", omp_places);
     row.set("omp_proc_bind", omp_proc_bind);
     row.set("run_tag", options.tag);
@@ -675,9 +721,58 @@ int usage_error(std::string_view message) {
   return kExitUsage;
 }
 
+std::string version_text() {
+  return "sbmc_run git_hash=" + std::string(sbmc::build_info::git_hash) +
+         " dirty=" + std::to_string(sbmc::build_info::dirty) +
+         " compiler=" + std::string(sbmc::build_info::compiler) +
+         " build_type=" + std::string(sbmc::build_info::build_type);
+}
+
+// --affinity: the process mask, before any call of OpenMP (Windows only).
+int apply_affinity(const std::string& affinity) {
+#ifdef _WIN32
+  try {
+    sbmc_win::apply_affinity(affinity);
+    return kExitOk;
+  } catch (const std::invalid_argument& e) {
+    return usage_error(e.what());
+  } catch (const std::exception& e) {
+    std::cerr << "sbmc_run: --affinity " << affinity << ": " << e.what() << '\n';
+    return kExitError;
+  }
+#else
+  static_cast<void>(affinity);
+  return usage_error("--affinity is available only on Windows");
+#endif
+}
+
+// --print-topology, after --affinity when given (Windows only).
+int print_topology(const std::string& affinity) {
+#ifdef _WIN32
+  if (!affinity.empty()) {
+    if (const int status = apply_affinity(affinity); status != kExitOk) {
+      return status;
+    }
+  }
+  try {
+    sbmc_win::print_topology(std::cout);
+    return kExitOk;
+  } catch (const std::exception& e) {
+    std::cerr << "sbmc_run: --print-topology: " << e.what() << '\n';
+    return kExitError;
+  }
+#else
+  static_cast<void>(affinity);
+  return usage_error("--print-topology is available only on Windows");
+#endif
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+  sbmc_win::init_stdout();
+#endif
   Options options;
   CLI::App app{
       "Runs simulated bifurcation (dsb or bsb: the sequential reference C0, or C1 with OpenMP over "
@@ -872,11 +967,40 @@ int main(int argc, char** argv) {
                  "configuration")
       ->type_name("TEXT")
       ->check(no_line_break);
+  // Phase 07, part 4. --print-topology stops the parsing (CLI::Success) in its callback, run
+  // with the priority First of CLI11, before the required options are checked; --affinity has
+  // the same priority and is defined first, so its value is stored by then.
+  CLI::Option* affinity =
+      app.add_option("--affinity", options.affinity,
+                     "Windows only: process mask set before any OpenMP call: p1 (one logical "
+                     "processor per P core), p (P cores), e (E cores) or all")
+          ->type_name("p1|p|e|all")
+          ->check(CLI::IsMember({"p1", "p", "e", "all"}))
+          ->callback_priority(CLI::CallbackPriority::First);
+  app.add_flag_callback(
+         "--print-topology",
+         [&options]() {
+           options.print_topology = true;
+           throw CLI::Success();
+         },
+         "Windows only: write the logical processors, their classes and masks, the effective mask "
+         "and the OpenMP view, after --affinity when given, and exit")
+      ->callback_priority(CLI::CallbackPriority::First);
+  app.set_version_flag("--version", version_text(), "Write the build information and exit");
 
   try {
     app.parse(argc, argv);
   } catch (const CLI::ParseError& e) {
+    if (options.print_topology) {
+      return print_topology(options.affinity);
+    }
     return app.exit(e) == kExitOk ? kExitOk : kExitUsage;
+  }
+  // The process mask first, before any other work and any call of OpenMP.
+  if (affinity->count() > 0) {
+    if (const int status = apply_affinity(options.affinity); status != kExitOk) {
+      return status;
+    }
   }
   // The rules of the algorithms, after the parsing and before the other checks of the command line
   // (until phase 05 --steps and --dt were required options of CLI11, checked at this point of the

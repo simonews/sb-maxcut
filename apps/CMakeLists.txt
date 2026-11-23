@@ -4,7 +4,9 @@
 # (sbmc/bruteforce.hpp) on one instance and writes one line on stdout, without CSV and without the
 # build information. Phase 07: sbmc_spectrum, which estimates the extremes of the spectrum of J of
 # one instance (sbmc/spectrum.hpp) and writes them, with the automatic dt and c0, as one line on
-# stdout, like sbmc_bruteforce.
+# stdout, like sbmc_bruteforce. Phase 07, part 4: on Windows sbmc_run adds win_platform.cpp, the
+# only file with Windows API (--affinity, --print-topology and the columns of the process
+# environment); cpu_topology.hpp holds the rules of the masks, the same on every platform.
 
 # CLI11 (third_party/CLI11, single header): command line parsing, for the applications only. The
 # public headers of the project never include it.
@@ -31,6 +33,11 @@ add_custom_target(sbmc_build_info
   VERBATIM)
 
 add_executable(sbmc_run sbmc_run.cpp)
+if(WIN32)
+  # win_platform.cpp calls OpenMP (omp_get_num_procs and the others of --print-topology).
+  target_sources(sbmc_run PRIVATE win_platform.cpp)
+  target_link_libraries(sbmc_run PRIVATE OpenMP::OpenMP_CXX)
+endif()
 set_target_properties(sbmc_run PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 add_dependencies(sbmc_run sbmc_build_info)
 target_include_directories(sbmc_run PRIVATE "${PROJECT_BINARY_DIR}/generated")

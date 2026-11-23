@@ -3,6 +3,53 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R4] - 2026-11-23
+
+Phase 07, part 4 of 4: E9, the OpenMP scaling of C1 and C2 on Windows native (MinGW-w64 GCC of
+CLion, built from a copy of the commit) and in WSL2 as the control, with process masks by
+efficiency class, the runner extended to series of executables, masks and threads, the analysis
+and the bitwise comparison of the two builds. On Linux the rows and the output of `sbmc_run` are
+unchanged; no change to the library, to the results schema or to the replica file.
+
+### Added
+
+- `apps/cpu_topology.hpp` (portable): the rules `p1`, `p`, `e` and `all` of `--affinity` as masks
+  of the logical processors (index, core, efficiency class), `cpulist` and `cpu_classes`.
+- `apps/win_platform.hpp`, `apps/win_platform.cpp` (Windows only, the only code with Windows API):
+  the logical processors from `GetLogicalProcessorInformationEx`, the process mask
+  (`SetProcessAffinityMask`, read back), the columns `cpu_affinity`, `cpu_classes`, `host` and `os`
+  on Windows, the lines of `--print-topology`, stdout in binary mode.
+- `sbmc_run --affinity p1|p|e|all` and `--print-topology` (Windows only, elsewhere exit status 2)
+  and `--version` (every platform).
+- `CMakePresets.json`: the presets `win-cpu` and `win-cpu-strict` (configure, build, test): Ninja,
+  g++ from the PATH, `-static` with libgomp linked statically, `binaryDir`
+  `${sourceParentDir}/build-<preset>`; on Windows only the C++ tests of the label `cpu`.
+- `scripts/windows/stage.sh` (the copy of HEAD with `.sbmc_build_info` and K2000),
+  `scripts/windows/build.ps1` (PowerShell 5.1: the toolchain of CLion, the two presets built and
+  tested, `build_summary.txt`, `WIN_BUILD`), `scripts/laptop/f07r4.sh` (`stage` and `run`: the
+  whole procedure of the laptop with its verdicts).
+- `bench/configs/f07_e9.toml`: G1 and K2000, SA and dSB with the parameters of E2, R 1024, five
+  series (`win-p1`, `win-p`, `win-e`, `win-all`, `wsl`), 136 configurations.
+- `python/sbmc_e9.py`: `analyze` (`e9_summary.csv`, the scaling plots, the checks of
+  consistency) and `bitwise` (Windows build against WSL build, with the comparison of the SA
+  thresholds on a difference).
+- Tests: `test_cpu_topology` (`cpu`), `test_sbmc_e9` (`python`), `test_sbmc_campaign_series`
+  (`apps`), the tool `tests/tools/sbmc_sa_thresholds`; 33 tests with `cpu`, 39 with `cuda`, 36
+  with `t4`, 18 with the Windows presets.
+
+### Changed
+
+- `python/sbmc_campaign.py`: `[[series]]` (`id`, `sbmc_run`, `platform`, `affinity`, `threads`,
+  `base`) with the ids `<id>_<series>_T<threads>`; the Windows series get `--affinity` and the
+  paths translated with `wslpath -w`; `threads` of `[campaign]` and stages are not allowed with
+  series. Configurations without series run as before.
+- `cmake/sbmc_build_info.cmake`: `.sbmc_build_info` in the source folder when git gives no hash
+  (the copy for Windows); a malformed file is an error. `.gitignore`: `.sbmc_build_info`.
+- `apps/CMakeLists.txt`, `tests/CMakeLists.txt`: the Windows sources and the new tests and tool.
+- `README.md`: Status, Requirements, the new options of `sbmc_run`, the runner with series, the
+  columns of the environment on Windows, the campaign table, "E9 on Windows native" (procedure,
+  series, analysis, bitwise comparison, limits), Tests, Tools and the layout.
+
 ## [F07-R3b] - 2026-11-22
 
 Correction of phase 07, part 3 (decision N1): the grid of E2 extended to short S and M on G2 and

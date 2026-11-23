@@ -56,6 +56,12 @@ on the CPU, with their analysis tools and plots (see "Campaigns"); matplotlib in
 environment, dwave-samplers as an option (`scripts/setup_python.sh --dwave`). Then the grid of E2
 was extended to short S and M on G2 and G12, with E3 and the external check run again on the new
 choices (F07-R3b, decision N1; see "E2: tuning").
+Phase 07, part 4 of 4: E9, the OpenMP scaling of C1 and C2 on Windows native, with the MinGW-w64
+GCC of CLion (presets `win-cpu` and `win-cpu-strict`, linked statically, built from a copy of the
+commit), and in WSL2 as the control; `sbmc_run --affinity` and `--print-topology` on Windows
+(`apps/win_platform.cpp`, the only file with Windows API) and `--version`; series of executables,
+masks and threads in the runner; `python/sbmc_e9.py`, with the bitwise comparison of the two
+builds; `scripts/laptop/f07r4.sh` (see "E9 on Windows native").
 
 ## Requirements
 
@@ -70,6 +76,9 @@ choices (F07-R3b, decision N1; see "E2: tuning").
   newer)
 - For the tools and their test: git, rsync, unzip and zip (`sudo apt install rsync unzip zip`)
 - For `scripts/fetch_data.sh`: curl and sha256sum
+- For E9 (phase 07, part 4), on Windows: CLion with its MinGW-w64 GCC (15.2, with libgomp),
+  CMake and Ninja, and PowerShell 5.1; nothing else (no MSYS2, no Git for Windows); the interop of
+  WSL enabled (the default), to start `sbmc_run.exe` from WSL
 
 ## CPU build and tests
 
@@ -1203,6 +1212,9 @@ sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --rep
          [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|lambda|X] [--eval-every K]
          [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
          [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
+         [--affinity p1|p|e|all]
+sbmc_run --print-topology [--affinity p1|p|e|all]
+sbmc_run --version
 ```
 
 | Option | Meaning |
@@ -1224,6 +1236,9 @@ sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --rep
 | `--replica-out FILE` | replica file: header written when the file is new or empty, R rows appended per repetition after its row of results (see "Replica file"); requires `--out`, and another file |
 | `--notes TEXT` | free text of the `notes` column (no line breaks) |
 | `--tag TEXT` | free text of the `run_tag` column, the identifier of the campaign or of the configuration (no line breaks; commas allowed, the field is then quoted); default empty |
+| `--affinity p1\|p\|e\|all` | Windows only (phase 07, part 4; elsewhere exit status 2): the process mask, set before any call of OpenMP, the threads free inside it (see "E9 on Windows native") |
+| `--print-topology` | Windows only (elsewhere exit status 2): the logical processors, the classes, the masks of the rules and the view of OpenMP, after `--affinity` when given; exit status 0 |
+| `--version` | `sbmc_run git_hash=<hash> dirty=<0\|1\|-1> compiler=<compiler> build_type=<type>`, exit status 0 |
 
 Integers are decimal only (CLI11 alone would read `010` as octal). Exit status: 0 success; 1
 error of the library (for example `--replicas 0`: the preconditions of C0, C1 and of the SA
@@ -1343,8 +1358,8 @@ written (`python/sbmc_tts.py` reads both):
 | `timestamp` | start of the repetition, UTC, `YYYY-MM-DDThh:mm:ssZ` | |
 | `git_hash` | commit of the source tree at build time | 40 hexadecimal digits, or `unknown` |
 | `dirty` | uncommitted changes, at build time, to tracked files outside `results/` of the root | 1, 0, or empty when unknown |
-| `host` | host name (`/proc/sys/kernel/hostname`) | |
-| `os` | `PRETTY_NAME` of `/etc/os-release`, " / ", kernel release (`/proc/sys/kernel/osrelease`, which names the WSL kernel on WSL) | `unknown` for a missing part |
+| `host` | host name (`/proc/sys/kernel/hostname`; on Windows the computer name) | |
+| `os` | `PRETTY_NAME` of `/etc/os-release`, " / ", kernel release (`/proc/sys/kernel/osrelease`, which names the WSL kernel on WSL); on Windows `Windows <major>.<minor>.<build>` | `unknown` for a missing part |
 | `gpu`, `driver`, `cuda`, `cublas` | GPU, driver, CUDA runtime and cuBLAS versions | empty (CPU) |
 | `compiler` | C++ compiler, `<id> <version>` | for example `GNU 13.3.0` |
 | `algo` | `dsb`, `bsb`, `sa` | |
@@ -1368,8 +1383,8 @@ written (`python/sbmc_tts.py` reads both):
 | `dt_rule` | how dt was chosen: `value`, the value of `--dt`; `auto`, `--dt auto` (the column `dt` holds the value used) | SB; empty (SA) |
 | `c0_rule` | how c0 was chosen: `sigma`, automatic, 1/(2 sigma sqrt(n)); `lambda`, 1/lambda_max; `value`, an explicit `--c0` | SB; empty (SA) |
 | `lambda_min`, `lambda_max` | estimated extremes of the spectrum of J, shortest form that reads back as the same double | filled only with `--dt auto` or `--c0 lambda`, empty otherwise (and for SA) |
-| `cpu_affinity` | logical processors allowed to the process at startup, cpulist format (for example `0-15` or `0-3,8`) | the text after `Cpus_allowed_list:` in `/proc/self/status`, empty when missing |
-| `cpu_classes` | efficiency classes of the allowed logical processors, groups `<class>:<cpulist>` separated by a space in decreasing class order (for example `1:0-11 0:12-15`) | empty (filled on Windows in phase 07, part 4) |
+| `cpu_affinity` | logical processors allowed to the process at startup, cpulist format (for example `0-15` or `0-3,8`) | the text after `Cpus_allowed_list:` in `/proc/self/status`, empty when missing; on Windows the process mask after `--affinity` |
+| `cpu_classes` | efficiency classes of the allowed logical processors, groups `<class>:<cpulist>` separated by a space in decreasing class order (for example `1:0-11 0:12-15`) | empty on Linux; filled on Windows (phase 07, part 4), empty if the processors cannot be read |
 | `omp_places`, `omp_proc_bind` | `OMP_PLACES` and `OMP_PROC_BIND` at startup | empty when not set |
 | `run_tag` | `--tag` | |
 | `notes` | `--notes` | |
@@ -1501,6 +1516,7 @@ interpreter of `.venv` (NumPy and matplotlib; see "Python reference P0 and T8"):
 | `python/sbmc_e2.py` | `analyze CONFIG [--bootstrap B] [--seed S]` | the analysis of the tuning E2 |
 | `python/sbmc_dwave.py` | `check CONFIG --notes TEXT` | the external check of SA with dwave-samplers |
 | `python/sbmc_e3.py` | `analyze CONFIG [--bootstrap B] [--seed S]` | the analysis of E3 on the CPU |
+| `python/sbmc_e9.py` | `analyze CONFIG`, `bitwise CONFIG --workdir DIR --win-run EXE ...` | the analysis of E9 and the bitwise comparison of the Windows and WSL builds |
 
 Every tool takes `--root DIR` (default: the current directory), reads its configuration with
 `tomllib`, exits with 0 on success, 1 for an error in the data or in a child process and 2 for an
@@ -1523,7 +1539,7 @@ the key and the file):
 | `[campaign]` `name` | `[a-z0-9_]+` |
 | `output` | the folder of the campaign, relative to the repository root |
 | `sbmc_run`, `sbmc_spectrum` | the executables (relative to the root), usually `build/cpu/apps/...` |
-| `replicas`, `threads`, `reps`, `warmup`, `seed` | R (>= 1), threads (>= 1), repetitions (>= 1), warm-up runs (>= 0), seed of the runs (>= 0) |
+| `replicas`, `threads`, `reps`, `warmup`, `seed` | R (>= 1), threads (>= 1; not with `[[series]]`), repetitions (>= 1), warm-up runs (>= 0), seed of the runs (>= 0) |
 | `[dwave]` `seed` | optional: the seed of the sampler of dwave-samplers (`python/sbmc_dwave.py`) |
 | `[[instance]]` `id` | `[A-Za-z0-9_]+`, passed as `--name` (the row of `data/best_known.csv`) |
 | `args` | `["--instance", FILE]` or `["--dense", N, "--instance-seed", S]` |
@@ -1536,6 +1552,7 @@ the key and the file):
 | `steps` | a table with one array of integers >= 1 per instance: S (sa) or M (dsb) |
 | `selection` | instead of `a`, `b` (or `f`, `c0`): a `selected.csv` of `python/sbmc_e2.py`; the row of the method whose `tuning_instance` or `evaluation_instance` is the instance; with it `steps` can be `"selected"`, the steps of that row; a row `none` gives no configuration (written in the log) |
 | `[[stage]]` `name`, `instance`, `target`, `runs` | optional runs before the grid (`name` not `grid`; `target` default `"none"`); `runs` is an array of tables with `method`, `steps`, `a` and `b` or `f` and `c0`, and optional `reps` and `warmup` |
+| `[[series]]` `id`, `sbmc_run`, `platform`, `affinity`, `threads`, `base` | optional (E9; no stages then): `[a-z0-9-]+`; the executable of the series; `"windows"` (`sbmc_run.exe` started from WSL through the interop, with `--affinity`) or `"linux"`; for `windows` the rule `p1`, `p`, `e` or `all`; the threads, strictly increasing; optional `base`, an earlier series of the same platform with 1 thread, the reference of the speedup of a series without 1 thread |
 
 Scales of an instance, written with the line SPECTRUM of `sbmc_spectrum` to
 `<output>/instances.csv` (columns `instance, n, m, h, w, lambda_min, lambda_max, dt_auto,
@@ -1550,8 +1567,10 @@ Configurations, in this order: the runs of the stages, then the grid (instances 
 the file, for each the methods in the order of the file, for each the product (a, b, steps) or
 (f, c0, steps) with the steps innermost). Ids: `sa_a<a>_b<b>_S<S>` and `dsb_f<f>_c<sigma|lambda>_M<M>`
 (numbers with `repr()`, for example `sa_a0.5_b2.0_S1000`); a run of a stage is `<stage>_<id>`.
-Each configuration is one call, from the repository root, in the environment of the runner without
-the `OMP_*` variables:
+With `[[series]]` every point of the grid is run by every series, in the order of the file, with
+its threads in increasing order, and the id ends with `_<series>_T<threads>`
+(`sa_a1.0_b2.0_S1000_win-p1_T4`). Each configuration is one call, from the repository root, in the
+environment of the runner without the `OMP_*` variables:
 
 ```
 sbmc_run <args of the instance> --name <instance> <parameters> --replicas R --threads T
@@ -1561,7 +1580,13 @@ sbmc_run <args of the instance> --name <instance> <parameters> --replicas R --th
 ```
 
 with the parameters `--algo sa --variant c2 --sweeps S --beta0 repr(a/h) --beta1 repr(b/w)` or
-`--algo dsb --variant c1 --steps M --dt auto --dt-factor repr(f) --c0 auto|lambda`. One pair of
+`--algo dsb --variant c1 --steps M --dt auto --dt-factor repr(f) --c0 auto|lambda`. With series,
+`sbmc_run` is the executable of the series and T its threads; a series of platform `windows` adds
+`--affinity <rule>` (and `--best-known <table>` with the target `best-known`), and its path
+arguments (the rudy file, `--out`, `--replica-out`, `--best-known`) are absolute Windows paths: the
+repository root translated once with `wslpath -w` (for example
+`\\wsl.localhost\Ubuntu\home\simone\projects\sb-maxcut`), then the relative path with
+backslashes. The lock, the log and the manifest stay in WSL. One pair of
 files per configuration: the replica file has no `run_tag`, so the join of the two files needs
 them alone. The target of a grid on an instance with `best-found` is the largest `best_cut` of
 its stages, which run first; `--stage grid` refuses to start before they are complete.
@@ -1605,6 +1630,7 @@ manifest are versioned, the replica files stay on the machine with their hashes 
 | `bench/configs/f07_e2.toml` | `results/f07/e2/` | G2, G12, G15, `dense_n2000_s1` | 2 (stage `target`) + 276 |
 | `bench/configs/f07_dwave.toml` | `results/f07/dwave/` | G2, G12, G15 | 3 (one thread) |
 | `bench/configs/f07_e3.toml` | `results/f07/e3/` | G1, G11, G14, K2000 | 46 |
+| `bench/configs/f07_e9.toml` | `results/f07/e9/` | G1, K2000 | 136 (34 points x 4 loads) |
 
 E2 and E3 with R = 1024 (with R = 2048 the test of F07-R1 gained 3-5% at 16 threads, not worth
 twice the time), 16 threads, 5 repetitions after one warm-up run, seed 1; the check with R = 1024
@@ -1798,26 +1824,135 @@ Lines on stdout: `E3 <instance> level=<f> tts_sb_ms=... tts_sa_ms=... ratio_sa_s
 `E3_DONE`. The final check stays outside T_batch: on K2000 it weighs 15% of run and check with SA
 and S 500, and 1-2% in the longest runs.
 
+### E9 on Windows native
+
+E9 (sections 14.2 and 14.5; decisions D12, L9, W1-W4) measures the OpenMP scaling of C1 (dSB)
+and C2 (SA) on Windows native, on the laptop (i7-13620H: 6 P cores with two logical processors
+each and 4 E cores, 16 logical processors in two efficiency classes), and in WSL2 as the control.
+Three steps, from the root of the repository on the branch `fase-07`:
+
+```
+bash scripts/laptop/f07r4.sh stage         # WSL: copy of HEAD, prints the PowerShell line
+powershell -NoProfile -ExecutionPolicy Bypass -File DEST\src\scripts\windows\build.ps1
+bash scripts/laptop/f07r4.sh run "$NOTES"  # WSL: checks, bitwise, campaign, analysis
+```
+
+with `DEST` = `C:\Users\Simone\sbmc-win`.
+
+Build (W1). `scripts/windows/stage.sh [DEST]` (default `/mnt/c/Users/Simone/sbmc-win`) replaces
+`DEST/src` with `git archive HEAD`, adds `.sbmc_build_info` (`git_hash=<HEAD>`, `dirty=0`; Windows
+has no git: `cmake/sbmc_build_info.cmake` reads the file only when git gives no hash, and a
+malformed file is an error) and `data/raw/k2000/WK2000_1.rud` when present, and warns when the
+working tree has changes to tracked files (the copy is HEAD). `scripts/windows/build.ps1`
+(PowerShell 5.1, no modules; `-ClionDir` when CLion is not in the usual folders) puts the
+MinGW-w64 GCC, CMake and Ninja of CLion first in its own PATH, then configures, builds and tests
+the presets `win-cpu-strict` and `win-cpu` (Ninja, Release, `-static`, libgomp linked statically:
+the executables import only `KERNEL32.dll` and `msvcrt.dll`); the builds go to
+`DEST\build-<preset>`, outside the copy, the logs and `build_summary.txt` (toolchain, one line per
+preset with the exit statuses, warnings and tests, `WIN_BUILD: PASS|FAIL`) to `DEST\logs`. On
+Windows only the 18 C++ tests of the label `cpu` and the tool `sbmc_sa_thresholds` are built.
+
+`sbmc_run` on Windows (`apps/win_platform.cpp`, the only file with Windows API, and
+`apps/cpu_topology.hpp`, portable and tested on Linux): the logical processors, their core and
+efficiency class come from `GetLogicalProcessorInformationEx`; `--affinity` sets the process mask
+with `SetProcessAffinityMask` before any call of OpenMP and reads it back, and the threads of the
+solver run free inside it:
+
+| Rule  | Mask                                                         | i7-13620H |
+|-------|--------------------------------------------------------------|-----------|
+| `p1`  | the smallest index of every core of the highest class        | 6         |
+| `p`   | every logical processor of the highest class                 | 12        |
+| `e`   | every logical processor of the lowest class                  | 4         |
+| `all` | every logical processor                                      | 16        |
+
+With one class, `p` and `p1` are `all` and `e` is an error of the command line (exit status 2);
+more than 64 logical processors (more than one processor group) is an error. `--print-topology`
+writes `TOPOLOGY logical=.. cores=.. classes=..`, one `CPU <i> core=<c> class=<k>` per logical
+processor, one `CLASS` per class, one `AFFINITY <rule> count=.. cpus=..` per rule, the effective
+`MASK` and `OPENMP num_procs=.. max_threads=.. proc_bind=..`. The rows record `cpu_affinity` (the
+process mask), `cpu_classes` (`1:0-11 0:12-15` with `all`), `host` (the computer name) and `os`
+(`Windows <major>.<minor>.<build>`); stdout is in binary mode, so the lines end with `\n`.
+
+The campaign (W2, `bench/configs/f07_e9.toml`, output `results/f07/e9/`) runs from WSL: the
+runner starts `sbmc_run.exe` through the interop of WSL, with Windows paths (see "The runner").
+Four loads, with the relative parameters of E2 of the family (`results/f07/e2/selected.csv`): G1
+with SA S 1000 and dSB M 2000, K2000 with SA S 200 and dSB M 200; R 1024, 1 warm-up run, 5
+repetitions, seed 1. Five series:
+
+| Series    | Preset    | Mask  | Threads             | Speedup against |
+|-----------|-----------|-------|---------------------|-----------------|
+| `win-p1`  | `win-cpu` | `p1`  | 1-6                 | itself, T 1     |
+| `win-p`   | `win-cpu` | `p`   | 2, 4, ..., 12       | `win-p1`, T 1   |
+| `win-e`   | `win-cpu` | `e`   | 1-4                 | itself, T 1     |
+| `win-all` | `win-cpu` | `all` | 1, 2, 4, 6, ..., 16 | itself, T 1     |
+| `wsl`     | `cpu`     | none  | 1, 2, 4, 6, ..., 16 | itself, T 1     |
+
+34 points per load, 136 configurations. `python/sbmc_e9.py analyze` writes `e9_summary.csv` (one
+row per configuration: the median, Q1, Q3 and IQR of `t_run_ms` over the repetitions, the speedup
+and the efficiency S / T against the series of reference, and for the Windows series against the
+fastest Windows series at 1 thread, the cuts, the mask and the classes) and
+`plots/scaling_<instance>_<method>` (speedup and efficiency against the threads, one line per
+series); on stdout `E9 ...` per configuration, `E9_TABLE ...` per load, the checks `E9_CHECK
+masks|cuts linux|cuts windows|cuts sa windows=linux: PASS|FAIL`, `E9_INFO` for dSB between the
+platforms, `E9_CONSISTENCY: PASS|FAIL` and `E9_DONE`. The checks: the mask and the classes of
+every Windows row match its rule and are the same in the series, the team is the threads asked
+and fits the mask; the cuts of every repetition are equal over the threads and the series of a
+platform; SA is equal between Windows and WSL.
+
+`python/sbmc_e9.py bitwise` (section 5.4 of F07-C4) compares the two builds with 4 threads, seed
+1, one repetition: SA `win-cpu` against `cpu` on G1 (R 256, S 1000) and K2000 (R 32, S 200), dSB
+`win-cpu-strict` against `cpu-strict` on G1 (R 64, M 500, `--dt 0.5`, `--c0 auto`); the replica
+files must be equal in every column but `timestamp`. On a difference it writes the first
+different replica and, for SA, compares the output of `sbmc_sa_thresholds` (the schedule
+`sa_beta` and the thresholds `sa_threshold` of the library, the only floating-point operations of
+SA) of the two builds, sweep by sweep. Lines `BITWISE <case>: equal|different`, `BITWISE_SA` and
+`BITWISE_DSB_STRICT`. No code is changed after a difference without a decision.
+
+`scripts/laptop/f07r4.sh run "$NOTES"` checks the repository, the hash of the copy and
+`build_summary.txt`; runs `--version` and `--print-topology` (also under every rule) through the
+interop; builds and tests `cpu-strict` and `cpu` in WSL; runs `bitwise`, the campaign (resumable),
+its status, `analyze` and the manifest. It prints about 20 lines, with the verdicts `INTEROP`,
+`TOPOLOGY` (16 logical processors, 2 classes, P 12, E 4, P1 6), `WIN_BUILD`, `BITWISE_SA`,
+`BITWISE_DSB_STRICT`, `E9` (136 of 136), `E9_CONSISTENCY` and `F07R4_VERDICT`, and keeps the
+details in `~/sbmc_logs/f07r4/`; a problem that makes the rest meaningless stops it with `STOP:`.
+
+Limits:
+
+- the libgomp of MinGW-w64 does not bind threads (`proc_bind=false` in `--print-topology`, to be
+  confirmed by its line on the laptop): the threads move inside the mask, and pinning thread by
+  thread was discarded (W3); `omp_get_num_procs` follows the mask, `omp_get_max_threads` is fixed
+  when libgomp starts, so E9 always passes `--threads`;
+- the comparisons follow D12: a Windows series is compared with itself, with the other Windows
+  series and with `wsl` of the same campaign, never with the Linux measures of other phases;
+- SA equal bit for bit between the builds is expected (integer arithmetic and Philox, `std::pow`
+  and `std::exp` in double only in the schedule and the thresholds) but not guaranteed: the C
+  runtime of MinGW-w64 is not glibc; dSB is compared only between the strict presets, and in the
+  campaign it is only reported (`E9_INFO`);
+- the instance is read through `\\wsl.localhost` (in `t_setup_ms`, not in `t_run_ms`);
+- at most 64 logical processors; `build.ps1` was not run in the sandbox (no PowerShell), the
+  presets were cross-compiled with MinGW-w64 GCC 13 and tested under wine.
+
 ## Tests
 
 | Label    | Tests                                                                                                             | Sources                               |
 |----------|-------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_spectrum`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2`, `test_solve_times` | `tests/`, `tests/core/`, `tests/cpu/` |
-| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`, `test_sbmc_e2`, `test_sbmc_e3`, `test_sbmc_dwave` | `tests/python/`, `tests/tools/`       |
-| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`, `test_sbmc_spectrum`, `test_sbmc_campaign`  | `tests/python/`                       |
+| `cpu`    | `test_sanity`, `test_philox`, `test_instance`, `test_rudy`, `test_initial_state`, `test_sb`, `test_gset`, `test_k2000`, `test_results`, `test_spectrum`, `test_sb_sequential`, `test_sa_sequential`, `test_sb_openmp`, `test_sa_openmp`, `test_bruteforce`, `test_t2`, `test_solve_times`, `test_cpu_topology` | `tests/`, `tests/core/`, `tests/cpu/` |
+| `python` | `test_p0`, `test_t8` (with the tool `sbmc_trace`), `test_data`, `test_sbmc_tts`, `test_sbmc_e2`, `test_sbmc_e3`, `test_sbmc_dwave`, `test_sbmc_e9` (with the tool `sbmc_sa_thresholds`) | `tests/python/`, `tests/tools/`       |
+| `apps`   | `test_sbmc_run` (with the tool `sbmc_trace`), `test_sbmc_bruteforce`, `test_sbmc_spectrum`, `test_sbmc_campaign`, `test_sbmc_campaign_series`  | `tests/python/`                       |
 | `tools`  | `test_sync_from_zip`, `test_build_info`; `test_cuda_rpath` (CUDA presets)                                         | `tests/scripts/`                      |
 | `gpu`    | `smoke_simt`, `test_curand_philox`; `smoke_tile`, FMA probes (Tile only)                                          | `tests/smoke/`, `tests/gpu/`          |
 | `tile`   | `smoke_tile`, `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                 | `tests/smoke/`                        |
 | `probe`  | `fma_probe_tile_fmad_on`, `fma_probe_tile_fmad_off`                                                               | `tests/smoke/`                        |
 
 Executables are built in `build/<preset>/tests/` (`test_sanity`), `build/<preset>/tests/core/`,
-`build/<preset>/tests/cpu/`, `build/<preset>/tests/tools/` (`sbmc_trace`, a tool of the tests, not
-a test), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
+`build/<preset>/tests/cpu/`, `build/<preset>/tests/tools/` (`sbmc_trace` and `sbmc_sa_thresholds`,
+tools of the tests, not tests), `build/<preset>/tests/gpu/` and `build/<preset>/tests/smoke/`; the traces of T8 go to
 `build/<preset>/tests/python/`, the files of `test_sbmc_run` to `build/<preset>/tests/apps/`, those
 of `test_sbmc_bruteforce` to `build/<preset>/tests/bruteforce/`, those of `test_sbmc_spectrum` to
 `build/<preset>/tests/spectrum/`, those of `test_sbmc_tts` to `build/<preset>/tests/tts/`, those of
-`test_sbmc_campaign`, `test_sbmc_e2`, `test_sbmc_e3` and `test_sbmc_dwave` to
-`build/<preset>/tests/campaign/`, `e2/`, `e3/` and `dwave/`.
+`test_sbmc_campaign`, `test_sbmc_e2`, `test_sbmc_e3`, `test_sbmc_dwave`, `test_sbmc_e9` and
+`test_sbmc_campaign_series` to `build/<preset>/tests/campaign/`, `e2/`, `e3/`, `dwave/`, `e9/` and
+`series/`.
 `tests/data/` holds the input files of the tests: `four_nodes.rudy` (the 4-node example of the
 reference document); two 4 x 6 toroidal grids, `torus_4x6_unit.rudy` (unit weights, maximum
 cut 48) and `torus_4x6_pm1.rudy` (+-1 weights, maximum cut 24, 35 optimal partitions);
@@ -1828,8 +1963,8 @@ T2-2); `weighted_isolated_13.rudy`, 13 nodes and 19 edges with weights of both s
 int64 sums of C3 (only C3: `auto_c0` rejects it, because Q overflows int64). `test_gset`,
 `test_data`, `test_results`, `test_instance`, `test_spectrum`, `test_solve_times`,
 `test_sbmc_spectrum`, `test_sbmc_campaign`, the case GS-G1, the cases SA-5 and SA-9 read `data/`.
-Number of tests: 30 with `cpu` and `cpu-strict`, 36 with `cuda` and `cuda-strict`, 33 with `t4`
-and `t4-strict`. A
+Number of tests: 33 with `cpu` and `cpu-strict`, 39 with `cuda` and `cuda-strict`, 36 with `t4`
+and `t4-strict`, 18 (the label `cpu` only) with `win-cpu` and `win-cpu-strict` on Windows. A
 test that cannot run on the current machine (no GPU, no NumPy, missing tool, missing data) exits
 with 77 and CTest reports it as skipped (for example `ctest --preset cuda -L tile` runs only the
 Tile tests): `test_k2000` needs `scripts/fetch_data.sh --k2000` first.
@@ -1936,6 +2071,13 @@ Tests in detail (the C++ ones use doctest):
   `SaResult{}` at zero; for 16 calls of the four solvers (G1, dense_graph_40 and
   `DenseSpinGlass{200, 7}`; dSB and bSB; one and three threads) the three times finite and >= 0,
   their sum at most the duration of the call measured outside it, and on G1 a run time > 0;
+- `test_cpu_topology` (phase 07, part 4; built on every platform, since `apps/cpu_topology.hpp`
+  has no Windows API): `cpulist` in the format of `Cpus_allowed_list` (runs as `a-b`); on a model
+  of the i7-13620H (P cores 0-11 in pairs, E cores 12-15) the masks of `p1`, `p`, `e` and `all`
+  (`0,2,4,6,8,10`, `0-11`, `12-15`, `0-15`) and `cpu_classes` (`1:0-11 0:12-15`); `p1` independent
+  of the order of the list and the smallest index of every P core; with one class `p` and `p1`
+  equal to `all` and `e` an error; the errors of a list (empty, an index outside 0-63 or twice,
+  more than 64 processors); the names of the rules;
 - `test_t2` (T2): the seven cases of "T2: C0 and C1 against the exact optimum", the optimum from
   C3, the replicas of C0 and of C1 at the optimum (counts and the best cuts of T2-3 in the strict
   presets, where C1 also equals C0 replica by replica); the seven cases of "T2 for SA" with the
@@ -1977,6 +2119,14 @@ Tests in detail (the C++ ones use doctest):
   `sparse_24_unit.rudy` (S 200, beta 0.5 -> 2, 256 reads and replicas, `sbmc_run` on one thread):
   PASS, the files and the plot; without it that part is marked SKIP and the test passes; final
   line `DWAVE_VERDICT` (the verdict of the test);
+- `test_sbmc_e9` (label `python`, phase 07, part 4): `python/sbmc_e9.py analyze` on a fake
+  campaign (two loads, the five series with fewer threads, the masks and classes of the
+  i7-13620H): the medians, quartiles, speedups and efficiencies of `e9_summary.csv` against an
+  independent computation, the plots, `E9_CONSISTENCY: PASS`; the checks that must fail (a `win-e`
+  row with the class of the P cores, a WSL row with another cut, SA different between the
+  platforms) and dSB different only as `E9_INFO`; `bitwise` with this build on both sides (the
+  Windows side a wrapper behind a fake `wslpath`): PASS, and with a changed replica FAIL with the
+  first different replica and the thresholds compared; final line `E9_TEST_VERDICT`;
 - `test_sbmc_campaign` (label `apps`, phase 07): `python/sbmc_campaign.py` with `sbmc_run` and
   `sbmc_spectrum` of the build: h and w of seven rudy files and of `--dense 200`, beta0 in the
   commands of `--dry-run` (values of cldArchitect); 12 wrong configurations (exit status 2, no file
@@ -1985,6 +2135,13 @@ Tests in detail (the C++ ones use doctest):
   truncated results file and a removed replica file that repeats only those two configurations,
   the manifest, `status`, the log); a failure of `sbmc_run` (exit status 1, the next
   configuration not started, one `fail` line); final line `CAMPAIGN_VERDICT`;
+- `test_sbmc_campaign_series` (label `apps`, phase 07, part 4): `sbmc_run --affinity` and
+  `--print-topology` on Linux (exit status 2, "available only on Windows") and `--version`; 10
+  wrong configurations with `[[series]]` (exit status 2, no file written); `--dry-run` with a fake
+  `wslpath`: the points of every series in order, the ids `<id>_<series>_T<threads>`, `--affinity`
+  and the Windows paths only in the Windows series; a real run with a wrapper as the Windows
+  series (10 configurations, the arguments as in the dry run), a second run that skips everything,
+  `status`; final line `SERIES_VERDICT`;
 - `test_sbmc_run` (label `apps`): `sbmc_run` run from the repository root, its exit statuses (2 for
   the command line, among them `--threads` with `--variant c0` and out of [0, 1024]; 1 for the
   library and for reading and writing), the 56 columns and their values on the 4-node graph, a
@@ -2125,6 +2282,8 @@ Notes:
 - `scripts/setup_cuda_pypi.sh`: see above.
 - `scripts/fetch_data.sh [--gset] [--k2000]`: see "Data" and `data/README.md`.
 - `scripts/kaggle_run.sh [--ref LABEL] [--out DIR]`: see "Running on Kaggle (2 x T4)".
+- `scripts/windows/stage.sh [DEST]`, `scripts/windows/build.ps1 [-ClionDir DIR] [-Dest DIR]` and
+  `scripts/laptop/f07r4.sh stage|run "$NOTES"`: see "E9 on Windows native".
 
 Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 `scripts/sync_from_zip.sh` enforces it on every delivery.
@@ -2150,30 +2309,34 @@ src/tile/            fused CUDA Tile kernel (sm_89 only)
 src/mgpu/            MPI and NCCL multi-GPU drivers
 apps/                command-line programs: sbmc_run (phase 04, C1 from phase 05, SA, C2 and
                      the replica file from phase 06, schema 2 and the automatic dt and c0 from
-                     phase 07), sbmc_bruteforce (phase 05), sbmc_spectrum (phase 07)
+                     phase 07; cpu_topology.hpp and win_platform.cpp, the Windows part, from
+                     phase 07, part 4), sbmc_bruteforce (phase 05), sbmc_spectrum (phase 07)
 tests/               unit, integration and smoke tests (ctest)
 tests/core/          unit tests of the core library, the spectrum of J included (doctest)
-tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C2, C3), T2
-                     and the times of the solvers (doctest)
+tests/cpu/           unit tests of the CPU solvers (C0, C1 with T7, the SA reference, C2, C3), T2,
+                     the times of the solvers and the masks of --affinity (doctest)
 tests/data/          input files of the tests
 tests/gpu/           CUDA tests (test_curand_philox)
 tests/python/        Python tests: P0 alone (test_p0), T8 (test_t8), the data (test_data), sbmc_run
                      (test_sbmc_run), sbmc_bruteforce (test_sbmc_bruteforce), sbmc_spectrum
                      (test_sbmc_spectrum), the time to solution (test_sbmc_tts), the campaign
-                     tools of phase 07 (test_sbmc_campaign, test_sbmc_e2, test_sbmc_e3,
-                     test_sbmc_dwave)
+                     tools of phase 07 (test_sbmc_campaign, test_sbmc_campaign_series,
+                     test_sbmc_e2, test_sbmc_e3, test_sbmc_dwave, test_sbmc_e9)
 tests/smoke/         CUDA smoke tests and FMA probes
 tests/scripts/       tool tests and checks (sync_from_zip.sh, build information, RPATH)
-tests/tools/         tools of the tests (sbmc_trace)
+tests/tools/         tools of the tests (sbmc_trace, sbmc_sa_thresholds)
 python/              NumPy reference P0 (sbmc_ref), time to solution (sbmc_tts.py), the
-                     runner of the campaigns (sbmc_campaign.py) and the analysis of E2, E3 and of
-                     the external check (sbmc_e2.py, sbmc_e3.py, sbmc_dwave.py, phase 07),
+                     runner of the campaigns (sbmc_campaign.py) and the analysis of E2, E3, E9
+                     and of the external check (sbmc_e2.py, sbmc_e3.py, sbmc_e9.py, sbmc_dwave.py,
+                     phase 07),
                      requirements.txt and requirements-dwave.txt
-bench/configs/       TOML configurations of the campaigns (f07_e2, f07_dwave, f07_e3: phase 07)
+bench/configs/       TOML configurations of the campaigns (f07_e2, f07_dwave, f07_e3, f07_e9:
+                     phase 07)
 data/                G-set instances (gset/), best-known values with sources (best_known.csv),
                      downloaded data outside git (raw/); see data/README.md
 results/             CSV files and metadata (raw data outside git)
-scripts/             setup, tools, measurement campaigns
+scripts/             setup, tools, measurement campaigns; scripts/windows/ (stage.sh, build.ps1:
+                     the build on Windows), scripts/laptop/ (the procedures of the laptop)
 docs/                report sources and figures
 third_party/         vendored dependencies: doctest, CLI11
 ```

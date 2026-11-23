@@ -14,13 +14,22 @@ A campaign is a TOML file (tomllib), validated in full before anything runs or i
   sbmc_run = "build/cpu/apps/sbmc_run"
   sbmc_spectrum = "build/cpu/apps/sbmc_spectrum"
   replicas = 1024                          # R, >= 1
-  threads = 16                             # >= 1
+  threads = 16                             # >= 1; not with [[series]]
   reps = 5                                 # repetitions, >= 1
   warmup = 1                               # warm-up runs, >= 0
   seed = 1                                 # >= 0
 
   [dwave]                                  # optional, read by python/sbmc_dwave.py
   seed = 1                                 # seed of the sampler of dwave-samplers, >= 0
+
+  [[series]]                               # optional (phase 07, part 4, E9): instead of threads
+  id = "win-p1"                            # [a-z0-9-]+
+  sbmc_run = "/mnt/c/Users/Simone/sbmc-win/build-win-cpu/apps/sbmc_run.exe"
+  platform = "windows"                     # "windows" (sbmc_run.exe through WSL interop) | "linux"
+  affinity = "p1"                          # windows only: p1 | p | e | all (--affinity)
+  threads = [1, 2, 3, 4, 5, 6]             # strictly increasing, >= 1
+  base = "win-p1"                          # optional, for the analysis: the series whose 1 thread
+                                           # is the reference of a series without 1 thread
 
   [[instance]]                             # one or more
   id = "G2"                                # passed as --name; [A-Za-z0-9_]+
@@ -68,7 +77,10 @@ root in double); for --dense N, h = sqrt(N - 1) and w = 1 (couplings +-1).
 Configurations, in this order: the stages (file order, runs in order), then the grid: instances
 in the file order, for each the methods in the file order, for each the product (a, b, steps) or
 (f, c0, steps) with steps innermost. Ids: sa_a<a>_b<b>_S<S> and dsb_f<f>_c<sigma|lambda>_M<M>
-(numbers with repr()); a run of a stage has the id <stage>_<id>. Each configuration is one call:
+(numbers with repr()); a run of a stage has the id <stage>_<id>. With [[series]] (no stages
+then) every point of the grid is run by every series in the file order, with its threads in
+increasing order, and the id ends with _<series>_T<threads> (sa_a1.0_b2.0_S1000_win-p1_T4); the
+executable is the sbmc_run of the series. Each configuration is one call:
 
   sbmc_run <args of the instance> --name <instance> <parameters> --replicas R --threads T
            --seed seed --reps reps --warmup warmup --target <target> --notes <NOTES>
@@ -78,7 +90,11 @@ in the file order, for each the methods in the file order, for each the product 
 with the parameters "--algo sa --variant c2 --sweeps S --beta0 repr(a/h) --beta1 repr(b/w)" or
 "--algo dsb --variant c1 --steps M --dt auto --dt-factor repr(f) --c0 auto|lambda", from the
 repository root, in the environment of the runner without the OMP_* variables; the stdout of
-sbmc_run goes to the log of the campaign, its stderr to the log and to stderr.
+sbmc_run goes to the log of the campaign, its stderr to the log and to stderr. A series of
+platform windows adds "--affinity <rule>" (and "--best-known <file>" with the target best-known),
+and its path arguments (the rudy file, --out, --replica-out, --best-known) are absolute Windows
+paths: the repository root translated once with "wslpath -w", then the relative path with
+backslashes; a path outside the root goes through wslpath -w of its folder.
 
 Resuming: a configuration is complete when its results file has exactly reps rows with run_tag
 equal to its id and its replica file exactly reps * R rows; it is skipped. An incomplete one (one
@@ -237,6 +253,18 @@ class Stage:
 
 
 @dataclass(frozen=True)
+class Series:
+    """A platform, an executable, an --affinity and a list of threads (E9)."""
+
+    id: str
+    sbmc_run: str
+    platform: str  # "windows" or "linux"
+    affinity: str | None
+    threads: tuple[int, ...]
+    base: str | None
+
+
+@dataclass(frozen=True)
 class Campaign:
     path: Path
     name: str
@@ -244,7 +272,7 @@ class Campaign:
     sbmc_run: str
     sbmc_spectrum: str
     replicas: int
-    threads: int
+    threads: int | None  # None with [[series]]
     reps: int
     warmup: int
     seed: int
@@ -252,6 +280,7 @@ class Campaign:
     instances: tuple[Instance, ...]
     methods: tuple[Method, ...]
     stages: tuple[Stage, ...]
+    series: tuple[Series, ...] = ()
 
     def instance(self, instance_id: str) -> Instance:
         return next(i for i in self.instances if i.id == instance_id)
@@ -275,6 +304,21 @@ class Config:
     warmup: int
     target: str | int
     id: str
+    series: Series | None = None
+    threads: int | None = None  # None: the threads of [campaign]
+
+    def team(self, campaign: Campaign) -> int:
+        """The value of --threads."""
+        threads = self.threads if self.threads is not None else campaign.threads
+        assert threads is not None
+        return threads
+
+    def executable(self, campaign: Campaign) -> str:
+        return self.series.sbmc_run if self.series is not None else campaign.sbmc_run
+
+    @property
+    def windows(self) -> bool:
+        return self.series is not None and self.series.platform == "windows"
 
     def results_path(self, campaign: Campaign) -> Path:
         return Path(campaign.output) / self.instance.id / self.method / f"{self.id}.csv"
@@ -469,6 +513,49 @@ def _stage(path: Path, k: int, table: object, campaign: dict, instance_ids: list
     return Stage(name, instance, target, tuple(runs))
 
 
+SERIES_RE = re.compile(r"[a-z0-9-]+\Z")
+PLATFORMS = ("windows", "linux")
+AFFINITIES = ("p1", "p", "e", "all")
+
+
+def _series(path: Path, k: int, table: object, earlier: list[Series]) -> Series:
+    check = _Checker(path, f"[[series]] {k + 1}", table)
+    if "platform" not in check.table:
+        check.fail("missing key 'platform'")
+    platform = check.table["platform"]
+    if platform not in PLATFORMS:
+        check.fail(f"key 'platform': unknown platform {platform!r} (windows or linux)")
+    required = ["id", "sbmc_run", "platform", "threads"]
+    check.keys(required + (["affinity"] if platform == "windows" else []), ["base"])
+    series_id = check.string("id", SERIES_RE)
+    if any(s.id == series_id for s in earlier):
+        check.fail(f"key 'id': repeated series '{series_id}'")
+    affinity = None
+    if platform == "windows":
+        affinity = check.string("affinity")
+        if affinity not in AFFINITIES:
+            check.fail(f"key 'affinity': unknown rule {affinity!r} (p1, p, e or all)")
+    threads = check.table["threads"]
+    if not isinstance(threads, list) or not threads:
+        check.fail("key 'threads': expected a non-empty array of integers")
+    for value in threads:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            check.fail(f"key 'threads': {value!r} is not an integer >= 1")
+    if any(b <= a for a, b in zip(threads, threads[1:])):
+        check.fail(f"key 'threads': {threads} is not strictly increasing")
+    base = None
+    if "base" in check.table:
+        base = check.string("base", SERIES_RE)
+        reference = next((s for s in earlier if s.id == base), None)
+        if reference is None:
+            check.fail(f"key 'base': '{base}' is not an earlier series")
+        assert reference is not None
+        if reference.platform != platform or 1 not in reference.threads:
+            check.fail(f"key 'base': the series '{base}' must have the platform {platform} and "
+                       "1 thread")
+    return Series(series_id, check.string("sbmc_run"), platform, affinity, tuple(threads), base)
+
+
 def load_campaign(path: Path) -> Campaign:
     """Reads and validates a campaign; UsageError names the key and the file."""
     try:
@@ -479,15 +566,25 @@ def load_campaign(path: Path) -> Campaign:
     except tomllib.TOMLDecodeError as error:
         raise UsageError(f"{path}: not valid TOML: {error}") from error
     top = _Checker(path, "top level", data)
-    top.keys(["campaign", "instance", "method"], ["stage", "dwave"])
+    top.keys(["campaign", "instance", "method"], ["stage", "dwave", "series"])
+    with_series = "series" in data
     c = _Checker(path, "[campaign]", data["campaign"])
-    c.keys(["name", "output", "sbmc_run", "sbmc_spectrum", "replicas", "threads", "reps", "warmup",
-            "seed"])
+    c.keys(["name", "output", "sbmc_run", "sbmc_spectrum", "replicas", "reps", "warmup", "seed"]
+           + ([] if with_series else ["threads"]))
     values = {"name": c.string("name", NAME_RE), "output": c.string("output"),
               "sbmc_run": c.string("sbmc_run"), "sbmc_spectrum": c.string("sbmc_spectrum"),
-              "replicas": c.integer("replicas", 1), "threads": c.integer("threads", 1),
+              "replicas": c.integer("replicas", 1),
+              "threads": None if with_series else c.integer("threads", 1),
               "reps": c.integer("reps", 1), "warmup": c.integer("warmup", 0),
               "seed": c.integer("seed", 0)}
+    series: list[Series] = []
+    if with_series:
+        if not isinstance(data["series"], list) or not data["series"]:
+            top.fail("key 'series': expected an array of tables ([[series]])")
+        for k, table in enumerate(data["series"]):
+            series.append(_series(path, k, table, series))
+        if "stage" in data:
+            top.fail("key 'stage': stages are not available with [[series]]")
     dwave_seed = None
     if "dwave" in data:
         d = _Checker(path, "[dwave]", data["dwave"])
@@ -535,7 +632,8 @@ def load_campaign(path: Path) -> Campaign:
                              "needs a [[stage]] on this instance")
 
     campaign = Campaign(path=path, dwave_seed=dwave_seed, instances=tuple(instances),
-                        methods=tuple(methods.values()), stages=tuple(stages), **values)
+                        methods=tuple(methods.values()), stages=tuple(stages),
+                        series=tuple(series), **values)
     # Repeated configuration ids (for example a = [1.0, 1.0]) are an error of the configuration.
     seen: set[tuple[str, str, str]] = set()
     for config in _expand(campaign, None):
@@ -640,13 +738,16 @@ def _expand(campaign: Campaign, root: Path | None,
                     product = [(None, None, f, c0) for f in method.f for c0 in method.c0]
                 steps_list = method.steps_of(instance.id)
                 assert steps_list is not None
+            points = [(s, t) for s in campaign.series for t in s.threads] or [(None, None)]
             for a, b, f, c0 in product:
                 for steps in steps_list:
-                    configs.append(Config(GRID, index, instance, method.id, method.variant, steps,
-                                          a, b, f, c0, campaign.reps, campaign.warmup,
-                                          instance.target, config_id(method.id, steps, a, b, f,
-                                                                     c0)))
-                    index += 1
+                    base = config_id(method.id, steps, a, b, f, c0)
+                    for series, threads in points:
+                        name = base if series is None else f"{base}_{series.id}_T{threads}"
+                        configs.append(Config(GRID, index, instance, method.id, method.variant,
+                                              steps, a, b, f, c0, campaign.reps, campaign.warmup,
+                                              instance.target, name, series, threads))
+                        index += 1
     return configs
 
 
@@ -815,15 +916,64 @@ def parameters(config: Config, scales: dict[str, tuple[float, int | None]]) -> l
             "auto", "--dt-factor", repr(config.f), "--c0", C0_RULES[config.c0]]
 
 
+class WindowsPaths:
+    """Absolute Windows paths for an sbmc_run.exe started from WSL: the repository root through
+    "wslpath -w" once, then the relative path with backslashes; a path outside the root through
+    wslpath -w of its folder."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.root_windows: str | None = None
+
+    def wslpath(self, path: Path) -> str:
+        try:
+            result = subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True,
+                                    check=False)
+        except OSError as error:
+            raise DataError(f"wslpath: {error} (the series of platform windows run from WSL)"
+                            ) from error
+        text = result.stdout.strip()
+        if result.returncode != 0 or not text:
+            raise DataError(f"wslpath -w {path} exited with {result.returncode}: "
+                            f"{result.stderr.strip()}")
+        return text.rstrip("\\")
+
+    def __call__(self, path: str | Path) -> str:
+        candidate = Path(path)
+        absolute = candidate if candidate.is_absolute() else self.root / candidate
+        try:
+            relative = absolute.relative_to(self.root)
+        except ValueError:
+            return self.wslpath(absolute.parent) + "\\" + absolute.name
+        if self.root_windows is None:
+            self.root_windows = self.wslpath(self.root)
+        return "\\".join([self.root_windows, *relative.parts])
+
+
 def command(config: Config, campaign: Campaign, scales: dict[str, tuple[float, int | None]],
-            target: str, notes: str, executable: str | None = None) -> list[str]:
-    """The call of sbmc_run of a configuration (paths relative to the repository root)."""
-    return [executable or campaign.sbmc_run, *config.instance.args, "--name", config.instance.id,
+            target: str, notes: str, executable: str | None = None,
+            windows_paths: WindowsPaths | None = None) -> list[str]:
+    """The call of sbmc_run of a configuration (paths relative to the repository root; absolute
+    Windows paths for a series of platform windows, which needs windows_paths)."""
+    args = list(config.instance.args)
+    out, replica_out = str(config.results_path(campaign)), str(config.replica_path(campaign))
+    extra: list[str] = []
+    if config.windows:
+        if windows_paths is None:
+            raise DataError(f"configuration {config.id}: a series of platform windows needs the "
+                            "Windows paths")
+        assert config.series is not None and config.series.affinity is not None
+        if not config.instance.dense:
+            args[1] = windows_paths(args[1])
+        out, replica_out = windows_paths(out), windows_paths(replica_out)
+        extra = ["--affinity", config.series.affinity]
+        if target == "best-known":
+            extra += ["--best-known", windows_paths(BEST_KNOWN_FILE)]
+    return [executable or config.executable(campaign), *args, "--name", config.instance.id,
             *parameters(config, scales), "--replicas", str(campaign.replicas), "--threads",
-            str(campaign.threads), "--seed", str(campaign.seed), "--reps", str(config.reps),
-            "--warmup", str(config.warmup), "--target", target, "--notes", notes, "--tag",
-            config.id, "--out", str(config.results_path(campaign)), "--replica-out",
-            str(config.replica_path(campaign))]
+            str(config.team(campaign)), *extra, "--seed", str(campaign.seed), "--reps",
+            str(config.reps), "--warmup", str(config.warmup), "--target", target, "--notes", notes,
+            "--tag", config.id, "--out", out, "--replica-out", replica_out]
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -986,6 +1136,7 @@ def run_campaign(campaign: Campaign, root: Path, notes: str, stage: str | None,
             raise DataError(f"instance {instance.id}: {instance.file} not found")
     scales = {i.id: instance_scales(i, root) for i in campaign.instances
               if i.id in needs_scales or not dry_run}
+    windows_paths = WindowsPaths(root) if any(c.windows for c in selected) else None
 
     if dry_run:
         targets = resolve_targets(campaign, configs, root)
@@ -995,13 +1146,15 @@ def run_campaign(campaign: Campaign, root: Path, notes: str, stage: str | None,
             state = config_state(config, campaign, root)
             mark = "skip" if state == "done" else "run"
             print(f"{mark}: " + shlex.join(command(config, campaign, scales,
-                                                   target or "best-found:pending", notes)))
+                                                   target or "best-found:pending", notes,
+                                                   windows_paths=windows_paths)))
         for entry in skipped:
             print(f"skip: instance {entry.instance}, method {entry.method}: {entry.reason}")
         return EXIT_OK
 
-    if not (root / campaign.sbmc_run).is_file():
-        raise DataError(f"{campaign.sbmc_run} not found (build the preset first)")
+    for executable in dict.fromkeys(c.executable(campaign) for c in selected):
+        if not (root / executable).is_file():
+            raise DataError(f"{executable} not found (build the preset first)")
     output = root / campaign.output
     (output / "raw").mkdir(parents=True, exist_ok=True)
     lock = open(output / "raw" / ".campaign.lock", "w", encoding="utf-8")
@@ -1036,7 +1189,8 @@ def run_campaign(campaign: Campaign, root: Path, notes: str, stage: str | None,
                 target = resolve_targets(campaign, configs, root)[config.instance.id][0]
             else:
                 target = _stage_target(config)
-            cmd = command(config, campaign, scales, target, notes)
+            cmd = command(config, campaign, scales, target, notes,
+                          windows_paths=windows_paths)
             status = _run_one(config, campaign, root, cmd, log)
             if status != EXIT_OK:
                 break

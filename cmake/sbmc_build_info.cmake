@@ -17,6 +17,10 @@
 #   row appended to one of its CSV files does not change the sources, so it must not mark the
 #   build as dirty. --no-optional-locks keeps git status from rewriting the index of the
 #   repository during the build.
+# - Without git, or when the folder is not a repository (the copy of a commit built on Windows,
+#   phase 07, part 4: scripts/windows/stage.sh), both come from <root>/.sbmc_build_info, when it
+#   exists, with the lines git_hash=<40 hexadecimal digits> and dirty=<0|1> (written by
+#   stage.sh from git rev-parse HEAD; ignored by git). A file with another content is an error.
 # The header is rewritten only when its content changes: a build without changes recompiles
 # nothing, and a change to a tracked file updates dirty at the next build without a configure.
 cmake_minimum_required(VERSION 3.28)
@@ -55,6 +59,28 @@ if(SBMC_GIT)
       set(_sbmc_dirty 1)
     endif()
   endif()
+endif()
+
+# The copy of a commit without git: <root>/.sbmc_build_info.
+set(_sbmc_info_file "${SBMC_SOURCE_DIR}/.sbmc_build_info")
+if(_sbmc_hash STREQUAL "unknown" AND _sbmc_dirty EQUAL -1 AND EXISTS "${_sbmc_info_file}")
+  file(STRINGS "${_sbmc_info_file}" _sbmc_lines)
+  set(_sbmc_file_hash "")
+  set(_sbmc_file_dirty "")
+  foreach(_sbmc_line IN LISTS _sbmc_lines)
+    if(_sbmc_line MATCHES "^git_hash=([0-9a-f]+)$")
+      set(_sbmc_file_hash "${CMAKE_MATCH_1}")
+    elseif(_sbmc_line MATCHES "^dirty=([01])$")
+      set(_sbmc_file_dirty "${CMAKE_MATCH_1}")
+    endif()
+  endforeach()
+  string(LENGTH "${_sbmc_file_hash}" _sbmc_length)
+  if(NOT _sbmc_length EQUAL 40 OR _sbmc_file_dirty STREQUAL "")
+    message(FATAL_ERROR "sbmc_build_info.cmake: ${_sbmc_info_file} must have the lines "
+                        "git_hash=<40 hexadecimal digits> and dirty=<0|1>")
+  endif()
+  set(_sbmc_hash "${_sbmc_file_hash}")
+  set(_sbmc_dirty "${_sbmc_file_dirty}")
 endif()
 
 # Strings go into C++ string literals: backslashes and quotes are escaped.
