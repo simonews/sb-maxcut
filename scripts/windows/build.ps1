@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
 Builds and tests the presets win-cpu-strict and win-cpu on Windows with the MinGW-w64 GCC, CMake
-and Ninja of CLion (phase 07, part 4, decision W1).
+and Ninja of CLion (phase 07, part 4, decision W1; part 4b, decision W5: dynamic link, with the
+runtime DLLs of the toolchain next to the executables).
 
 .DESCRIPTION
 Run from a PowerShell 5.1 window (no administrator rights, no modules), after
@@ -10,22 +11,32 @@ scripts/windows/stage.sh has copied the commit (DEST = C:\Users\Simone\sbmc-win)
   powershell -NoProfile -ExecutionPolicy Bypass -File DEST\src\scripts\windows\build.ps1
 
 The sources are the copy of stage.sh, DEST\src (two folders above this script); the builds go to
-DEST\build-<preset> (the binaryDir of the presets) and the logs to DEST\logs:
-<preset>_configure.log, <preset>_build.log, <preset>_ctest.log and build_summary.txt, whose lines
-are also written on the console:
+DEST\build-<preset> (the binaryDir of the presets), configured from a new cache at every run
+(cmake --fresh, so every run builds from scratch), and the logs to DEST\logs:
+<preset>_configure.log, <preset>_build.log, <preset>_ctest.log, <preset>_runtime.log and
+build_summary.txt, whose lines are also written on the console:
 
   toolchain clion=<folder> gcc=<first line of g++ --version>
   cmake=<first line of cmake --version> ninja=<version>
   source git_hash=<git_hash of DEST\src\.sbmc_build_info>
   preset <name> configure=<exit> build=<exit> warnings=<lines> tests=<passed>/<total>
     failed=<n> skipped=<n> ctest=<exit>     (one line per preset)
+  runtime <name> dlls=<DLL,...> standalone=PASS|FAIL     (one line per preset)
   WIN_BUILD: PASS|FAIL
 
+The runtime line (after a successful build): the DLLs imported by apps\sbmc_run.exe and
+tests\tools\sbmc_sa_thresholds.exe (objdump -p of CLion), followed through the imports of the
+DLLs found next to them; dlls= lists those next to the executables. standalone=PASS when every
+imported DLL is next to the executable, in System32 or an API set (api-ms-win-*, ext-ms-*), and
+then sbmc_run.exe --version exits with 0 with a PATH of System32 and Windows only (no folder of
+CLion). The details go to <preset>_runtime.log. sbmc_run.exe is started only when no DLL is
+missing, to avoid the dialog of Windows about a missing DLL.
+
 PASS: both presets configured, built and tested with exit status 0, no line with "warning" in
-the build logs, at least one test and no test failed. The toolchain: -ClionDir, or the newest
-folder CLion* of $env:ProgramFiles\JetBrains, then of $env:LOCALAPPDATA\Programs (Toolbox), with
-bin\mingw\bin (g++), bin\cmake\win\x64\bin (cmake, ctest) and bin\ninja\win\x64 (ninja), put
-first in the PATH of this process only.
+the build logs, at least one test, no test failed, standalone=PASS. The toolchain: -ClionDir, or
+the newest folder CLion* of $env:ProgramFiles\JetBrains, then of $env:LOCALAPPDATA\Programs
+(Toolbox), with bin\mingw\bin (g++, objdump), bin\cmake\win\x64\bin (cmake, ctest) and
+bin\ninja\win\x64 (ninja), put first in the PATH of this process only.
 
 Exit status: 0 for PASS, 1 for FAIL or a missing tool (the summary says why).
 #>
@@ -61,12 +72,27 @@ function Stop-Build([string]$Message) {
   exit 1
 }
 
+# One item of "& <native command> 2>&1" as the line it stands for. PowerShell 5.1 wraps every
+# line of stderr in an ErrorRecord, and "$item" of an empty one is the name of the exception
+# (System.Management.Automation.RemoteException); its Exception.Message is the line itself, empty
+# for an empty line.
+function ConvertTo-LogLine($Item) {
+  if ($Item -is [System.Management.Automation.ErrorRecord]) {
+    if (($null -ne $Item.Exception) -and ($null -ne $Item.Exception.Message)) {
+      return [string]$Item.Exception.Message
+    }
+    return ''
+  }
+  return [string]$Item
+}
+
 # A native command with its stdout and stderr in a log file (ASCII); returns its exit status.
 function Invoke-Logged([string]$Log, [string]$Exe, [string[]]$Arguments) {
   $previous = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
-    & $Exe @Arguments 2>&1 | ForEach-Object { "$_" } | Out-File -FilePath $Log -Encoding ascii
+    & $Exe @Arguments 2>&1 | ForEach-Object { ConvertTo-LogLine $_ } |
+      Out-File -FilePath $Log -Encoding ascii
     $code = $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $previous
@@ -107,17 +133,21 @@ $MinGw = Join-Path $Clion 'bin\mingw\bin'
 $CMakeBin = Join-Path $Clion 'bin\cmake\win\x64\bin'
 $NinjaBin = Join-Path $Clion 'bin\ninja\win\x64'
 $Gxx = Join-Path $MinGw 'g++.exe'
+$Objdump = Join-Path $MinGw 'objdump.exe'
 $CMake = Join-Path $CMakeBin 'cmake.exe'
 $CTest = Join-Path $CMakeBin 'ctest.exe'
 $Ninja = Join-Path $NinjaBin 'ninja.exe'
-foreach ($tool in @($Gxx, $CMake, $CTest, $Ninja)) {
+foreach ($tool in @($Gxx, $Objdump, $CMake, $CTest, $Ninja)) {
   if (-not (Test-Path -LiteralPath $tool)) {
     Stop-Build "missing $tool"
   }
 }
+$SystemDir = Join-Path $env:SystemRoot 'System32'
+$CleanPath = "$SystemDir;$env:SystemRoot;$(Join-Path $SystemDir 'Wbem')"
+$BuildRoot = Split-Path -Parent $Src
 $env:PATH = "$MinGw;$CMakeBin;$NinjaBin;$env:PATH"
 Write-Host "sources: $Src"
-Write-Host "builds:  $Dest\build-<preset>"
+Write-Host "builds:  $BuildRoot\build-<preset>"
 Write-Host "logs:    $Logs"
 Write-Host "g++:     $Gxx"
 Write-Host "cmake:   $CMake"
@@ -139,13 +169,123 @@ if (Test-Path -LiteralPath $infoFile) {
 }
 Write-Summary "source git_hash=$sourceHash"
 
+# The DLLs imported by a PE file (objdump -p, lines "DLL Name: <name>"); $null when objdump fails.
+function Get-DllImport([string]$File) {
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $lines = @(& $Objdump -p $File 2>$null)
+    $code = $LASTEXITCODE
+  } catch {
+    $lines = @()
+    $code = -1
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+  if ($code -ne 0) {
+    return $null
+  }
+  $names = New-Object System.Collections.Generic.List[string]
+  foreach ($line in $lines) {
+    if ("$line" -match 'DLL Name:\s*(\S+)') {
+      $names.Add($Matches[1])
+    }
+  }
+  return ,$names.ToArray()
+}
+
+# The runtime check of one preset: the imports of the executables, followed through the DLLs
+# found next to them, then sbmc_run.exe --version with the clean PATH. Writes the log and
+# returns the runtime line of the summary.
+function Test-Runtime([string]$Preset, [string]$Log) {
+  $buildDir = Join-Path $BuildRoot "build-$Preset"
+  $exes = @((Join-Path $buildDir 'apps\sbmc_run.exe'),
+    (Join-Path $buildDir 'tests\tools\sbmc_sa_thresholds.exe'))
+  $report = New-Object System.Collections.Generic.List[string]
+  $found = @{}
+  $missing = New-Object System.Collections.Generic.List[string]
+  foreach ($exe in $exes) {
+    $report.Add("executable $exe")
+    if (-not (Test-Path -LiteralPath $exe)) {
+      $missing.Add("(no $exe)")
+      continue
+    }
+    $dir = Split-Path -Parent $exe
+    $seen = @{}
+    $queue = New-Object System.Collections.Generic.Queue[string]
+    $queue.Enqueue($exe)
+    while ($queue.Count -gt 0) {
+      $file = $queue.Dequeue()
+      $imports = Get-DllImport $file
+      if ($null -eq $imports) {
+        $missing.Add("(objdump failed on $file)")
+        continue
+      }
+      $report.Add("  imports of $(Split-Path -Leaf $file): $($imports -join ' ')")
+      foreach ($name in $imports) {
+        $key = $name.ToLowerInvariant()
+        if ($seen.ContainsKey($key)) {
+          continue
+        }
+        $seen[$key] = $true
+        $path = Join-Path $dir $name
+        $apiSet = $key.StartsWith('api-ms-win-') -or $key.StartsWith('ext-ms-')
+        if (Test-Path -LiteralPath $path) {
+          $found[$key] = $name
+          $queue.Enqueue($path)
+        } elseif ($apiSet -or (Test-Path -LiteralPath (Join-Path $SystemDir $name))) {
+          $report.Add("  system: $name")
+        } else {
+          $missing.Add($name)
+          $report.Add("  MISSING: $name (not next to the executable, not in $SystemDir)")
+        }
+      }
+    }
+  }
+  $dlls = @($found.Values | Sort-Object)
+  $versionCode = 'not run'
+  if ($missing.Count -eq 0) {
+    $runExe = $exes[0]
+    $output = @()
+    $previousPath = $env:PATH
+    $previous = $ErrorActionPreference
+    $env:PATH = $CleanPath
+    $ErrorActionPreference = 'Continue'
+    try {
+      $output = @(& $runExe --version 2>&1 | ForEach-Object { ConvertTo-LogLine $_ })
+      $versionCode = $LASTEXITCODE
+    } catch {
+      $output = @("not started: $($_.Exception.Message)")
+      $versionCode = 'not started'
+    } finally {
+      $ErrorActionPreference = $previous
+      $env:PATH = $previousPath
+    }
+    $report.Add("PATH=$CleanPath")
+    $report.Add("sbmc_run.exe --version: exit $versionCode")
+    foreach ($line in $output) {
+      $report.Add("  $line")
+    }
+  }
+  $standalone = 'FAIL'
+  if (($missing.Count -eq 0) -and ($versionCode -eq 0)) {
+    $standalone = 'PASS'
+  } else {
+    $report.Add("missing: $($missing -join ' '); --version: $versionCode")
+  }
+  [System.IO.File]::WriteAllLines($Log, $report.ToArray())
+  return "runtime $Preset dlls=$($dlls -join ',') standalone=$standalone"
+}
+
 $pass = $true
 Push-Location -LiteralPath $Src
 try {
   foreach ($preset in @('win-cpu-strict', 'win-cpu')) {
     Write-Host "--- $preset"
     $configureLog = Join-Path $Logs "${preset}_configure.log"
-    $configure = Invoke-Logged $configureLog $CMake @('--preset', $preset)
+    # --fresh: a new cache at every run, so that no value of an earlier configure survives (the
+    # -static of F07-R4 stays in CMakeCache.txt when the presets no longer set it).
+    $configure = Invoke-Logged $configureLog $CMake @('--preset', $preset, '--fresh')
     $build = -1
     $warnings = -1
     $test = -1
@@ -175,9 +315,15 @@ try {
     $format += 'tests={4}/{5} failed={6} skipped={7} ctest={8}'
     Write-Summary ($format -f $preset, $configure, $build, $warnings, $passed, $total, $failed,
       $skipped, $test)
+    $runtime = "runtime $preset dlls=- standalone=FAIL"
+    if (($configure -eq 0) -and ($build -eq 0)) {
+      $runtime = Test-Runtime $preset (Join-Path $Logs "${preset}_runtime.log")
+    }
+    Write-Summary $runtime
     $built = ($configure -eq 0) -and ($build -eq 0) -and ($warnings -eq 0)
     $tested = ($test -eq 0) -and ($total -gt 0) -and ($failed -eq 0)
-    if (-not ($built -and $tested)) {
+    $standalone = $runtime.EndsWith('standalone=PASS')
+    if (-not ($built -and $tested -and $standalone)) {
       $pass = $false
     }
   }

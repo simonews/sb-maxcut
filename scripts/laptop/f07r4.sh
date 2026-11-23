@@ -8,10 +8,11 @@
 #       and win-cpu, built and tested on Windows);
 #   bash scripts/laptop/f07r4.sh run "$NOTES"
 #       1. checks; 2. sbmc_run.exe --version and --print-topology through the interop of WSL
-#       (also under every --affinity); 3. the summary of build.ps1; 4. incremental build and
-#       ctest of cpu-strict and cpu in WSL; 5. the bitwise comparison of section 5.4
-#       (python/sbmc_e9.py bitwise); 6. the campaign E9 (bench/configs/f07_e9.toml, resumable),
-#       status, analyze, manifest; 7. the summary.
+#       (also under every --affinity); 3. the summary of build.ps1, with its runtime lines
+#       (F07-R4b: the DLLs next to the executables, standalone=PASS in both presets);
+#       4. incremental build and ctest of cpu-strict and cpu in WSL; 5. the bitwise comparison
+#       of section 5.4 (python/sbmc_e9.py bitwise); 6. the campaign E9
+#       (bench/configs/f07_e9.toml, resumable), status, analyze, manifest; 7. the summary.
 #
 # The terminal gets a summary of about 20 lines (save it with tee); the details go to
 # ~/sbmc_logs/f07r4/. Verdicts: WIN_BUILD, INTEROP, TOPOLOGY, BITWISE_SA, BITWISE_DSB_STRICT, E9,
@@ -179,8 +180,12 @@ run_command() {
   verdict_build=$(sed -n 's/^WIN_BUILD: //p' "$LOGDIR/build_summary.txt")
   local source_hash
   source_hash=$(field "$LOGDIR/build_summary.txt" source git_hash)
-  grep '^preset ' "$LOGDIR/build_summary.txt" | sed 's/^/WIN /'
+  grep -E '^(preset|runtime) ' "$LOGDIR/build_summary.txt" | sed 's/^/WIN /'
   [ "$source_hash" = "$HEAD_HASH" ] || verdict_build=FAIL
+  local standalone
+  standalone=$(grep -cE '^runtime win-cpu(-strict)? .* standalone=PASS$' \
+    "$LOGDIR/build_summary.txt")
+  [ "$standalone" -eq 2 ] || verdict_build=FAIL
   echo "WIN_BUILD: ${verdict_build:-FAIL} ($(sed -n 's/^toolchain .* gcc=//p' \
     "$LOGDIR/build_summary.txt"); source ${source_hash:0:7})"
   [ "$verdict_build" = PASS ] || stop "WIN_BUILD: FAIL" "$LOGDIR/build_summary.txt"

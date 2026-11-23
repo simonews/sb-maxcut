@@ -3,6 +3,42 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R4b] - 2026-11-23
+
+Correction of F07-R4 before the campaign E9 (decision W5): on the laptop the presets `win-cpu`
+and `win-cpu-strict` did not configure, since with the MinGW-w64 of CLion (g++ 15.2.0) the static
+link of OpenMP fails (`__intrinsic_setjmpex` and `__ms_vsnprintf` undefined) and FindOpenMP does
+not find OpenMP. The Windows builds are now linked dynamically, with the runtime DLLs of the
+toolchain next to the executables. No change to the C++ code, to Linux or to the campaigns.
+
+### Added
+
+- `cmake/SbmcWindowsRuntime.cmake` (Windows only): the four runtime DLLs of the toolchain
+  (`libgomp-1.dll`, `libwinpthread-1.dll`, `libstdc++-6.dll`, `libgcc_s_seh-1.dll`) checked at
+  configure time, next to the compiler or from `-print-file-name` (a missing DLL is an error that
+  names it); `sbmc_copy_runtime_dlls()`.
+- `cmake/sbmc_copy_runtime.cmake`: after every link, the DLLs imported by the executable
+  (`objdump -p`) and held by the toolchain, followed through their own imports, copied next to
+  it; used for `sbmc_run`, `sbmc_bruteforce`, `sbmc_spectrum` and `sbmc_sa_thresholds`.
+
+### Changed
+
+- `CMakePresets.json`: `win-base` without `-static` and without the cache variables of OpenMP
+  (FindOpenMP finds `-fopenmp`); the display names without "static".
+- `scripts/windows/build.ps1`: per preset, the line `runtime <preset> dlls=<DLL,...>
+  standalone=PASS|FAIL` (the imported DLLs of `sbmc_run.exe` and `sbmc_sa_thresholds.exe` next
+  to them or of the system, then `sbmc_run.exe --version` with a PATH without CLion), part of
+  `WIN_BUILD`, details in `<preset>_runtime.log`; the empty lines of stderr written to the logs as
+  empty lines (not as `System.Management.Automation.RemoteException`); configure with
+  `--fresh`, since a reconfigure keeps the `-static` of F07-R4 in `CMakeCache.txt` (verified in
+  the sandbox), so every run builds from scratch.
+- `scripts/laptop/f07r4.sh`: prints the runtime lines of `build_summary.txt` and requires
+  `standalone=PASS` in both presets for `WIN_BUILD`.
+- `CMakeLists.txt`, `apps/CMakeLists.txt`, `tests/CMakeLists.txt`: the module and its calls, on
+  Windows only.
+- `README.md`: the build on Windows (dynamic link, the copy of the DLLs and why, the runtime
+  check), Status, limits and layout.
+
 ## [F07-R4] - 2026-11-23
 
 Phase 07, part 4 of 4: E9, the OpenMP scaling of C1 and C2 on Windows native (MinGW-w64 GCC of

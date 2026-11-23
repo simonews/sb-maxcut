@@ -6,7 +6,9 @@
 # one instance (sbmc/spectrum.hpp) and writes them, with the automatic dt and c0, as one line on
 # stdout, like sbmc_bruteforce. Phase 07, part 4: on Windows sbmc_run adds win_platform.cpp, the
 # only file with Windows API (--affinity, --print-topology and the columns of the process
-# environment); cpu_topology.hpp holds the rules of the masks, the same on every platform.
+# environment); cpu_topology.hpp holds the rules of the masks, the same on every platform. Part
+# 4b: on Windows the three applications get the runtime DLLs of the toolchain next to them
+# (cmake/SbmcWindowsRuntime.cmake), since they are linked dynamically.
 
 # CLI11 (third_party/CLI11, single header): command line parsing, for the applications only. The
 # public headers of the project never include it.
@@ -52,3 +54,9 @@ add_executable(sbmc_spectrum sbmc_spectrum.cpp)
 set_target_properties(sbmc_spectrum PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(sbmc_spectrum PRIVATE sbmc::flags sbmc::core sbmc::cli11)
+
+if(WIN32)
+  foreach(_sbmc_app IN ITEMS sbmc_run sbmc_bruteforce sbmc_spectrum)
+    sbmc_copy_runtime_dlls(${_sbmc_app})
+  endforeach()
+endif()

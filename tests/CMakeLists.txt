@@ -149,11 +149,15 @@ set_tests_properties(test_cpu_topology PROPERTIES LABELS "cpu")
 # --- Test tools -----------------------------------------------------------------------------
 # sbmc_sa_thresholds (phase 07, part 4): the schedule and the acceptance thresholds of simulated
 # annealing, compared between Windows and WSL by python/sbmc_e9.py bitwise. Not a test; built on
-# every platform.
+# every platform. On Windows it is started from WSL, so it gets the runtime DLLs of the
+# toolchain next to it (part 4b, cmake/SbmcWindowsRuntime.cmake).
 add_executable(sbmc_sa_thresholds tools/sbmc_sa_thresholds.cpp)
 set_target_properties(sbmc_sa_thresholds PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                     "${CMAKE_CURRENT_BINARY_DIR}/tools")
 target_link_libraries(sbmc_sa_thresholds PRIVATE sbmc::flags sbmc::core)
+if(WIN32)
+  sbmc_copy_runtime_dlls(sbmc_sa_thresholds)
+endif()
 
 # Windows: nothing else (the Python tests, the applications and the tools need Linux and bash).
 if(WIN32)

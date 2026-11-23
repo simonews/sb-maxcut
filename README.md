@@ -57,8 +57,8 @@ environment, dwave-samplers as an option (`scripts/setup_python.sh --dwave`). Th
 was extended to short S and M on G2 and G12, with E3 and the external check run again on the new
 choices (F07-R3b, decision N1; see "E2: tuning").
 Phase 07, part 4 of 4: E9, the OpenMP scaling of C1 and C2 on Windows native, with the MinGW-w64
-GCC of CLion (presets `win-cpu` and `win-cpu-strict`, linked statically, built from a copy of the
-commit), and in WSL2 as the control; `sbmc_run --affinity` and `--print-topology` on Windows
+GCC of CLion (presets `win-cpu` and `win-cpu-strict`, built from a copy of the commit), and in
+WSL2 as the control; `sbmc_run --affinity` and `--print-topology` on Windows
 (`apps/win_platform.cpp`, the only file with Windows API) and `--version`; series of executables,
 masks and threads in the runner; `python/sbmc_e9.py`, with the bitwise comparison of the two
 builds; `scripts/laptop/f07r4.sh` (see "E9 on Windows native").
@@ -1845,12 +1845,33 @@ has no git: `cmake/sbmc_build_info.cmake` reads the file only when git gives no 
 malformed file is an error) and `data/raw/k2000/WK2000_1.rud` when present, and warns when the
 working tree has changes to tracked files (the copy is HEAD). `scripts/windows/build.ps1`
 (PowerShell 5.1, no modules; `-ClionDir` when CLion is not in the usual folders) puts the
-MinGW-w64 GCC, CMake and Ninja of CLion first in its own PATH, then configures, builds and tests
-the presets `win-cpu-strict` and `win-cpu` (Ninja, Release, `-static`, libgomp linked statically:
-the executables import only `KERNEL32.dll` and `msvcrt.dll`); the builds go to
-`DEST\build-<preset>`, outside the copy, the logs and `build_summary.txt` (toolchain, one line per
-preset with the exit statuses, warnings and tests, `WIN_BUILD: PASS|FAIL`) to `DEST\logs`. On
-Windows only the 18 C++ tests of the label `cpu` and the tool `sbmc_sa_thresholds` are built.
+MinGW-w64 GCC, CMake and Ninja of CLion first in its own PATH, then configures (from a new cache,
+`--fresh`), builds and tests the presets `win-cpu-strict` and `win-cpu` (Ninja, Release); the
+builds go to `DEST\build-<preset>`, outside the copy, the logs and `build_summary.txt` (toolchain,
+one line per preset with the exit statuses, warnings and tests, one `runtime` line per preset,
+`WIN_BUILD: PASS|FAIL`) to `DEST\logs`. On Windows only the 18 C++ tests of the label `cpu` and
+the tool `sbmc_sa_thresholds` are built.
+
+Dynamic link (W5, F07-R4b). With the MinGW-w64 of CLion (g++ 15.2.0) a static link of OpenMP
+fails: `g++ -fopenmp -static` leaves `__intrinsic_setjmpex` (from `libpthread.a`) and
+`__ms_vsnprintf` (from `libmsvcrt.a`) undefined, so FindOpenMP does not find OpenMP, while the
+dynamic link of the same program works. The presets link dynamically and FindOpenMP finds
+`-fopenmp` by itself. So that the executables started outside ctest (from WSL, without the
+folders of CLion in PATH) find their runtime, `cmake/SbmcWindowsRuntime.cmake` (Windows only)
+checks at configure time that the toolchain holds `libgomp-1.dll`, `libwinpthread-1.dll`,
+`libstdc++-6.dll` and `libgcc_s_seh-1.dll` (next to the compiler, otherwise from
+`g++ -print-file-name`; a missing DLL is a configure error that names it), and after every link of
+`sbmc_run`, `sbmc_bruteforce`, `sbmc_spectrum` and `sbmc_sa_thresholds`
+`cmake/sbmc_copy_runtime.cmake` copies next to the executable the DLLs it imports
+(`objdump -p`) that the toolchain holds, followed through their own imports; the DLLs of the
+system (`KERNEL32.dll`, `msvcrt.dll`) are not copied. The test executables run under ctest with
+the folder of CLion in PATH. `build.ps1` checks the result for `sbmc_run.exe` and
+`sbmc_sa_thresholds.exe`: every imported DLL, followed through the DLLs next to the executable,
+is next to it, in System32 or an API set, and then `sbmc_run.exe --version` exits with 0 with a
+PATH of System32 and Windows only; the line `runtime <preset> dlls=<DLL,...>
+standalone=PASS|FAIL` (details in `<preset>_runtime.log`) enters `WIN_BUILD`, and
+`scripts/laptop/f07r4.sh` requires `standalone=PASS` in both presets. Without the DLLs next to it,
+`sbmc_run.exe` does not start (under wine: exit status 53).
 
 `sbmc_run` on Windows (`apps/win_platform.cpp`, the only file with Windows API, and
 `apps/cpu_topology.hpp`, portable and tested on Linux): the logical processors, their core and
@@ -1930,7 +1951,10 @@ Limits:
   campaign it is only reported (`E9_INFO`);
 - the instance is read through `\\wsl.localhost` (in `t_setup_ms`, not in `t_run_ms`);
 - at most 64 logical processors; `build.ps1` was not run in the sandbox (no PowerShell), the
-  presets were cross-compiled with MinGW-w64 GCC 13 and tested under wine.
+  presets were cross-compiled with MinGW-w64 GCC 13 and tested under wine, with the DLLs of the
+  cross toolchain (the same four);
+- the runtime check of `build.ps1` starts `sbmc_run.exe` only when no imported DLL is missing: a
+  DLL needed only at run time (loaded with `LoadLibrary`, not imported) would escape it.
 
 ## Tests
 
@@ -2292,7 +2316,8 @@ Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 
 ```
 CMakeLists.txt, CMakePresets.json, cmake/   build system (cmake/sbmc_build_info.cmake: build
-                     information of the results rows)
+                     information of the results rows; SbmcWindowsRuntime.cmake and
+                     sbmc_copy_runtime.cmake: the runtime DLLs next to the Windows executables)
 include/sbmc/        public headers (no CUDA types): error, philox, instance, rudy, initial_state,
                      solve_times, spectrum, sb, sb_sequential, sb_openmp, sa, sa_sequential,
                      sa_openmp, bruteforce, results
