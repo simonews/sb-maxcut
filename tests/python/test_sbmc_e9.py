@@ -15,13 +15,17 @@ Checks:
 2. the checks fail where they must: a win-e row with the class of the P cores (masks), a WSL row
    with another best_cut (cuts linux), SA different between Windows and WSL (cuts sa
    windows=linux); dSB different between the platforms is only an E9_INFO line (PASS);
-3. bitwise with sbmc_run and sbmc_sa_thresholds of this build on both sides (the Windows side is a
-   wrapper behind a fake wslpath, which maps the Windows paths back), on G1 and on a dense
-   instance with the id K2000: BITWISE_SA: PASS and BITWISE_DSB_STRICT: PASS; with the wrapper
+3. bitwise with sbmc_run and sbmc_sa_thresholds of this build on both sides, on G1 and on a dense
+   instance with the id K2000 (F07-R4e: the repository is a git copy in --workdir with G1; the
+   Windows side is a fake <dest> with the copy <dest>/src and wrappers in <dest>/build-win-cpu/
+   and <dest>/build-win-cpu-strict/, which answer --version with the commit of HEAD, refuse an
+   argument that starts with \\\\ and map C:\\sbmc-win back; the fake wslpath gives
+   C:\\sbmc-win\\... under <dest>): BITWISE_SA: PASS and BITWISE_DSB_STRICT: PASS, the instance
+   read from the copy, the outputs moved from <dest>/runs/bitwise to --workdir; with the wrapper
    that changes final_cut of replica 3: BITWISE_SA: FAIL with the first different replica and the
-   thresholds compared (0 different); compare_thresholds on two texts with one different
-   threshold and one different beta.
-Files in --workdir only (emptied first).
+   thresholds compared (0 different); with a wrapper that gives another commit: exit 1 before any
+   case; compare_thresholds on two texts with one different threshold and one different beta.
+Files in --workdir only (emptied first). Needs git (otherwise SKIP).
 
 Exit status: 0 passed, 1 failed, 77 when the executables or NumPy and matplotlib are missing.
 The last line is "E9_TEST_VERDICT: PASS", "E9_TEST_VERDICT: FAIL" or "E9_TEST_VERDICT: SKIP".
@@ -53,17 +57,27 @@ SERIES = {
 
 FAKE_WSLPATH = r"""#!/usr/bin/env bash
 [ "$1" = "-w" ] && [ -n "$2" ] || exit 1
-printf '\\\\wsl.localhost\\Fake%s\n' "$(printf '%s' "$2" | tr '/' '\\')"
+case "$2" in
+  "@DEST@") printf 'C:\\sbmc-win\n' ;;
+  "@DEST@"/*) printf 'C:\\sbmc-win%s\n' "$(printf '%s' "${2#"@DEST@"}" | tr '/' '\\')" ;;
+  *) printf '\\\\wsl.localhost\\Fake%s\n' "$(printf '%s' "$2" | tr '/' '\\')" ;;
+esac
 """
 WRAPPER = r"""#!/usr/bin/env bash
-# Fake Windows executable: maps \\wsl.localhost\Fake paths back, runs the Linux tool; with
+# Fake Windows executable: --version with the commit of HEAD (E9_HASH overrides it); refuses an
+# argument that starts with \\; maps C:\sbmc-win back to <dest>, runs the Linux tool; with
 # E9_MUTATE set, adds 1 to final_cut of replica 3 of the replica file.
+if [ "$1" = "--version" ]; then
+  echo "sbmc_run git_hash=${E9_HASH:-@HASH@} dirty=0 compiler=fake build_type=Release"
+  exit 0
+fi
 args=()
 replicas=""
 previous=""
 for a in "$@"; do
   case "$a" in
-    '\\wsl.localhost\Fake'*) a="${a#'\\wsl.localhost\Fake'}"; a="${a//\\//}" ;;
+    '\\'*) echo "fake exe: UNC path $a" >&2; exit 3 ;;
+    'C:\sbmc-win\'*) a="@DEST@/${a#'C:\sbmc-win\'}"; a="${a//\\//}" ;;
   esac
   [ "$previous" = "--replica-out" ] && replicas="$a"
   previous="$a"
@@ -191,6 +205,8 @@ def main() -> int:
     thresholds = str(Path(args.thresholds).resolve())
     tool = Path(args.pyroot).resolve() / "sbmc_e9.py"
     missing = [p for p in (run_exe, thresholds, str(tool)) if not Path(p).exists()]
+    if shutil.which("git") is None:
+        missing.append("git")
     try:
         import matplotlib  # noqa: F401
         import numpy  # noqa: F401
@@ -208,12 +224,31 @@ def main() -> int:
     shutil.rmtree(work, ignore_errors=True)
     (work / "bin").mkdir(parents=True)
     report = Report()
+    # The repository: a git copy with G1 (HEAD is checked); the Windows folder <dest>.
+    repo = work / "repo"
+    dest = work / "win"
+    for folder in (repo, dest / "src"):
+        (folder / "data" / "gset").mkdir(parents=True)
+        shutil.copyfile(root / "data" / "gset" / "G1", folder / "data" / "gset" / "G1")
+    git = ["git", "-C", str(repo), "-c", "user.name=test", "-c", "user.email=test@example.org"]
+    for step in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "test"]):
+        subprocess.run([*git, *step], check=True, capture_output=True)
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                          text=True).stdout.strip()
+    (dest / "src" / ".sbmc_build_info").write_text(f"git_hash={head}\ndirty=0\n",
+                                                   encoding="ascii")
+    root = repo
     wslpath = work / "bin" / "wslpath"
-    wslpath.write_text(FAKE_WSLPATH, encoding="utf-8")
+    wslpath.write_text(FAKE_WSLPATH.replace("@DEST@", str(dest)), encoding="utf-8")
     wrappers = {}
-    for name, real in (("run", run_exe), ("thresholds", thresholds)):
-        wrappers[name] = work / "bin" / f"{name}.exe"
-        wrappers[name].write_text(WRAPPER.replace("@REAL@", real), encoding="utf-8")
+    for name, real, place in (("run", run_exe, "build-win-cpu/apps/sbmc_run.exe"),
+                              ("strict", run_exe, "build-win-cpu-strict/apps/sbmc_run.exe"),
+                              ("thresholds", thresholds,
+                               "build-win-cpu/tests/tools/sbmc_sa_thresholds.exe")):
+        wrappers[name] = dest / place
+        wrappers[name].parent.mkdir(parents=True, exist_ok=True)
+        wrappers[name].write_text(WRAPPER.replace("@REAL@", real).replace("@HASH@", head)
+                                  .replace("@DEST@", str(dest)), encoding="utf-8")
     for path in (wslpath, *wrappers.values()):
         path.chmod(0o755)
     env = dict(os.environ, PATH=f"{work / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}")
@@ -305,7 +340,7 @@ def main() -> int:
 
     # 3. bitwise.
     bw = ["bitwise", str(config), "--workdir", str(work / "bitwise"), "--win-run",
-          str(wrappers["run"]), "--win-strict-run", str(wrappers["run"]), "--win-thresholds",
+          str(wrappers["run"]), "--win-strict-run", str(wrappers["strict"]), "--win-thresholds",
           str(wrappers["thresholds"]), "--wsl-run", run_exe, "--wsl-strict-run", run_exe,
           "--wsl-thresholds", thresholds]
     result = e9(*bw)
@@ -314,6 +349,10 @@ def main() -> int:
                  result.returncode == 0 and "BITWISE_SA: PASS" in lines
                  and "BITWISE_DSB_STRICT: PASS" in lines and len(lines) == 5,
                  "; ".join(lines) or result.stderr.strip())
+    moved = sorted(p.name for p in (work / "bitwise").glob("*_windows*.csv"))
+    left = [p for p in (dest / "runs").rglob("*") if p.is_file()]
+    report.check("bitwise: the Windows outputs moved from <dest>/runs/bitwise to --workdir",
+                 len(moved) == 6 and not left, f"{len(moved)} moved, {len(left)} left")
     result = e9(*bw, extra_env={"E9_MUTATE": "1"})
     lines = result.stdout.splitlines()
     first = [line for line in lines
@@ -324,6 +363,10 @@ def main() -> int:
                  result.returncode == 0 and "BITWISE_SA: FAIL" in lines and bool(first)
                  and bool(compared) and "BITWISE_DSB_STRICT: FAIL" in lines,
                  "; ".join(lines[:2]) or result.stderr.strip())
+    result = e9(*bw, extra_env={"E9_HASH": "0" * 40})
+    report.check("bitwise, a Windows build of another commit: exit 1 before any case",
+                 result.returncode == 1 and not result.stdout.strip()
+                 and f"HEAD is {head}" in result.stderr, result.stderr.strip()[-160:])
     a = "0 0.5 100,90,0\n1 1 50,0\n2 2 7,0\n"
     b = "0 0.5 100,91,0\r\n1 1.0000000000000002 50,0\r\n2 2 7,0\r\n"
     sweeps, differences = sbmc_e9.compare_thresholds(a, b)

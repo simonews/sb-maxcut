@@ -1263,7 +1263,10 @@ instance, "--threads requires
 --variant c1 or c2" (`--threads` with `--variant c0`, explicit or by default), "--replica-out
 requires --out" and "--replica-out must differ from --out", when the two paths name the same file
 once made absolute and passed to `std::filesystem::weakly_canonical`: `x.csv`, `./x.csv` and
-`/abs/x.csv` are the same file, before any run). Until phase 05
+`/abs/x.csv` are the same file, before any run; when either step fails, since F07-R4e, the
+lexically normal forms of the absolute paths are compared, or of the given ones when even
+`absolute` fails, ignoring case on Windows: a path that cannot be resolved, such as a UNC path
+for the libstdc++ of MinGW, is not an error by itself). Until phase 05
 `--steps` and `--dt` were required options of CLI11; the messages and their place among the
 checks of `sbmc_run` are unchanged, but an error that CLI11 finds during the parsing (a value
 that cannot be converted, an unexpected argument) now comes before them; `--tag` with a line
@@ -1582,11 +1585,10 @@ sbmc_run <args of the instance> --name <instance> <parameters> --replicas R --th
 with the parameters `--algo sa --variant c2 --sweeps S --beta0 repr(a/h) --beta1 repr(b/w)` or
 `--algo dsb --variant c1 --steps M --dt auto --dt-factor repr(f) --c0 auto|lambda`. With series,
 `sbmc_run` is the executable of the series and T its threads; a series of platform `windows` adds
-`--affinity <rule>` (and `--best-known <table>` with the target `best-known`), and its path
-arguments (the rudy file, `--out`, `--replica-out`, `--best-known`) are absolute Windows paths: the
-repository root translated once with `wslpath -w` (for example
-`\\wsl.localhost\Ubuntu\home\simone\projects\sb-maxcut`), then the relative path with
-backslashes. The lock, the log and the manifest stay in WSL. One pair of
+`--affinity <rule>` (and `--best-known <table>` with the target `best-known`), and gets no UNC
+path (F07-R4e, see "E9 on Windows native"): the rudy file and `--best-known` from the copy of the
+repository on Windows, `--out` and `--replica-out` in a work folder on the same drive, moved into
+the repository after exit status 0. The lock, the log and the manifest stay in WSL. One pair of
 files per configuration: the replica file has no `run_tag`, so the join of the two files needs
 them alone. The target of a grid on an instance with `best-found` is the largest `best_cut` of
 its stages, which run first; `--stage grid` refuses to start before they are complete.
@@ -1912,7 +1914,7 @@ process mask), `cpu_classes` (`1:0-11 0:12-15` with `all`), `host` (the computer
 (`Windows <major>.<minor>.<build>`); stdout is in binary mode, so the lines end with `\n`.
 
 The campaign (W2, `bench/configs/f07_e9.toml`, output `results/f07/e9/`) runs from WSL: the
-runner starts `sbmc_run.exe` through the interop of WSL, with Windows paths (see "The runner").
+runner starts `sbmc_run.exe` through the interop of WSL, with Windows paths on a drive (below).
 Four loads, with the relative parameters of E2 of the family (`results/f07/e2/selected.csv`): G1
 with SA S 1000 and dSB M 2000, K2000 with SA S 200 and dSB M 200; R 1024, 1 warm-up run, 5
 repetitions, seed 1. Five series:
@@ -1946,6 +1948,31 @@ different replica and, for SA, compares the output of `sbmc_sa_thresholds` (the 
 SA) of the two builds, sweep by sweep. Lines `BITWISE <case>: equal|different`, `BITWISE_SA` and
 `BITWISE_DSB_STRICT`. No code is changed after a difference without a decision.
 
+No UNC paths (F07-R4e). On the laptop the first `f07r4.sh run` stopped at the bitwise comparison:
+`sbmc_run.exe` with `--instance`, `--out` and `--replica-out` under
+`\\wsl.localhost\Ubuntu-24.04\...` (the translation of a WSL path by `wslpath -w`) exited with 1,
+"cannot compare the two paths", since `std::filesystem::absolute` and `weakly_canonical` of the
+libstdc++ of MinGW fail on such a path (the root of the share does not resolve); under wine the
+paths were `Z:\...` and the error did not show, and the campaign would have stopped the same way.
+Two corrections. `sbmc_run` compares `--out` and `--replica-out` in their lexically normal forms
+when the paths cannot be resolved (see "sbmc_run"), so a failure to resolve is no longer an error.
+And no Windows process gets a UNC path: one mechanism, `WindowsCopy` of `python/sbmc_campaign.py`,
+used by the runner for the series of platform `windows` and by `sbmc_e9.py bitwise`, finds `DEST`
+from the executable (`DEST/build-<preset>/...`, the `binaryDir` of the presets, with the copy
+`DEST/src` of `stage.sh`, which has the same relative paths as the repository: `data/gset`,
+`data/best_known.csv`, `data/raw/k2000/WK2000_1.rud`) and translates `DEST` once with
+`wslpath -w` (on the laptop `C:\Users\Simone\sbmc-win`; a translation that is not on a drive is
+an error). Inputs inside the repository are read from the same relative path in `DEST\src` (a
+file missing there is an error before the run, with its name); `--out` and `--replica-out` are
+written in `DEST\runs\<campaign>\` (`f07_e9`, `bitwise`) with their path relative to the output
+folder, deleted before each run (`sbmc_run` appends rows) and moved into the repository (a copy, a
+rename, the removal of the work file) after exit status 0; with another exit status they stay
+there and the configuration is not complete. Completeness and resuming are checked on the files in
+`results/` as before. `sbmc_run.exe` runs in `DEST\src`. Before the first configuration of a
+Windows executable that runs (and before the bitwise cases, for both Windows builds),
+`sbmc_run.exe --version` and `DEST/src/.sbmc_build_info` must give the commit of HEAD
+(`git rev-parse HEAD`), so the inputs and the executable come from the same commit.
+
 `scripts/laptop/f07r4.sh run "$NOTES"` checks the repository, the hash of the copy and
 `build_summary.txt`; runs `--version` and `--print-topology` (also under every rule) through the
 interop; builds and tests `cpu-strict` and `cpu` in WSL; runs `bitwise`, the campaign (resumable),
@@ -1966,7 +1993,7 @@ Limits:
   and `std::exp` in double only in the schedule and the thresholds) but not guaranteed: the C
   runtime of MinGW-w64 is not glibc; dSB is compared only between the strict presets, and in the
   campaign it is only reported (`E9_INFO`);
-- the instance is read through `\\wsl.localhost` (in `t_setup_ms`, not in `t_run_ms`);
+- the instance is read from the copy on `C:` (F07-R4e; in `t_setup_ms`, not in `t_run_ms`);
 - at most 64 logical processors; `build.ps1` was not run in the sandbox (no PowerShell), the
   presets were cross-compiled with MinGW-w64 GCC 13 and tested under wine, with the DLLs of the
   cross toolchain (the same four);
@@ -2166,8 +2193,11 @@ Tests in detail (the C++ ones use doctest):
   independent computation, the plots, `E9_CONSISTENCY: PASS`; the checks that must fail (a `win-e`
   row with the class of the P cores, a WSL row with another cut, SA different between the
   platforms) and dSB different only as `E9_INFO`; `bitwise` with this build on both sides (the
-  Windows side a wrapper behind a fake `wslpath`): PASS, and with a changed replica FAIL with the
-  first different replica and the thresholds compared; final line `E9_TEST_VERDICT`;
+  repository a git copy with G1; the Windows side wrappers in a fake `DEST` with its copy, behind
+  a fake `wslpath` that gives `C:\sbmc-win\...`; the wrappers refuse a UNC argument): PASS with the
+  Windows outputs moved from `DEST/runs/bitwise`, with a changed replica FAIL with the first
+  different replica and the thresholds compared, with a build of another commit exit status 1
+  before any case; final line `E9_TEST_VERDICT`;
 - `test_sbmc_campaign` (label `apps`, phase 07): `python/sbmc_campaign.py` with `sbmc_run` and
   `sbmc_spectrum` of the build: h and w of seven rudy files and of `--dense 200`, beta0 in the
   commands of `--dry-run` (values of cldArchitect); 12 wrong configurations (exit status 2, no file
@@ -2179,10 +2209,15 @@ Tests in detail (the C++ ones use doctest):
 - `test_sbmc_campaign_series` (label `apps`, phase 07, part 4): `sbmc_run --affinity` and
   `--print-topology` on Linux (exit status 2, "available only on Windows") and `--version`; 10
   wrong configurations with `[[series]]` (exit status 2, no file written); `--dry-run` with a fake
-  `wslpath`: the points of every series in order, the ids `<id>_<series>_T<threads>`, `--affinity`
-  and the Windows paths only in the Windows series; a real run with a wrapper as the Windows
-  series (10 configurations, the arguments as in the dry run), a second run that skips everything,
-  `status`; final line `SERIES_VERDICT`;
+  `DEST` (copy and wrapper) and a fake `wslpath` (F07-R4e): the points of every series in order,
+  the ids `<id>_<series>_T<threads>`, `--affinity`, the inputs from `C:\sbmc-win\src` and the
+  outputs in `C:\sbmc-win\runs\series` only in the Windows series, no argument that starts with
+  `\\`; a real run with a wrapper as the Windows series (10 configurations, the arguments as in
+  the dry run, the wrapper in `DEST/src`, stale work files deleted, nothing left in `DEST/runs`), a
+  second run that skips everything, `status`; a Windows configuration that exits with 1 (its work
+  files kept, no final files) and the resumed run (1 skip, 9 done); a file missing in the copy, a
+  build of another commit and a `DEST` translated to a UNC path: exit status 1 before any run;
+  final line `SERIES_VERDICT`;
 - `test_sbmc_run` (label `apps`): `sbmc_run` run from the repository root, its exit statuses (2 for
   the command line, among them `--threads` with `--variant c0` and out of [0, 1024]; 1 for the
   library and for reading and writing), the 56 columns and their values on the 4-node graph, a
@@ -2198,10 +2233,11 @@ Tests in detail (the C++ ones use doctest):
   unchanged; with `--variant c2`: the run of `--algo sa` with two threads (one block: `threads`
   1, the rows and the replica file of `c0`), G1 with R = 133 and three threads against `c0`, the
   messages of `--variant c2` with dSB and bSB, of `--threads` with `c0`, of `--variant c3`, of
-  `--replica-out` on the `--out` file written in four ways, and exit status 1 for a loop of
-  symbolic links in the path of `--replica-out`; with results schema 2 (phase 07): in every row of
-  every run the three times >= 0 with their sum at most `t_solve_ms` + 0.002, `t_step_us` from
-  `t_run_ms`, `dt_rule` and `c0_rule`, `cpu_classes` empty,
+  `--replica-out` on the `--out` file written in four ways, exit status 1 for a loop of symbolic
+  links in the path of `--replica-out` (its folder; since F07-R4e not the comparison) and exit
+  status 2 for the same file in that loop written in two ways; with results schema 2 (phase 07):
+  in every row of every run the three times >= 0 with their sum at most `t_solve_ms` + 0.002,
+  `t_step_us` from `t_run_ms`, `dt_rule` and `c0_rule`, `cpu_classes` empty,
   `cpu_affinity` equal to the `Cpus_allowed_list` of the test, `omp_places` and `omp_proc_bind`;
   a run under `taskset -c 0` (skipped, and said so, without `taskset`), `OMP_PLACES=cores` and
   `OMP_PROC_BIND=close` in the environment and then neither, `OMP_PLACES` with a line break (exit

@@ -76,6 +76,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <cwctype>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -716,6 +717,43 @@ int run(const Options& options, bool dense) {
   return kExitOk;
 }
 
+// Whether --out and --replica-out name the same file ("x.csv", "./x.csv", an absolute path):
+// the paths made absolute, then weakly_canonical (which leaves a relative path whose first element
+// does not exist relative, hence absolute first). When either step fails (F07-R4e: with the
+// libstdc++ of MinGW a UNC path such as \\wsl.localhost\<distro>\... does not resolve), the
+// lexically normal forms of the absolute paths, or of the given ones when absolute fails too. On
+// Windows the comparison ignores case. A failure to resolve is never an error by itself.
+bool same_output_file(const std::string& first, const std::string& second) {
+  namespace fs = std::filesystem;
+  const auto canonical = [](const std::string& file, std::error_code& error) {
+    fs::path path = fs::absolute(file, error);
+    return error ? path : fs::weakly_canonical(path, error);
+  };
+  const auto normal = [](const std::string& file) {
+    std::error_code error;
+    const fs::path path = fs::absolute(file, error);
+    return (error ? fs::path(file) : path).lexically_normal();
+  };
+  const auto key = [](const fs::path& path) {
+#ifdef _WIN32
+    std::wstring text = path.wstring();
+    std::transform(text.begin(), text.end(), text.begin(),
+                   [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+    return text;
+#else
+    return path.native();
+#endif
+  };
+  std::error_code first_error;
+  std::error_code second_error;
+  const fs::path a = canonical(first, first_error);
+  const fs::path b = canonical(second, second_error);
+  if (!first_error && !second_error) {
+    return key(a) == key(b);
+  }
+  return key(normal(first)) == key(normal(second));
+}
+
 int usage_error(std::string_view message) {
   std::cerr << "sbmc_run: " << message << "\nRun with --help for more information.\n";
   return kExitUsage;
@@ -1054,25 +1092,8 @@ int main(int argc, char** argv) {
   if (replica_out->count() > 0 && options.out.empty()) {
     return usage_error("--replica-out requires --out");
   }
-  if (replica_out->count() > 0) {
-    // The same file written in two ways ("x.csv", "./x.csv", an absolute path) is the same file.
-    // The paths are made absolute first: weakly_canonical leaves a relative path whose first
-    // element does not exist (a new file in the current folder) relative.
-    std::error_code error;
-    const auto canonical = [&error](const std::string& file) {
-      std::filesystem::path path = std::filesystem::absolute(file, error);
-      return error ? path : std::filesystem::weakly_canonical(path, error);
-    };
-    const std::filesystem::path out = canonical(options.out);
-    const std::filesystem::path replicas = error ? out : canonical(options.replica_out);
-    if (error) {
-      std::cerr << "sbmc_run: --out " << options.out << " and --replica-out " << options.replica_out
-                << ": cannot compare the two paths: " << error.message() << '\n';
-      return kExitError;
-    }
-    if (out == replicas) {
-      return usage_error("--replica-out must differ from --out");
-    }
+  if (replica_out->count() > 0 && same_output_file(options.out, options.replica_out)) {
+    return usage_error("--replica-out must differ from --out");
   }
 
   try {

@@ -3,6 +3,40 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R4e] - 2026-11-27
+
+Correction before E9: on the laptop `scripts/laptop/f07r4.sh run` stopped at the bitwise
+comparison, since `sbmc_run.exe` with `--instance`, `--out` and `--replica-out` under
+`\\wsl.localhost\Ubuntu-24.04\...` (from `wslpath -w`) exited with 1, "cannot compare the two
+paths": `std::filesystem::absolute` and `weakly_canonical` of the libstdc++ of MinGW fail on a UNC
+path. The campaign would have stopped the same way. No change to the solvers, to the results
+schema, to the series and loads of E9 or to the Windows build.
+
+### Changed
+
+- `apps/sbmc_run.cpp`: `--out` and `--replica-out` are compared with `absolute` and
+  `weakly_canonical` as before and, when either fails, in their lexically normal forms (of the
+  absolute paths, or of the given ones), ignoring case on Windows; a path that cannot be resolved
+  is no longer an error by itself (on Linux the only visible difference: a loop of symbolic links
+  in the path is reported by the check of the folder, still exit status 1).
+- `python/sbmc_campaign.py`: `WindowsCopy` replaces `WindowsPaths`, one mechanism for the series
+  of platform `windows` and for `sbmc_e9.py bitwise`: `DEST` from the executable
+  (`DEST/build-<preset>/...`), translated once with `wslpath -w` and required on a drive; inputs
+  from the same relative path in `DEST/src` (an error before the run when missing); `--out` and
+  `--replica-out` in `DEST/runs/<campaign>/`, deleted before each run and moved into the repository
+  after exit status 0 (kept there otherwise); the process in `DEST/src`; before the first
+  configuration of a Windows executable, `--version` and `DEST/src/.sbmc_build_info` checked
+  against `git rev-parse HEAD`.
+- `python/sbmc_e9.py`: `bitwise` through `WindowsCopy` (work folder `DEST/runs/bitwise`, both
+  Windows builds checked against HEAD).
+- Tests: `test_sbmc_campaign_series` (inputs from the copy, outputs in `runs/`, no UNC argument,
+  stale work files deleted, a failed configuration and the resumed run, a missing file, another
+  commit, a UNC `DEST`), `test_sbmc_e9` (`bitwise` through the copy, another commit),
+  `test_sbmc_run` (the loop of symbolic links: the folder, not the comparison; the same file in it
+  written in two ways: exit status 2).
+- `README.md`: the fact and the correction in "E9 on Windows native", the comparison of `sbmc_run`,
+  the runner, the tests.
+
 ## [F07-R4d] - 2026-11-23
 
 Correction of F07-R4b and F07-R4c: on the laptop the build of `win-cpu-strict` failed once

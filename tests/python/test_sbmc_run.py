@@ -10,8 +10,10 @@ section 5.10, F07-C1, section 5.12, and F07-C2, section 5.8:
    and --replica-out included; the messages of phase 06 are compared: --variant c2 with dsb and
    bsb, --threads with c0, --replica-out on the same file as --out, written in four ways);
 2. exit status 1 for the errors of the library, of reading and of writing (a CSV or a replica file
-   with another header is left unchanged), and for paths of --out and --replica-out that cannot be
-   compared (a loop of symbolic links);
+   with another header is left unchanged), and for a --replica-out in a loop of symbolic links:
+   since F07-R4e the paths that cannot be resolved are compared in their lexically normal form,
+   so the error is the folder of --replica-out, not the comparison, and the same file in that
+   loop written in two ways is an error of the command line (exit status 2);
 3. tests/data/four_nodes.rudy, two recorded repetitions: the 56 columns and their values;
 4. repetition 1 against sbmc_trace with --first-replica 8 (same instance and parameters);
 5. a third run on the same CSV: three rows, one header;
@@ -918,10 +920,19 @@ def main() -> int:
     os.symlink("loop", loop)  # a symbolic link to itself: the path cannot be resolved
     result = run(four + sa + out + ["--replica-out", str(loop / "replicas.csv")])
     first = result.stderr.strip().splitlines()[0:1]
-    report.check("exit 1: --replica-out in a loop of symbolic links",
-                 result.returncode == 1 and bool(first) and "--out" in first[0]
-                 and "--replica-out" in first[0] and "cannot compare" in first[0]
+    report.check("exit 1: --replica-out in a loop of symbolic links (its folder, not the "
+                 "comparison)", result.returncode == 1 and bool(first)
+                 and first[0].startswith("sbmc_run: --replica-out ") and "folder" in first[0]
+                 and "cannot compare" not in result.stderr
                  and not rep_lines(result.stdout) and not (workdir / "unused.csv").exists(),
+                 f"exit {result.returncode}: {first}")
+    # The same file in that loop written in two ways: weakly_canonical fails, the lexically
+    # normal forms are equal (F07-R4e).
+    result = run(four + sa + ["--out", f"{loop}/x.csv", "--replica-out", f"{loop}/./x.csv"])
+    first = result.stderr.strip().splitlines()[0:1]
+    report.check("exit 2: the same file in a loop of symbolic links, written in two ways",
+                 result.returncode == 2
+                 and first == ["sbmc_run: --replica-out must differ from --out"],
                  f"exit {result.returncode}: {first}")
     report.check("--out with another header: file unchanged",
                  bad_header.read_text(encoding="ascii") == "a,b,c\n1,2,3\n")

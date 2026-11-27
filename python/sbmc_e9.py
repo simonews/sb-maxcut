@@ -41,7 +41,11 @@ instance in CONFIG; dSB (win-cpu-strict against cpu-strict) on G1 with R 64, M 5
 first different replica is written and, for SA, the thresholds tool (tests/tools/
 sbmc_sa_thresholds, built with the library on both platforms) is run on both sides with the
 schedule of the case and its lines are compared: the sweeps where beta or a threshold differs.
-The Windows executables get absolute Windows paths (wslpath -w, as the runner). Lines:
+The Windows executables get no UNC path, as in the runner (sbmc_campaign.WindowsCopy, F07-R4e):
+the instance from the Windows copy <dest>\\src, the outputs in <dest>\\runs\\bitwise, moved to
+--workdir after exit status 0, the processes in <dest>\\src; before the first case,
+sbmc_run.exe --version of both Windows builds and the .sbmc_build_info of the copy must give the
+commit of HEAD. Lines:
 "BITWISE <case>: equal|different ...", "BITWISE_SA: PASS|FAIL", "BITWISE_DSB_STRICT: PASS|FAIL".
 
 Exit status: 0 success (FAIL verdicts included); 1 error in the data or in a child process; 2
@@ -441,10 +445,11 @@ def sa_betas(campaign: sc.Campaign, root: Path, instance_id: str) -> tuple[float
     return config.a / h, config.b / w
 
 
-def run_checked(cmd: list[str], what: str) -> subprocess.CompletedProcess[str]:
+def run_checked(cmd: list[str], what: str, cwd: Path | None = None
+                ) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False,
-                                env=sc.child_environment())
+                                env=sc.child_environment(), cwd=cwd)
     except OSError as error:
         raise sc.DataError(f"{what}: cannot run {cmd[0]}: {error}") from error
     if result.returncode != 0:
@@ -512,7 +517,10 @@ def compare_thresholds(win: str, wsl: str) -> tuple[int, list[str]]:
 def bitwise(campaign: sc.Campaign, root: Path, args: argparse.Namespace) -> int:
     workdir = Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
-    windows_paths = sc.WindowsPaths(root)
+    copies = {exe: sc.WindowsCopy(root, exe, "bitwise")
+              for exe in (args.win_run, args.win_strict_run, args.win_thresholds)}
+    for exe in (args.win_run, args.win_strict_run):
+        copies[exe].check_current(root)
     verdicts: dict[str, list[bool]] = {"sa": [], "dsb": []}
     for case in CASES:
         instance = campaign.instance(case.instance)
@@ -533,15 +541,26 @@ def bitwise(campaign: sc.Campaign, root: Path, args: argparse.Namespace) -> int:
                 path.unlink(missing_ok=True)
             instance_args = list(instance.args)
             out_arg, replicas_arg = str(out), str(replicas)
+            cwd = None
+            moves: list[tuple[Path, Path]] = []
             if side == "windows":
+                copy = copies[exe]
                 if not instance.dense:
-                    instance_args[1] = windows_paths(instance_args[1])
-                out_arg, replicas_arg = windows_paths(out), windows_paths(replicas)
+                    instance_args[1] = copy.input(instance_args[1])
+                work_out, out_arg = copy.output(Path(out.name))
+                work_replicas, replicas_arg = copy.output(Path(replicas.name))
+                moves = [(work_out, out), (work_replicas, replicas)]
+                for work, _ in moves:
+                    work.unlink(missing_ok=True)
+                    work.parent.mkdir(parents=True, exist_ok=True)
+                cwd = copy.copy
             cmd = [exe, *instance_args, "--name", case.instance, *params, "--replicas",
                    str(case.replicas), "--threads", "4", "--seed", "1", "--reps", "1", "--warmup",
                    "0", "--target", "none", "--notes", "F07-C4 5.4", "--tag", case.name, "--out",
                    out_arg, "--replica-out", replicas_arg]
-            run_checked(cmd, f"bitwise {case.name} ({side})")
+            run_checked(cmd, f"bitwise {case.name} ({side})", cwd)
+            for work, final in moves:
+                sc.WindowsCopy.move(work, final)
             files[side] = replica_rows(replicas)
         difference = first_difference(files["windows"], files["wsl"])
         verdicts[case.algo].append(difference is None)
@@ -554,7 +573,8 @@ def bitwise(campaign: sc.Campaign, root: Path, args: argparse.Namespace) -> int:
             limit = max_delta(instance, root)
             tool_args = ["--beta0", repr(beta0), "--beta1", repr(beta1), "--sweeps",
                          str(case.steps), "--max-delta", str(limit)]
-            win = run_checked([args.win_thresholds, *tool_args], "thresholds (windows)").stdout
+            win = run_checked([args.win_thresholds, *tool_args], "thresholds (windows)",
+                              copies[args.win_thresholds].copy).stdout
             wsl = run_checked([args.wsl_thresholds, *tool_args], "thresholds (wsl)").stdout
             sweeps, differences = compare_thresholds(win, wsl)
             listed = ": " + "; ".join(differences[:5]) if differences else ""

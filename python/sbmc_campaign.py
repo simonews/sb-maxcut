@@ -92,9 +92,18 @@ with the parameters "--algo sa --variant c2 --sweeps S --beta0 repr(a/h) --beta1
 repository root, in the environment of the runner without the OMP_* variables; the stdout of
 sbmc_run goes to the log of the campaign, its stderr to the log and to stderr. A series of
 platform windows adds "--affinity <rule>" (and "--best-known <file>" with the target best-known),
-and its path arguments (the rudy file, --out, --replica-out, --best-known) are absolute Windows
-paths: the repository root translated once with "wslpath -w", then the relative path with
-backslashes; a path outside the root goes through wslpath -w of its folder.
+and no UNC path reaches sbmc_run.exe (F07-R4e; see WindowsCopy): it reads its inputs from the copy
+of the repository on Windows and writes its outputs in a folder on the same drive, then the
+runner moves them into the repository. The executable lies in <dest>/build-<preset>/ (the
+binaryDir of the presets win-*), and <dest>/src is the copy of scripts/windows/stage.sh (with its
+.sbmc_build_info); <dest> is translated once with "wslpath -w" and must be on a Windows drive.
+The rudy file and the best-known table, paths inside the repository root, become the same
+relative paths in <dest>\\src (an error before the run when the file is missing there); --out and
+--replica-out become <dest>\\runs\\<campaign>\\<path relative to the output folder>, both deleted
+before the run and moved to their place in the repository after exit status 0 (left where they
+are otherwise; the configuration is then not complete). sbmc_run.exe runs in <dest>\\src. Before
+the first configuration of a Windows executable that runs, "sbmc_run.exe --version" and the
+.sbmc_build_info of the copy must give the commit of HEAD (git rev-parse HEAD in the root).
 
 Resuming: a configuration is complete when its results file has exactly reps rows with run_tag
 equal to its id and its replica file exactly reps * R rows; it is skipped. An incomplete one (one
@@ -139,6 +148,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -916,59 +926,186 @@ def parameters(config: Config, scales: dict[str, tuple[float, int | None]]) -> l
             "auto", "--dt-factor", repr(config.f), "--c0", C0_RULES[config.c0]]
 
 
-class WindowsPaths:
-    """Absolute Windows paths for an sbmc_run.exe started from WSL: the repository root through
-    "wslpath -w" once, then the relative path with backslashes; a path outside the root through
-    wslpath -w of its folder."""
+class WindowsCopy:
+    """The files of a Windows executable started from WSL, without UNC paths (F07-R4e).
 
-    def __init__(self, root: Path) -> None:
+    With the libstdc++ of MinGW, sbmc_run.exe fails on a path such as
+    \\\\wsl.localhost\\<distro>\\... (seen on the laptop: std::filesystem cannot resolve the root of
+    the share). The executable lies
+    in <dest>/build-<preset>/...; <dest>/src is the copy of scripts/windows/stage.sh. Inputs inside
+    the repository root are read from the same relative path in the copy, outputs are written in
+    <dest>/runs/<work>/ and moved into the repository by move(). <dest> is translated once with
+    "wslpath -w"; a translation that is not on a Windows drive (a UNC path) is an error."""
+
+    def __init__(self, root: Path, executable: str | Path, work: str) -> None:
         self.root = root
-        self.root_windows: str | None = None
+        self.executable = Path(executable) if Path(executable).is_absolute() else root / executable
+        build = next((p for p in self.executable.parents if p.name.startswith("build-")), None)
+        if build is None:
+            raise DataError(f"{executable}: a Windows executable must lie in "
+                            "<dest>/build-<preset>/ (the presets win-*), next to the copy "
+                            "<dest>/src of scripts/windows/stage.sh")
+        self.dest = build.parent
+        self.copy = self.dest / "src"
+        self.info = self.copy / ".sbmc_build_info"
+        if not self.info.is_file():
+            raise DataError(f"{executable}: {self.info} not found: {self.copy} is not a copy "
+                            "made by scripts/windows/stage.sh")
+        self.runs = self.dest / "runs" / work
+        self.work = work
+        self.dest_windows: str | None = None
+        self.checked = False
 
-    def wslpath(self, path: Path) -> str:
-        try:
-            result = subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True,
-                                    check=False)
-        except OSError as error:
-            raise DataError(f"wslpath: {error} (the series of platform windows run from WSL)"
-                            ) from error
-        text = result.stdout.strip()
-        if result.returncode != 0 or not text:
-            raise DataError(f"wslpath -w {path} exited with {result.returncode}: "
-                            f"{result.stderr.strip()}")
-        return text.rstrip("\\")
+    def windows(self, path: Path) -> str:
+        """The Windows path of a path under <dest>."""
+        if self.dest_windows is None:
+            text = wslpath(self.dest)
+            if text.startswith("\\") or not re.match(r"[A-Za-z]:\\", text + "\\"):
+                raise DataError(f"wslpath -w {self.dest} gives {text}, not a path on a Windows "
+                                "drive: the Windows executables get no UNC path; put the copy "
+                                "on a drive (scripts/windows/stage.sh DEST, default "
+                                "/mnt/c/Users/Simone/sbmc-win)")
+            self.dest_windows = text
+        return "\\".join([self.dest_windows, *path.relative_to(self.dest).parts])
 
-    def __call__(self, path: str | Path) -> str:
+    def input(self, path: str | Path) -> str:
+        """An input of the repository: the same relative path in the copy (DataError when it is
+        outside the root or missing in the copy)."""
         candidate = Path(path)
         absolute = candidate if candidate.is_absolute() else self.root / candidate
         try:
             relative = absolute.relative_to(self.root)
         except ValueError:
-            return self.wslpath(absolute.parent) + "\\" + absolute.name
-        if self.root_windows is None:
-            self.root_windows = self.wslpath(self.root)
-        return "\\".join([self.root_windows, *relative.parts])
+            raise DataError(f"{path}: an input of a Windows executable must lie in the "
+                            f"repository ({self.root}), to be read from the copy {self.copy}"
+                            ) from None
+        copied = self.copy / relative
+        if not copied.is_file():
+            raise DataError(f"{relative.as_posix()} is missing in the Windows copy {self.copy} "
+                            "(run scripts/windows/stage.sh again)")
+        return self.windows(copied)
+
+    def output(self, relative: Path) -> tuple[Path, str]:
+        """An output: its file in <dest>/runs/<work>/ (WSL path) and the Windows path of it."""
+        work = self.runs / relative
+        return work, self.windows(work)
+
+    def check_current(self, root: Path) -> None:
+        """sbmc_run.exe --version and the .sbmc_build_info of the copy give the commit of HEAD
+        (checked once)."""
+        if self.checked:
+            return
+        head = git_head(root)
+        match = re.search(r"^git_hash=([0-9a-f]{40})$", self.info.read_text(encoding="ascii"),
+                          re.MULTILINE)
+        staged = match.group(1) if match else "unreadable"
+        if staged != head:
+            raise DataError(f"the Windows copy {self.copy} is of commit {staged}, HEAD is {head}: "
+                            "run scripts/windows/stage.sh and scripts/windows/build.ps1 again")
+        try:
+            result = subprocess.run([str(self.executable), "--version"], capture_output=True,
+                                    text=True, check=False, cwd=self.copy,
+                                    env=child_environment(), timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise DataError(f"cannot run {self.executable} --version: {error}") from error
+        found = re.search(r"git_hash=(\S+)", result.stdout)
+        built = found.group(1) if found else "unreadable"
+        if result.returncode != 0 or built != head:
+            raise DataError(f"{self.executable} --version (exit {result.returncode}) gives "
+                            f"git_hash={built}, HEAD is {head}: build the copy again "
+                            "(scripts/windows/build.ps1)")
+        self.checked = True
+
+    @staticmethod
+    def move(work: Path, final: Path) -> None:
+        """An output written on Windows into its place in the repository (a copy, then a rename
+        in the folder of the final file, then the removal of the work file)."""
+        try:
+            final.parent.mkdir(parents=True, exist_ok=True)
+            temporary = final.with_name(final.name + ".tmp")
+            shutil.copyfile(work, temporary)
+            os.replace(temporary, final)
+            work.unlink()
+        except OSError as error:
+            raise DataError(f"cannot move {work} to {final}: {error}") from error
+
+
+def wslpath(path: Path) -> str:
+    try:
+        result = subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True,
+                                check=False)
+    except OSError as error:
+        raise DataError(f"wslpath: {error} (the Windows executables run from WSL)") from error
+    text = result.stdout.strip()
+    if result.returncode != 0 or not text:
+        raise DataError(f"wslpath -w {path} exited with {result.returncode}: "
+                        f"{result.stderr.strip()}")
+    return text.rstrip("\\")
+
+
+def git_head(root: Path) -> str:
+    try:
+        result = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                                capture_output=True, text=True, check=False)
+    except OSError as error:
+        raise DataError(f"git: {error} (the Windows executables are checked against HEAD)"
+                        ) from error
+    head = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise DataError(f"git -C {root} rev-parse HEAD exited with {result.returncode}: "
+                        f"{result.stderr.strip()} (the Windows executables are checked "
+                        "against HEAD)")
+    return head
+
+
+class WindowsCopies:
+    """One WindowsCopy per Windows executable of a campaign, with the work folder
+    runs/<campaign>."""
+
+    def __init__(self, root: Path, campaign: Campaign) -> None:
+        self.root = root
+        self.campaign = campaign
+        self.copies: dict[str, WindowsCopy] = {}
+
+    def __call__(self, config: Config) -> WindowsCopy:
+        executable = config.executable(self.campaign)
+        if executable not in self.copies:
+            self.copies[executable] = WindowsCopy(self.root, executable, self.campaign.name)
+        return self.copies[executable]
+
+    def outputs(self, config: Config) -> list[tuple[Path, Path]]:
+        """(work file, final file) of the two outputs of a Windows configuration."""
+        copy = self(config)
+        return [(copy.output(relative_output(path, self.campaign))[0], self.root / path)
+                for path in (config.results_path(self.campaign),
+                             config.replica_path(self.campaign))]
+
+
+def relative_output(path: Path, campaign: Campaign) -> Path:
+    return path.relative_to(Path(campaign.output))
 
 
 def command(config: Config, campaign: Campaign, scales: dict[str, tuple[float, int | None]],
             target: str, notes: str, executable: str | None = None,
-            windows_paths: WindowsPaths | None = None) -> list[str]:
-    """The call of sbmc_run of a configuration (paths relative to the repository root; absolute
-    Windows paths for a series of platform windows, which needs windows_paths)."""
+            copies: WindowsCopies | None = None) -> list[str]:
+    """The call of sbmc_run of a configuration (paths relative to the repository root; for a
+    series of platform windows, which needs copies, the Windows paths of WindowsCopy)."""
     args = list(config.instance.args)
     out, replica_out = str(config.results_path(campaign)), str(config.replica_path(campaign))
     extra: list[str] = []
     if config.windows:
-        if windows_paths is None:
+        if copies is None:
             raise DataError(f"configuration {config.id}: a series of platform windows needs the "
-                            "Windows paths")
+                            "Windows copy")
         assert config.series is not None and config.series.affinity is not None
+        copy = copies(config)
         if not config.instance.dense:
-            args[1] = windows_paths(args[1])
-        out, replica_out = windows_paths(out), windows_paths(replica_out)
+            args[1] = copy.input(args[1])
+        out = copy.output(relative_output(config.results_path(campaign), campaign))[1]
+        replica_out = copy.output(relative_output(config.replica_path(campaign), campaign))[1]
         extra = ["--affinity", config.series.affinity]
         if target == "best-known":
-            extra += ["--best-known", windows_paths(BEST_KNOWN_FILE)]
+            extra += ["--best-known", copy.input(BEST_KNOWN_FILE)]
     return [executable or config.executable(campaign), *args, "--name", config.instance.id,
             *parameters(config, scales), "--replicas", str(campaign.replicas), "--threads",
             str(config.team(campaign)), *extra, "--seed", str(campaign.seed), "--reps",
@@ -1073,11 +1210,18 @@ def _signal_handler(signum: int, _frame: object) -> None:
     raise Interrupted(signum)
 
 
-def _run_one(config: Config, campaign: Campaign, root: Path, cmd: list[str], log: Log) -> int:
+def _run_one(config: Config, campaign: Campaign, root: Path, cmd: list[str], log: Log,
+             copies: WindowsCopies | None = None) -> int:
     state = config_state(config, campaign, root)
     if state == "done":
         log.event("skip", config.instance.id, config.id, note="complete")
         return EXIT_OK
+    cwd = root
+    outputs: list[tuple[Path, Path]] = []
+    if config.windows:
+        assert copies is not None
+        copies(config).check_current(root)
+        cwd = copies(config).copy
     note = ""
     if state == "partial":
         for path in (config.results_path(campaign), config.replica_path(campaign)):
@@ -1085,10 +1229,16 @@ def _run_one(config: Config, campaign: Campaign, root: Path, cmd: list[str], log
         note = "incomplete files removed, repeated"
     for path in (config.results_path(campaign), config.replica_path(campaign)):
         (root / path).parent.mkdir(parents=True, exist_ok=True)
+    if config.windows:
+        assert copies is not None
+        outputs = copies.outputs(config)
+        for work, _ in outputs:
+            work.unlink(missing_ok=True)
+            work.parent.mkdir(parents=True, exist_ok=True)
     log.event("run", config.instance.id, config.id, note=note)
     start = time.monotonic()
     try:
-        process = subprocess.Popen([str(root / cmd[0]), *cmd[1:]], cwd=root,
+        process = subprocess.Popen([str(root / cmd[0]), *cmd[1:]], cwd=cwd,
                                    env=child_environment(), stdout=log.handle,
                                    stderr=subprocess.PIPE, text=True)
     except OSError as error:
@@ -1112,8 +1262,12 @@ def _run_one(config: Config, campaign: Campaign, root: Path, cmd: list[str], log
         sys.stderr.write(stderr)
     if process.returncode != 0:
         log.event("fail", config.instance.id, config.id, seconds, process.returncode,
-                  note="sbmc_run failed; the following configurations are not started")
+                  note="sbmc_run failed; the following configurations are not started"
+                  + ("; its files stay in " + str(copies(config).runs)
+                     if config.windows and copies is not None else ""))
         return EXIT_DATA
+    for work, final in outputs:
+        WindowsCopy.move(work, final)
     if config_state(config, campaign, root) != "done":
         log.event("fail", config.instance.id, config.id, seconds, process.returncode,
                   note="the files are not complete after sbmc_run")
@@ -1136,7 +1290,7 @@ def run_campaign(campaign: Campaign, root: Path, notes: str, stage: str | None,
             raise DataError(f"instance {instance.id}: {instance.file} not found")
     scales = {i.id: instance_scales(i, root) for i in campaign.instances
               if i.id in needs_scales or not dry_run}
-    windows_paths = WindowsPaths(root) if any(c.windows for c in selected) else None
+    copies = WindowsCopies(root, campaign) if any(c.windows for c in selected) else None
 
     if dry_run:
         targets = resolve_targets(campaign, configs, root)
@@ -1147,7 +1301,7 @@ def run_campaign(campaign: Campaign, root: Path, notes: str, stage: str | None,
             mark = "skip" if state == "done" else "run"
             print(f"{mark}: " + shlex.join(command(config, campaign, scales,
                                                    target or "best-found:pending", notes,
-                                                   windows_paths=windows_paths)))
+                                                   copies=copies)))
         for entry in skipped:
             print(f"skip: instance {entry.instance}, method {entry.method}: {entry.reason}")
         return EXIT_OK
@@ -1189,9 +1343,8 @@ def run_campaign(campaign: Campaign, root: Path, notes: str, stage: str | None,
                 target = resolve_targets(campaign, configs, root)[config.instance.id][0]
             else:
                 target = _stage_target(config)
-            cmd = command(config, campaign, scales, target, notes,
-                          windows_paths=windows_paths)
-            status = _run_one(config, campaign, root, cmd, log)
+            cmd = command(config, campaign, scales, target, notes, copies=copies)
+            status = _run_one(config, campaign, root, cmd, log, copies)
             if status != EXIT_OK:
                 break
         if status == EXIT_OK and any(i.target == "best-found" for i in campaign.instances):
