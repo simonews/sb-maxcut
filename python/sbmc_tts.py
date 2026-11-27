@@ -5,18 +5,25 @@ Usage:
   python3 python/sbmc_tts.py --results FILE [--replicas FILE] [--targets 1000,995,990]
                              [--bootstrap B] [--seed S] [--out FILE]
 
---results is a CSV of results schema 1 (sbmc/results.hpp); --replicas is the replica file of the
-same runs (sbmc_run --replica-out), needed for the relaxed targets (995 and 990 thousandths of the
-target) and used by the bootstrap. Without --targets the fractions are 1000, 995 and 990 with
---replicas and 1000 alone without it; an explicit --targets without --replicas accepts only 1000.
-The rows of results are grouped by the 21 columns of GROUP_KEY, in the order of first appearance;
-groups without a target are skipped. For every group and every target fraction f (in
-thousandths): the successes over all repetitions, P_s with its Wilson interval at 95%, the batch
-time (median of t_solve_ms), TTS99 and its interval from the Wilson bounds, a bootstrap interval of
-TTS99 (B resamples with a fixed seed), the best and the mean cut, and their gaps from the target.
+--results is a CSV of results schema 1 (44 columns, sbmc_run until phase 06) or of results
+schema 2 (56 columns, sbmc/results.hpp, from phase 07), recognized by its exact header; --replicas
+is the replica file of the same runs (sbmc_run --replica-out), needed for the relaxed targets (995
+and 990 thousandths of the target) and used by the bootstrap. Without --targets the fractions are
+1000, 995 and 990 with --replicas and 1000 alone without it; an explicit --targets without
+--replicas accepts only 1000. The rows of results are grouped, in the order of first appearance,
+by the 21 columns of GROUP_KEY (schema 1) or by the 31 columns of GROUP_KEY_2 (schema 2: GROUP_KEY,
+then os, the rules of dt and c0, the extremes of the spectrum, the affinity, the classes of the
+cores, the OpenMP variables and run_tag); groups without a target are skipped. For every group and
+every target fraction f (in thousandths): the successes over all repetitions, P_s with its Wilson
+interval at 95%, the batch time, TTS99 and its interval from the Wilson bounds, a bootstrap
+interval of TTS99 (B resamples with a fixed seed), the best and the mean cut, and their gaps from
+the target. The batch time is the median of t_solve_ms with schema 1 and the median of t_run_ms
+with schema 2, where the summary declares it in the column t_batch_column (SUMMARY_COLUMNS_2); the
+summary of schema 1 keeps the columns of SUMMARY_COLUMNS.
 
-Until results schema 2 (phase 07) t_solve_ms includes the preparation and the final check of the
-solver: the TTS of these runs is slightly pessimistic.
+Limit of schema 1: its t_solve_ms is the duration of the call of the solver, which includes the
+preparation and the final check: the TTS of these runs is slightly pessimistic. Schema 2 measures
+the run (t_run_ms) apart from them.
 
 Exit status: 0 success; 1 error in the data (missing or unreadable file, header, join of the two
 files, cross checks, duplicates); 2 error of the command line. Messages on stderr start with
@@ -34,6 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+# Results schema 1 (44 columns).
 RESULTS_COLUMNS = [
     "schema_version", "timestamp", "git_hash", "dirty", "host", "os", "gpu", "driver", "cuda",
     "cublas", "compiler", "algo", "variant", "instance", "n", "nnz", "replicas", "steps", "dt",
@@ -41,6 +49,11 @@ RESULTS_COLUMNS = [
     "mean_cut", "n_success", "p_s", "target", "tts99_ms", "ranks", "t_comm_ms",
     "sm_clock_avg_mhz", "temp_max_c", "power_avg_w", "a0", "eval_every", "first_replica",
     "threads", "target_source", "notes",
+]
+# Results schema 2 (56 columns): the first 43 of schema 1, the 12 columns of phase 07, notes.
+RESULTS_COLUMNS_2 = RESULTS_COLUMNS[:-1] + [
+    "t_prep_ms", "t_run_ms", "t_check_ms", "dt_rule", "c0_rule", "lambda_min", "lambda_max",
+    "cpu_affinity", "cpu_classes", "omp_places", "omp_proc_bind", "run_tag", "notes",
 ]
 REPLICA_COLUMNS = [
     "schema_version", "timestamp", "instance", "algo", "variant", "replicas", "steps", "seed",
@@ -52,13 +65,39 @@ GROUP_KEY = [
     "steps", "dt", "c0", "beta0", "beta1", "a0", "eval_every", "threads", "target",
     "target_source", "notes",
 ]
+# The group of a row of results schema 2: GROUP_KEY and the columns of phase 07 that describe the
+# configuration (31 columns).
+GROUP_KEY_2 = GROUP_KEY + [
+    "os", "dt_rule", "c0_rule", "lambda_min", "lambda_max", "cpu_affinity", "cpu_classes",
+    "omp_places", "omp_proc_bind", "run_tag",
+]
 # Columns that join a row of results with its rows in the replica file.
 JOIN_KEY = ["timestamp", "instance", "algo", "variant", "replicas", "steps", "seed", "rep"]
-SUMMARY_COLUMNS = GROUP_KEY + [
+# The columns of the summary after the group (and, with schema 2, after t_batch_column).
+SUMMARY_VALUES = [
     "target_permille", "target_value", "rows", "replicas_total", "successes", "p_s", "p_s_lo",
     "p_s_hi", "t_batch_ms", "t_batch_q1_ms", "t_batch_q3_ms", "tts99_ms", "tts99_lo_ms",
     "tts99_hi_ms", "bootstrap", "bootstrap_seed", "tts99_boot_lo_ms", "tts99_boot_hi_ms",
     "best_cut", "mean_cut", "gap_best_pct", "gap_mean_pct",
+]
+SUMMARY_COLUMNS = GROUP_KEY + SUMMARY_VALUES  # schema 1
+SUMMARY_COLUMNS_2 = GROUP_KEY_2 + ["t_batch_column"] + SUMMARY_VALUES  # schema 2
+
+
+@dataclass(frozen=True)
+class Schema:
+    """What depends on the schema of the results: header, group, time of the batch, summary."""
+
+    version: int
+    columns: list[str]
+    group_key: list[str]
+    time_column: str
+    summary_columns: list[str]
+
+
+SCHEMAS = [
+    Schema(1, RESULTS_COLUMNS, GROUP_KEY, "t_solve_ms", SUMMARY_COLUMNS),
+    Schema(2, RESULTS_COLUMNS_2, GROUP_KEY_2, "t_run_ms", SUMMARY_COLUMNS_2),
 ]
 DEFAULT_TARGETS = (1000, 995, 990)
 EXIT_OK, EXIT_DATA, EXIT_USAGE = 0, 1, 2
@@ -158,7 +197,7 @@ class ResultRow:
     replicas: int
     rep: int
     first_replica: int
-    t_solve_ms: float
+    t_batch: float  # the column of the time of the batch: t_solve_ms (schema 1), t_run_ms (2)
     target: int | None
     best_cut: int
     mean_cut: str
@@ -166,21 +205,27 @@ class ResultRow:
     replica_cuts: list[int] = field(default_factory=list)  # with --replicas, by replica index
 
 
-def read_csv(path: Path, columns: list[str], what: str) -> list[tuple[int, dict[str, str]]]:
-    """Rows of a CSV with an exact header, with their line numbers."""
+def read_csv(path: Path, headers: Sequence[list[str]],
+             what: str) -> tuple[int, list[tuple[int, dict[str, str]]]]:
+    """Rows of a CSV whose header is exactly one of headers, with their line numbers.
+
+    Returns the index of the header in headers and the rows.
+    """
     try:
         with open(path, newline="", encoding="utf-8") as handle:
             table = list(csv.reader(handle))
     except (OSError, UnicodeDecodeError, csv.Error) as error:
         raise DataError(f"cannot read {path}: {error}") from error
-    if not table or table[0] != columns:
+    index = next((k for k, columns in enumerate(headers) if table and table[0] == columns), None)
+    if index is None:
         raise DataError(f"{path}: the first line is not the header of {what}")
+    columns = headers[index]
     rows = []
     for number_, row in enumerate(table[1:], start=2):
         if len(row) != len(columns):
             raise DataError(f"{path}:{number_}: {len(row)} fields, {len(columns)} expected")
         rows.append((number_, dict(zip(columns, row))))
-    return rows
+    return index, rows
 
 
 def to_int(path: Path, line: int, column: str, text: str) -> int:
@@ -202,9 +247,12 @@ def to_float(path: Path, line: int, column: str, text: str) -> float:
     return value
 
 
-def read_results(path: Path) -> list[ResultRow]:
+def read_results(path: Path) -> tuple[Schema, list[ResultRow]]:
+    """The schema of the file (from its header) and its rows."""
+    index, table = read_csv(path, [s.columns for s in SCHEMAS], "results schema 1 or 2")
+    schema = SCHEMAS[index]
     rows = []
-    for line, values in read_csv(path, RESULTS_COLUMNS, "results schema 1"):
+    for line, values in table:
         replicas = to_int(path, line, "replicas", values["replicas"])
         if replicas < 1:
             raise DataError(f"{path}:{line}: replicas = {replicas} must be at least 1")
@@ -217,10 +265,10 @@ def read_results(path: Path) -> list[ResultRow]:
             line=line, values=values, replicas=replicas,
             rep=to_int(path, line, "rep", values["rep"]),
             first_replica=to_int(path, line, "first_replica", values["first_replica"]),
-            t_solve_ms=to_float(path, line, "t_solve_ms", values["t_solve_ms"]),
+            t_batch=to_float(path, line, schema.time_column, values[schema.time_column]),
             target=target, best_cut=to_int(path, line, "best_cut", values["best_cut"]),
             mean_cut=values["mean_cut"], n_success=n_success))
-    return rows
+    return schema, rows
 
 
 def join_replicas(path: Path, results: list[ResultRow]) -> None:
@@ -233,7 +281,7 @@ def join_replicas(path: Path, results: list[ResultRow]) -> None:
                             f"{by_key[key].line} ({', '.join(JOIN_KEY)})")
         by_key[key] = row
     found: dict[int, dict[int, int]] = {}  # id(row) -> replica index -> best_cut
-    for line, values in read_csv(path, REPLICA_COLUMNS, "the replica file (schema 1)"):
+    for line, values in read_csv(path, [REPLICA_COLUMNS], "the replica file (schema 1)")[1]:
         key = tuple(values[c] for c in JOIN_KEY)
         row = by_key.get(key)
         if row is None:
@@ -299,7 +347,8 @@ def parse_targets(text: str) -> list[int]:
 
 def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser = Parser(prog="sbmc_tts", description="Time to solution TTS99 of sbmc_run results.")
-    parser.add_argument("--results", required=True, help="CSV of results schema 1")
+    parser.add_argument("--results", required=True,
+                        help="CSV of results schema 1 (batch time: t_solve_ms) or 2 (t_run_ms)")
     parser.add_argument("--replicas", help="replica file of the same runs (sbmc_run --replica-out)")
     parser.add_argument("--targets",
                         help="target fractions in thousandths, distinct integers in [1, 1000] "
@@ -329,13 +378,15 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
 
 
 def summarize(args: argparse.Namespace) -> int:
-    results = read_results(Path(args.results))
+    schema, results = read_results(Path(args.results))
     if args.replicas is not None:
         join_replicas(Path(args.replicas), results)
 
     groups: dict[tuple[str, ...], list[ResultRow]] = {}
     for row in results:
-        groups.setdefault(tuple(row.values[c] for c in GROUP_KEY), []).append(row)
+        groups.setdefault(tuple(row.values[c] for c in schema.group_key), []).append(row)
+    # Schema 2 declares the column of the time of the batch in the summary.
+    time_column = [schema.time_column] if schema.version >= 2 else []
 
     import numpy as np
 
@@ -362,7 +413,7 @@ def summarize(args: argparse.Namespace) -> int:
 
         target, replicas = first.target, first.replicas
         total = len(rows) * replicas
-        times = [row.t_solve_ms for row in rows]
+        times = [row.t_batch for row in rows]
         t_batch = statistics.median(times)
         q1, q3 = (float(v) for v in np.percentile(times, [25, 75]))
         if args.replicas is not None:
@@ -387,7 +438,7 @@ def summarize(args: argparse.Namespace) -> int:
             if args.bootstrap > 0:
                 boot_lo, boot_hi = bootstrap_interval(per_row, times, replicas, args.bootstrap,
                                                       [args.seed, group_index, permille_index])
-            values = [first.values[c] for c in GROUP_KEY] + [
+            values = [first.values[c] for c in schema.group_key] + time_column + [
                 str(permille), str(target_value(permille, target)), str(len(rows)), str(total),
                 str(successes), number(p_s), number(lo), number(hi), number(t_batch), number(q1),
                 number(q3), number(tts(p_s, t_batch, replicas)),
@@ -405,7 +456,7 @@ def summarize(args: argparse.Namespace) -> int:
         try:
             with open(args.out, "w", newline="", encoding="utf-8") as handle:
                 writer = csv.writer(handle, lineterminator="\n")
-                writer.writerow(SUMMARY_COLUMNS)
+                writer.writerow(schema.summary_columns)
                 writer.writerows(summary)
         except OSError as error:
             raise DataError(f"cannot write {args.out}: {error}") from error

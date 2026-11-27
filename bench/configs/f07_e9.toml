@@ -1,0 +1,85 @@
+# E9 of phase 07 (reference document, section 14.2; decisions D12, L9, W1-W4): the OpenMP scaling
+# of C1 (dSB) and C2 (SA) on Windows native and in WSL2, on the four loads of the measures of
+# F07-C1 with the relative parameters of E2 of the family (results/f07/e2/selected.csv): G1, SA
+# S 1000 and dSB M 2000; K2000, SA S 200 and dSB M 200. R 1024, 1 warm-up run, 5 repetitions,
+# seed 1. The Windows series run sbmc_run.exe of the preset win-cpu (built from a copy of the
+# commit by scripts/windows/build.ps1) through the interop of WSL, with the process mask of
+# --affinity and the threads free inside it; the series wsl runs the preset cpu, without a mask,
+# as the control. D12: a Windows series is compared only with itself, with the other Windows
+# series and with wsl. 34 points x 4 loads = 136 configurations, in the order of the loads, then
+# of the series below, then of the threads.
+#   bash scripts/laptop/f07r4.sh run "$NOTES"   (the whole procedure, after stage and build.ps1)
+#   .venv/bin/python -B python/sbmc_campaign.py run bench/configs/f07_e9.toml --notes "$NOTES"
+#   .venv/bin/python -B python/sbmc_e9.py analyze bench/configs/f07_e9.toml
+
+[campaign]
+name = "f07_e9"
+output = "results/f07/e9"
+sbmc_run = "build/cpu/apps/sbmc_run"
+sbmc_spectrum = "build/cpu/apps/sbmc_spectrum"
+replicas = 1024
+reps = 5
+warmup = 1
+seed = 1
+
+# One thread per P core (6 on the i7-13620H).
+[[series]]
+id = "win-p1"
+sbmc_run = "/mnt/c/Users/Simone/sbmc-win/build-win-cpu/apps/sbmc_run.exe"
+platform = "windows"
+affinity = "p1"
+threads = [1, 2, 3, 4, 5, 6]
+
+# The P cores with their two logical processors (12); speedup against win-p1 at 1 thread.
+[[series]]
+id = "win-p"
+sbmc_run = "/mnt/c/Users/Simone/sbmc-win/build-win-cpu/apps/sbmc_run.exe"
+platform = "windows"
+affinity = "p"
+threads = [2, 4, 6, 8, 10, 12]
+base = "win-p1"
+
+# The E cores (4).
+[[series]]
+id = "win-e"
+sbmc_run = "/mnt/c/Users/Simone/sbmc-win/build-win-cpu/apps/sbmc_run.exe"
+platform = "windows"
+affinity = "e"
+threads = [1, 2, 3, 4]
+
+# Every logical processor (16).
+[[series]]
+id = "win-all"
+sbmc_run = "/mnt/c/Users/Simone/sbmc-win/build-win-cpu/apps/sbmc_run.exe"
+platform = "windows"
+affinity = "all"
+threads = [1, 2, 4, 6, 8, 10, 12, 14, 16]
+
+# The control in WSL2 (no mask).
+[[series]]
+id = "wsl"
+sbmc_run = "build/cpu/apps/sbmc_run"
+platform = "linux"
+threads = [1, 2, 4, 6, 8, 10, 12, 14, 16]
+
+[[instance]]
+id = "G1"
+args = ["--instance", "data/gset/G1"]
+target = "none"
+
+[[instance]]
+id = "K2000"
+args = ["--instance", "data/raw/k2000/WK2000_1.rud"]
+target = "none"
+
+[[method]]
+id = "sa"
+variant = "c2"
+selection = "results/f07/e2/selected.csv"
+steps = { G1 = [1000], K2000 = [200] }
+
+[[method]]
+id = "dsb"
+variant = "c1"
+selection = "results/f07/e2/selected.csv"
+steps = { G1 = [2000], K2000 = [200] }

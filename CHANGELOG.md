@@ -3,6 +3,322 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F07-R4e] - 2026-11-27
+
+Correction before E9: on the laptop `scripts/laptop/f07r4.sh run` stopped at the bitwise
+comparison, since `sbmc_run.exe` with `--instance`, `--out` and `--replica-out` under
+`\\wsl.localhost\Ubuntu-24.04\...` (from `wslpath -w`) exited with 1, "cannot compare the two
+paths": `std::filesystem::absolute` and `weakly_canonical` of the libstdc++ of MinGW fail on a UNC
+path. The campaign would have stopped the same way. No change to the solvers, to the results
+schema, to the series and loads of E9 or to the Windows build.
+
+### Changed
+
+- `apps/sbmc_run.cpp`: `--out` and `--replica-out` are compared with `absolute` and
+  `weakly_canonical` as before and, when either fails, in their lexically normal forms (of the
+  absolute paths, or of the given ones), ignoring case on Windows; a path that cannot be resolved
+  is no longer an error by itself (on Linux the only visible difference: a loop of symbolic links
+  in the path is reported by the check of the folder, still exit status 1).
+- `python/sbmc_campaign.py`: `WindowsCopy` replaces `WindowsPaths`, one mechanism for the series
+  of platform `windows` and for `sbmc_e9.py bitwise`: `DEST` from the executable
+  (`DEST/build-<preset>/...`), translated once with `wslpath -w` and required on a drive; inputs
+  from the same relative path in `DEST/src` (an error before the run when missing); `--out` and
+  `--replica-out` in `DEST/runs/<campaign>/`, deleted before each run and moved into the repository
+  after exit status 0 (kept there otherwise); the process in `DEST/src`; before the first
+  configuration of a Windows executable, `--version` and `DEST/src/.sbmc_build_info` checked
+  against `git rev-parse HEAD`.
+- `python/sbmc_e9.py`: `bitwise` through `WindowsCopy` (work folder `DEST/runs/bitwise`, both
+  Windows builds checked against HEAD).
+- Tests: `test_sbmc_campaign_series` (inputs from the copy, outputs in `runs/`, no UNC argument,
+  stale work files deleted, a failed configuration and the resumed run, a missing file, another
+  commit, a UNC `DEST`), `test_sbmc_e9` (`bitwise` through the copy, another commit),
+  `test_sbmc_run` (the loop of symbolic links: the folder, not the comparison; the same file in it
+  written in two ways: exit status 2).
+- `README.md`: the fact and the correction in "E9 on Windows native", the comparison of `sbmc_run`,
+  the runner, the tests.
+
+## [F07-R4d] - 2026-11-23
+
+Correction of F07-R4b and F07-R4c: on the laptop the build of `win-cpu-strict` failed once
+(`FAILED: [code=1] apps/sbmc_bruteforce.exe`, `file COPY_FILE failed to copy`), since the copies
+of the runtime DLLs of `sbmc_run`, `sbmc_bruteforce` and `sbmc_spectrum` write the same files in
+`apps/` and Ninja ran two of them in parallel; on Windows a file being written by one copy cannot
+be opened by another. No change to the binaries, to their options or to the list of the DLLs.
+
+### Changed
+
+- `cmake/SbmcWindowsRuntime.cmake`: the links of the targets that copy (their POST_BUILD command
+  is part of the link step in Ninja) go to the job pool `sbmc_runtime_copy` of depth 1
+  (`JOB_POOL_LINK`), so the copies never run in parallel.
+- `cmake/sbmc_copy_runtime.cmake`: a copy that fails stops the build with the DLL, the source,
+  the destination and the error (`file(COPY_FILE ... RESULT)`).
+- `scripts/windows/build.ps1`: when a build fails, the first line `FAILED:` and the first line
+  with `error` of the log, with the lines after it up to an empty line (at most 5), go to
+  `build_summary.txt`.
+- `README.md`: the race and its correction, in "E9 on Windows native".
+
+## [F07-R4c] - 2026-11-23
+
+Correction of F07-R4b: on the laptop the presets `win-cpu` and `win-cpu-strict` configured, but
+the link failed (`GOMP_parallel`, `omp_get_thread_num` and other symbols of libgomp undefined),
+since with the MinGW-w64 of CLion FindOpenMP finds no library (`OpenMP_CXX_LIB_NAMES` empty) and
+passes `-fopenmp` only to the compilation.
+
+### Changed
+
+- `CMakePresets.json`: `win-base` sets `CMAKE_EXE_LINKER_FLAGS` to `-fopenmp`, as in the test
+  made by hand on the laptop; g++ then links libgomp and its threads.
+- `README.md`: the reason, in the build on Windows of "E9 on Windows native".
+
+## [F07-R4b] - 2026-11-23
+
+Correction of F07-R4 before the campaign E9 (decision W5): on the laptop the presets `win-cpu`
+and `win-cpu-strict` did not configure, since with the MinGW-w64 of CLion (g++ 15.2.0) the static
+link of OpenMP fails (`__intrinsic_setjmpex` and `__ms_vsnprintf` undefined) and FindOpenMP does
+not find OpenMP. The Windows builds are now linked dynamically, with the runtime DLLs of the
+toolchain next to the executables. No change to the C++ code, to Linux or to the campaigns.
+
+### Added
+
+- `cmake/SbmcWindowsRuntime.cmake` (Windows only): the four runtime DLLs of the toolchain
+  (`libgomp-1.dll`, `libwinpthread-1.dll`, `libstdc++-6.dll`, `libgcc_s_seh-1.dll`) checked at
+  configure time, next to the compiler or from `-print-file-name` (a missing DLL is an error that
+  names it); `sbmc_copy_runtime_dlls()`.
+- `cmake/sbmc_copy_runtime.cmake`: after every link, the DLLs imported by the executable
+  (`objdump -p`) and held by the toolchain, followed through their own imports, copied next to
+  it; used for `sbmc_run`, `sbmc_bruteforce`, `sbmc_spectrum` and `sbmc_sa_thresholds`.
+
+### Changed
+
+- `CMakePresets.json`: `win-base` without `-static` and without the cache variables of OpenMP
+  (FindOpenMP finds `-fopenmp`); the display names without "static".
+- `scripts/windows/build.ps1`: per preset, the line `runtime <preset> dlls=<DLL,...>
+  standalone=PASS|FAIL` (the imported DLLs of `sbmc_run.exe` and `sbmc_sa_thresholds.exe` next
+  to them or of the system, then `sbmc_run.exe --version` with a PATH without CLion), part of
+  `WIN_BUILD`, details in `<preset>_runtime.log`; the empty lines of stderr written to the logs as
+  empty lines (not as `System.Management.Automation.RemoteException`); configure with
+  `--fresh`, since a reconfigure keeps the `-static` of F07-R4 in `CMakeCache.txt` (verified in
+  the sandbox), so every run builds from scratch.
+- `scripts/laptop/f07r4.sh`: prints the runtime lines of `build_summary.txt` and requires
+  `standalone=PASS` in both presets for `WIN_BUILD`.
+- `CMakeLists.txt`, `apps/CMakeLists.txt`, `tests/CMakeLists.txt`: the module and its calls, on
+  Windows only.
+- `README.md`: the build on Windows (dynamic link, the copy of the DLLs and why, the runtime
+  check), Status, limits and layout.
+
+## [F07-R4] - 2026-11-23
+
+Phase 07, part 4 of 4: E9, the OpenMP scaling of C1 and C2 on Windows native (MinGW-w64 GCC of
+CLion, built from a copy of the commit) and in WSL2 as the control, with process masks by
+efficiency class, the runner extended to series of executables, masks and threads, the analysis
+and the bitwise comparison of the two builds. On Linux the rows and the output of `sbmc_run` are
+unchanged; no change to the library, to the results schema or to the replica file.
+
+### Added
+
+- `apps/cpu_topology.hpp` (portable): the rules `p1`, `p`, `e` and `all` of `--affinity` as masks
+  of the logical processors (index, core, efficiency class), `cpulist` and `cpu_classes`.
+- `apps/win_platform.hpp`, `apps/win_platform.cpp` (Windows only, the only code with Windows API):
+  the logical processors from `GetLogicalProcessorInformationEx`, the process mask
+  (`SetProcessAffinityMask`, read back), the columns `cpu_affinity`, `cpu_classes`, `host` and `os`
+  on Windows, the lines of `--print-topology`, stdout in binary mode.
+- `sbmc_run --affinity p1|p|e|all` and `--print-topology` (Windows only, elsewhere exit status 2)
+  and `--version` (every platform).
+- `CMakePresets.json`: the presets `win-cpu` and `win-cpu-strict` (configure, build, test): Ninja,
+  g++ from the PATH, `-static` with libgomp linked statically, `binaryDir`
+  `${sourceParentDir}/build-<preset>`; on Windows only the C++ tests of the label `cpu`.
+- `scripts/windows/stage.sh` (the copy of HEAD with `.sbmc_build_info` and K2000),
+  `scripts/windows/build.ps1` (PowerShell 5.1: the toolchain of CLion, the two presets built and
+  tested, `build_summary.txt`, `WIN_BUILD`), `scripts/laptop/f07r4.sh` (`stage` and `run`: the
+  whole procedure of the laptop with its verdicts).
+- `bench/configs/f07_e9.toml`: G1 and K2000, SA and dSB with the parameters of E2, R 1024, five
+  series (`win-p1`, `win-p`, `win-e`, `win-all`, `wsl`), 136 configurations.
+- `python/sbmc_e9.py`: `analyze` (`e9_summary.csv`, the scaling plots, the checks of
+  consistency) and `bitwise` (Windows build against WSL build, with the comparison of the SA
+  thresholds on a difference).
+- Tests: `test_cpu_topology` (`cpu`), `test_sbmc_e9` (`python`), `test_sbmc_campaign_series`
+  (`apps`), the tool `tests/tools/sbmc_sa_thresholds`; 33 tests with `cpu`, 39 with `cuda`, 36
+  with `t4`, 18 with the Windows presets.
+
+### Changed
+
+- `python/sbmc_campaign.py`: `[[series]]` (`id`, `sbmc_run`, `platform`, `affinity`, `threads`,
+  `base`) with the ids `<id>_<series>_T<threads>`; the Windows series get `--affinity` and the
+  paths translated with `wslpath -w`; `threads` of `[campaign]` and stages are not allowed with
+  series. Configurations without series run as before.
+- `cmake/sbmc_build_info.cmake`: `.sbmc_build_info` in the source folder when git gives no hash
+  (the copy for Windows); a malformed file is an error. `.gitignore`: `.sbmc_build_info`.
+- `apps/CMakeLists.txt`, `tests/CMakeLists.txt`: the Windows sources and the new tests and tool.
+- `README.md`: Status, Requirements, the new options of `sbmc_run`, the runner with series, the
+  columns of the environment on Windows, the campaign table, "E9 on Windows native" (procedure,
+  series, analysis, bitwise comparison, limits), Tests, Tools and the layout.
+
+## [F07-R3b] - 2026-11-22
+
+Correction of phase 07, part 3 (decision N1): the grid of E2 extended to short S and M on G2 and
+G12 for both methods, where the choices of F07-R3 fell on the shortest steps, and the steps of E3
+to match. Configurations and documentation only: no executable line changes.
+
+### Changed
+
+- `bench/configs/f07_e2.toml`: S and M in {125, 250, 500, 1000, 2000, 4000, 8000} on G2 and in
+  {64, 125, ..., 8000} on G12, the same for SA and dSB; 42 configurations per method on G2, 48 on
+  G12, 24 on G15 and 24 on the dense instance, 138 per method and 276 in all, 278 with the stage
+  `target`. The 194 configurations of F07-R3 keep their ids; the runner runs only the 84 new ones.
+- `bench/configs/f07_e3.toml`: the steps of the grid of E2 of the family (7 on G1, 8 on G11, 4 on
+  G14 and K2000): 46 configurations in all.
+- `python/sbmc_e3.py`: the docstring of the module only ("the steps" of the grid of E2, not "the
+  four steps").
+- `README.md`: Status; the table of the campaigns (E2 2 + 276, E3 46); "E2: tuning" (the budget,
+  the grids, the factor covered, the paragraph on the extension with the facts of the laptop and of
+  the pilot run, and why the other edges are not extended); the external check and E3 after the
+  extension. With the extension the index of a configuration in the order of the grid changes, and
+  with it the seed of its bootstrap: the bootstrap intervals of the configurations already measured
+  change a little, within the noise of the bootstrap (more when the successes are few); P_s,
+  T_batch, TTS99 and the Wilson intervals do not.
+
+## [F07-R3] - 2026-11-22
+
+Phase 07, part 3 of 4: the resumable runner of the measurement campaigns with TOML configurations,
+the tuning E2 of dSB and SA, the external check of SA with dwave-samplers and E3 on the CPU, with
+their analysis tools and plots. Python tools, configurations and documentation only: no C++
+code, no change to the results schema or to the replica file.
+
+### Added
+
+- `python/sbmc_campaign.py`: the runner (`run`, `status`, `manifest`): configurations in TOML
+  validated in full (exit status 2), the scales h and w of the instances and the line of
+  `sbmc_spectrum` in `instances.csv`, stages before the grid (the target best-found), one pair of
+  files (results and replicas) per configuration, resuming (complete configurations skipped,
+  incomplete ones removed and repeated), stop at the first failure of `sbmc_run`, SIGINT and
+  SIGTERM handled, a lock, `campaign.log`, the SHA-256 manifest of `raw/` and its versioned copy,
+  `--dry-run` and `--stage`.
+- `python/sbmc_e2.py`: the analysis of E2 (`e2_summary.csv`, `selected.csv` with the choice per
+  instance and method, the plots of sensitivity and of the chosen configurations).
+- `python/sbmc_e3.py`: the analysis of E3 (`e3_summary.csv`, `e3_tts.csv` with the transferred
+  configurations, the ratio SA/SB and its conservative interval, the common level;
+  `quality_equal_time.csv`; plots 1 and 2 of section 14.5).
+- `python/sbmc_dwave.py`: the external check of SA against the `SimulatedAnnealingSampler` of
+  dwave-samplers (z of the means, two-sample Kolmogorov-Smirnov, nanoseconds per proposal);
+  `DWAVE_VERDICT: SKIP` without dwave-samplers.
+- `python/requirements-dwave.txt`: dwave-samplers 1.8.0, dimod 0.12.23, networkx 3.7 (optional).
+- `bench/configs/f07_e2.toml`, `f07_dwave.toml`, `f07_e3.toml`: the campaigns of phase 07.
+- Tests: `tests/python/test_sbmc_campaign.py` (label `apps`), `test_sbmc_e2.py`, `test_sbmc_e3.py`
+  and `test_sbmc_dwave.py` (label `python`). 30 tests with the `cpu` presets, 36 with `cuda`, 33
+  with `t4`.
+
+### Changed
+
+- `python/requirements.txt`: matplotlib 3.11.2 and its dependencies, pinned, with a header
+  comment.
+- `scripts/setup_python.sh`: option `--dwave` (also `python/requirements-dwave.txt`, from wheels);
+  the summary shows matplotlib and, with `--dwave`, dwave-samplers.
+- `tests/CMakeLists.txt`: the four tests, with their folders in the build tree.
+- `README.md`: Status part 3 of 4; the section "Campaigns" (the runner, E2, the external check,
+  E3); the measurement of the laptop of F07-R2 under "Layouts of the block"; the Python
+  requirements; the tests; the repository layout.
+
+## [F07-R2] - 2026-11-22
+
+Phase 07, part 2 of 4: the estimate of the spectrum of J with the Lanczos method, the automatic dt
+and c0 of simulated bifurcation, `sbmc_spectrum`, C2 on dense J with the update of the accepting
+replicas only, the final check on dense rows in product form. No result of C0, C1, C2 or of the
+reference of SA changes: every field of `SbResult` and `SaResult` but the times is that of F07-R1.
+
+### Added
+
+- `include/sbmc/spectrum.hpp`, `src/core/spectrum.cpp`: `SpectrumEstimate`,
+  `kSpectrumIterations` (100), `estimate_spectrum` for `Graph`, `DenseSpinGlass` and `Instance`
+  (Lanczos in double with full reorthogonalization, a start vector with continuous components from
+  the Philox domain 5, restarts after a breakdown, extremes of the tridiagonal matrix by bisection
+  with Sturm counts; the same bits for every number of threads), `spectral_dt` (with a factor) and
+  `spectral_c0`.
+- `apps/sbmc_spectrum.cpp`: `sbmc_spectrum`, one line `SPECTRUM ...` with lambda_min, lambda_max,
+  the iterations, the restarts, dt_auto, c0_lambda, c0_sigma and the time.
+- `apps/sbmc_run.cpp`: `--dt auto`, `--dt-factor F` (only with `--dt auto`) and `--c0 lambda`; the
+  spectrum is estimated once per invocation, inside `t_setup_ms`, only when dt or c0 is derived
+  from it; the columns `dt_rule` (`auto`), `c0_rule` (`lambda`), `lambda_min` and `lambda_max`
+  filled; exit status 1, before any run, when J = 0.
+- Tests: `tests/core/test_spectrum.cpp` (label `cpu`) and `tests/python/test_sbmc_spectrum.py`
+  (label `apps`); the cases "detail: cut_dense_rows_unchecked, product form" of `test_instance`
+  and "C2: dense J, equal to C0" of `test_sa_openmp`; check 14 of `test_sbmc_run`. 26 tests with
+  the `cpu` presets, 32 with `cuda`, 29 with `t4`.
+
+### Changed
+
+- `include/sbmc/philox.hpp`: `RngDomain::spectrum_start` = 5, in the table of the domains.
+- `src/cpu/sa_openmp.cpp`: on dense J (a dense `Graph` or a `DenseSpinGlass`) the state of a
+  block in lane-major order, with ld = n rounded up to 64 bytes, and the update of the fields only
+  in the lanes that accept a proposal; the initial fields as sums of rows of J; the path with
+  compressed rows unchanged; both block functions on a 64-byte boundary; the header comment with
+  the two layouts, the rule (always lane-major on dense rows) and the measurement of the sandbox.
+  The results are those of F07-R1 bit for bit.
+- `src/core/instance.cpp`: the inner loop of `detail::cut_dense_rows_unchecked` in product form,
+  (S - R) / 2, which vectorizes with AVX2; signature, contract and values unchanged.
+- `src/core/CMakeLists.txt`, `apps/CMakeLists.txt`, `tests/CMakeLists.txt`: the new files and
+  targets.
+- `tests/core/test_instance.cpp`, `tests/cpu/test_sa_openmp.cpp`, `tests/python/test_sbmc_run.py`:
+  the new cases; in `test_sbmc_run` the check of every row accepts `dt_rule` `auto`, `c0_rule`
+  `lambda` and the lambdas of the rows with an estimate.
+- `include/sbmc/sb_sequential.hpp`, `sb_openmp.hpp`, `sa_sequential.hpp`, `sa_openmp.hpp`,
+  `solve_times.hpp`, `src/cpu/sb_sequential.cpp`, `src/cpu/sb_openmp.cpp`: comments only (the
+  final check and the times of F07-R1, the two layouts of C2; the instance is checked in full by
+  `total_weight` and, with the automatic c0, by `auto_c0`).
+- `README.md`: the sections "Spectrum of J, automatic dt and c0" and "Layouts of the block", the
+  options of `sbmc_run`, the product form in "Times of the solvers", the domain 5, the tests.
+
+## [F07-R1] - 2026-11-21
+
+Phase 07, part 1 of 4 (measuring tools): results schema 2, the separate times of the solvers
+(preparation, run, final check), the final check without a second validation of the instance,
+`python/sbmc_tts.py` for schemas 1 and 2, the README at the closure of phase 06. No result of the
+solvers changes: only the recorded times and the way the cuts are checked.
+
+### Added
+
+- `include/sbmc/solve_times.hpp`: `SolveTimes` (`prep_ms`, `run_ms`, `check_ms`), the three
+  consecutive phases of a call of a solver measured with `std::chrono::steady_clock`.
+- `include/sbmc/instance.hpp`, `src/core/instance.cpp`: `sbmc::detail::cut_edges_unchecked` and
+  `sbmc::detail::cut_dense_rows_unchecked`, the cut of the final check of the solvers without any
+  check, exception, allocation or OpenMP (the edge loop without branches; int32 partial sums per
+  dense row up to n = 2^24).
+- `tests/cpu/test_solve_times.cpp` (label `cpu`): the times start at zero; 16 calls of the four
+  solvers with three finite, non-negative times whose sum is at most the duration of the call.
+- `apps/sbmc_run.cpp`: `--tag TEXT` (column `run_tag`); the columns `t_prep_ms`, `t_run_ms`,
+  `t_check_ms`, `dt_rule`, `c0_rule`, `cpu_affinity` (from `/proc/self/status`), `omp_places` and
+  `omp_proc_bind` (read once at startup; a line break in their value gives exit status 1), and the
+  empty `lambda_min`, `lambda_max`, `cpu_classes`.
+- Tests: the cases `detail:` of `test_instance`; the new checks of `test_results`,
+  `test_sbmc_run` and `test_sbmc_tts` (checks 8 to 10).
+
+### Changed
+
+- `include/sbmc/sb.hpp`, `include/sbmc/sa.hpp`: the field `times` (last field) of `SbResult` and
+  `SaResult`.
+- `src/cpu/sb_sequential.cpp`, `src/cpu/sb_openmp.cpp`, `src/cpu/sa_sequential.cpp`,
+  `src/cpu/sa_openmp.cpp`: the times t0 to t3; the initial states of every replica computed in
+  the preparation into `final_x` or `final_spins` (C1 and C2: a parallel loop with
+  num_threads(min(T_req, B))); in C1 and C2 the final check in a second parallel region; the final
+  check with the `detail` functions instead of `cut_direct` ("the direct cut gives" in the
+  messages); header comments. The results are those of F06-R2.
+- `include/sbmc/results.hpp`, `src/core/results.cpp`: results schema 2, 56 columns
+  (`kResultsSchemaVersion` = 2); a file with the header of schema 1 is refused like any other
+  header. The replica file does not change.
+- `apps/sbmc_run.cpp`: writes schema 2; `t_step_us` from `t_run_ms`; the line on stdout ends with
+  `t_run_ms` and `t_check_ms`; header comment, description and footer of the help.
+- `python/sbmc_tts.py`: reads results schemas 1 and 2 (exact headers; any other header: exit
+  status 1); with schema 2 the batch time is `t_run_ms`, the group has 31 columns and the summary
+  the column `t_batch_column`; with schema 1 the summary and stdout of F06-R2, byte for byte.
+- `src/core/CMakeLists.txt`: `solve_times.hpp` in the header check, after `initial_state.hpp`.
+- `tests/CMakeLists.txt`: the test `test_solve_times`; `SBMC_TEST_DATA_DIR` and `SBMC_DATA_DIR` for
+  `test_instance`; comments. 24 tests with the cpu presets, 30 with the cuda presets, 27 with the
+  t4 presets.
+- `tests/core/test_results.cpp`, `tests/python/test_sbmc_run.py`, `tests/python/test_sbmc_tts.py`:
+  schema 2.
+- `README.md`: Status; the measurement of phase 06 on the laptop in "C2: simulated annealing with
+  OpenMP"; the new section "Times of the solvers"; the final check in the sections of the four
+  solvers; "sbmc_run and the results CSV" and "Time to solution" for schema 2; "Tests".
+
 ## [F06-R2] - 2026-11-19
 
 Phase 06, part 2 of 2: C2, simulated annealing with OpenMP over blocks of replicas, equal to the

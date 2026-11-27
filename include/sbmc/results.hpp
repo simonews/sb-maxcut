@@ -1,13 +1,22 @@
-// Results of the project: the CSV schema (version 1) written by the applications, one row per run,
+// Results of the project: the CSV schema (version 2) written by the applications, one row per run,
 // and the table of best-known cut values (data/best_known.csv).
 //
 // CSV format (RFC 4180): fields separated by ',', one row per line, lines terminated by '\n'. A
 // field that contains ',' or '"' is enclosed in double quotes, with every inner '"' doubled; a
 // field never contains a line break. An empty field is written as nothing between two commas.
 //
-// Schema 1 has 44 columns (results_columns()): the columns of section 10.4 of the reference
-// document, in the same order, preceded by schema_version; a0, eval_every, first_replica, threads
-// and target_source are added before notes, which stays the last column.
+// Schema 2 (phase 07) has 56 columns (results_columns()):
+// - 1-43: the first 43 columns of schema 1, with the same names and in the same order: the columns
+//   of section 10.4 of the reference document, in the same order, preceded by schema_version,
+//   then a0, eval_every, first_replica, threads and target_source;
+// - 44-55: t_prep_ms, t_run_ms, t_check_ms (the times of the solver, sbmc/solve_times.hpp);
+//   dt_rule, c0_rule (how dt and c0 of SB were chosen); lambda_min, lambda_max (estimated
+//   extremes of the spectrum of J); cpu_affinity, cpu_classes (the logical processors allowed to
+//   the process and their efficiency classes); omp_places, omp_proc_bind (the OpenMP environment
+//   variables); run_tag (a free label of the run);
+// - 56: notes, which stays the last column.
+// Schema 1 (44 columns, the 43 above and notes) is no longer written: a file with its header is
+// rejected by append_results_row like a file with any other header.
 //
 // The replica file (schema 1, 13 columns, replica_columns()) has one row per replica of a recorded
 // repetition, for the relaxed targets and the bootstrap of the time to solution: schema_version
@@ -26,9 +35,9 @@
 
 namespace sbmc {
 
-inline constexpr int kResultsSchemaVersion = 1;
+inline constexpr int kResultsSchemaVersion = 2;
 
-// The 44 column names of schema 1, in order.
+// The 56 column names of schema 2, in order.
 std::span<const std::string_view> results_columns() noexcept;
 
 // RFC 4180 field: quoted when it contains ',' or '"' (inner quotes doubled).

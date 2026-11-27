@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Creates or reuses the Python virtual environment of the project, <repository root>/.venv, and
-# installs into it, from wheels only, the pinned packages of python/requirements.txt (NumPy).
-# The Python tests (tests/python) use .venv/bin/python when CMake finds it at configure time.
+# installs into it, from wheels only, the pinned packages of python/requirements.txt (NumPy and,
+# since phase 07, matplotlib with its dependencies) and, with --dwave, also those of
+# python/requirements-dwave.txt (dwave-samplers, dimod, networkx: the optional external check of
+# python/sbmc_dwave.py). The Python tests (tests/python) use .venv/bin/python when CMake finds it
+# at configure time.
 #
-# Usage: scripts/setup_python.sh [--python INTERPRETER]
+# Usage: scripts/setup_python.sh [--python INTERPRETER] [--dwave]
 #
 # The base interpreter is python3 from the PATH, or the one given with --python; it must be
 # Python 3.12 or newer (NumPy 2.5.4 requires it).
@@ -16,8 +19,9 @@
 # removes only its own .venv, and only in those cases.
 #
 # Summary on stdout: "python: <version> (<path>)", "venv bootstrap: ...", "numpy: <version>",
-# then "setup_python: OK". Exit status 0 on success, 1 on error. A second run reuses the virtual
-# environment ("existing").
+# "matplotlib: <version>", with --dwave also "dwave-samplers: <version>", then "setup_python: OK".
+# Exit status 0 on success, 1 on error. A second run reuses the virtual environment ("existing");
+# --dwave can be given to a later run, which adds the optional packages to the existing one.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -25,6 +29,7 @@ repo_root="$(cd -- "${script_dir}/.." && pwd -P)"
 venv_dir="${repo_root}/.venv"
 venv_python="${venv_dir}/bin/python"
 requirements="${repo_root}/python/requirements.txt"
+requirements_dwave="${repo_root}/python/requirements-dwave.txt"
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -33,7 +38,7 @@ die() {
 
 usage() {
   cat <<EOF
-Usage: scripts/setup_python.sh [--python INTERPRETER]
+Usage: scripts/setup_python.sh [--python INTERPRETER] [--dwave]
 
 Creates or reuses the virtual environment ${venv_dir}
 and installs python/requirements.txt into it from wheels only (pip --only-binary=:all:).
@@ -41,6 +46,8 @@ and installs python/requirements.txt into it from wheels only (pip --only-binary
 Options:
   --python INTERPRETER  base interpreter of a new virtual environment (default: python3 from the
                         PATH); Python 3.12 or newer
+  --dwave               also install python/requirements-dwave.txt (dwave-samplers, dimod,
+                        networkx), the optional external check of python/sbmc_dwave.py
   -h, --help            show this help
 EOF
 }
@@ -73,12 +80,17 @@ python_recent_enough() {
 # Arguments
 # ---------------------------------------------------------------------------------------------
 base_python="python3"
+with_dwave=0
 while (($# > 0)); do
   case "$1" in
     --python)
       (($# >= 2)) || die "--python needs a value (see --help)"
       base_python="$2"
       shift 2
+      ;;
+    --dwave)
+      with_dwave=1
+      shift
       ;;
     -h | --help)
       usage
@@ -93,6 +105,15 @@ done
 [[ -f "${requirements}" ]] || die "${requirements} not found"
 numpy_pin="$(sed -n 's/^numpy==\([0-9][0-9.]*\)[[:space:]]*$/\1/p' "${requirements}")"
 [[ -n "${numpy_pin}" ]] || die "${requirements} has no line 'numpy==<version>'"
+matplotlib_pin="$(sed -n 's/^matplotlib==\([0-9][0-9.]*\)[[:space:]]*$/\1/p' "${requirements}")"
+[[ -n "${matplotlib_pin}" ]] || die "${requirements} has no line 'matplotlib==<version>'"
+dwave_pin=""
+if ((with_dwave)); then
+  [[ -f "${requirements_dwave}" ]] || die "${requirements_dwave} not found"
+  dwave_pin="$(sed -n 's/^dwave-samplers==\([0-9][0-9.]*\)[[:space:]]*$/\1/p' \
+    "${requirements_dwave}")"
+  [[ -n "${dwave_pin}" ]] || die "${requirements_dwave} has no line 'dwave-samplers==<version>'"
+fi
 
 base_path="$(command -v -- "${base_python}" || true)"
 [[ -n "${base_path}" ]] ||
@@ -181,8 +202,33 @@ numpy_version="$("${venv_python}" -I -c 'import numpy; print(numpy.__version__)'
   die "numpy cannot be imported from ${venv_dir}"
 [[ "${numpy_version}" == "${numpy_pin}" ]] ||
   die "numpy ${numpy_version} is installed in ${venv_dir}, but ${requirements} pins ${numpy_pin}"
+matplotlib_version="$("${venv_python}" -I -c 'import matplotlib; print(matplotlib.__version__)' \
+  2>/dev/null)" || die "matplotlib cannot be imported from ${venv_dir}"
+[[ "${matplotlib_version}" == "${matplotlib_pin}" ]] ||
+  die "matplotlib ${matplotlib_version} is installed in ${venv_dir}, but ${requirements} pins" \
+    "${matplotlib_pin}"
+
+dwave_version=""
+if ((with_dwave)); then
+  echo "==> Installing python/requirements-dwave.txt (wheels only)"
+  "${venv_python}" -m pip install --disable-pip-version-check --no-input --only-binary=:all: \
+    -r "${requirements}" -r "${requirements_dwave}" ||
+    die "pip install -r ${requirements_dwave} failed"
+  dwave_version="$("${venv_python}" -I -c \
+    'from importlib.metadata import version; print(version("dwave-samplers"))' 2>/dev/null)" ||
+    die "dwave-samplers is not installed in ${venv_dir}"
+  [[ "${dwave_version}" == "${dwave_pin}" ]] ||
+    die "dwave-samplers ${dwave_version} is installed in ${venv_dir}, but ${requirements_dwave}" \
+      "pins ${dwave_pin}"
+  "${venv_python}" -I -c 'from dwave.samplers import SimulatedAnnealingSampler' 2>/dev/null ||
+    die "dwave.samplers cannot be imported from ${venv_dir}"
+fi
 
 echo "python: ${venv_version} (${venv_python})"
 echo "venv bootstrap: ${venv_bootstrap}"
 echo "numpy: ${numpy_version}"
+echo "matplotlib: ${matplotlib_version}"
+if ((with_dwave)); then
+  echo "dwave-samplers: ${dwave_version}"
+fi
 echo "setup_python: OK"

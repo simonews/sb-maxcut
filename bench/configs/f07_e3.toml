@@ -1,0 +1,54 @@
+# E3 of phase 07 on the CPU (reference document, sections 14.2 and 14.5; decision L8): dSB (C1)
+# against SA (C2) on the evaluation instances G1, G11, G14 and K2000, with the relative parameters
+# chosen by E2 on the tuning instance of the family (results/f07/e2/selected.csv: G2 -> G1,
+# G12 -> G11, G15 -> G14, dense_n2000_s1 -> K2000), recomputed with h, w and the spectrum of the
+# evaluation instance, and the steps of the grid of E2 of the family (the steps chosen by E2 must be
+# among them): 14 configurations on G1, 16 on G11, 8 on G14 and 8 on K2000, 46 in all (fewer when
+# E2 chose "none" for a method). A method without a selection in E2 is skipped (written in the
+# log).
+# Run with: python3 python/sbmc_campaign.py run bench/configs/f07_e3.toml --notes "$NOTES"; then
+# python3 python/sbmc_e3.py analyze bench/configs/f07_e3.toml.
+
+[campaign]
+name = "f07_e3"
+output = "results/f07/e3"
+sbmc_run = "build/cpu/apps/sbmc_run"
+sbmc_spectrum = "build/cpu/apps/sbmc_spectrum"
+replicas = 1024
+threads = 16
+reps = 5
+warmup = 1
+seed = 1
+
+[[instance]]
+id = "G1"
+args = ["--instance", "data/gset/G1"]
+target = "best-known"
+
+[[instance]]
+id = "G11"
+args = ["--instance", "data/gset/G11"]
+target = "best-known"
+
+[[instance]]
+id = "G14"
+args = ["--instance", "data/gset/G14"]
+target = "best-known"
+
+[[instance]]
+id = "K2000"
+args = ["--instance", "data/raw/k2000/WK2000_1.rud"]
+target = "best-known"
+note = "preliminary target (one source)"
+
+[[method]]
+id = "sa"
+variant = "c2"
+selection = "results/f07/e2/selected.csv"
+steps = { G1 = [125, 250, 500, 1000, 2000, 4000, 8000], G11 = [64, 125, 250, 500, 1000, 2000, 4000, 8000], G14 = [1000, 2000, 4000, 8000], K2000 = [500, 1000, 2000, 4000] }
+
+[[method]]
+id = "dsb"
+variant = "c1"
+selection = "results/f07/e2/selected.csv"
+steps = { G1 = [125, 250, 500, 1000, 2000, 4000, 8000], G11 = [64, 125, 250, 500, 1000, 2000, 4000, 8000], G14 = [1000, 2000, 4000, 8000], K2000 = [500, 1000, 2000, 4000] }

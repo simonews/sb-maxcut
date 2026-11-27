@@ -23,6 +23,7 @@
 
 #include <sbmc/instance.hpp>
 #include <sbmc/philox.hpp>
+#include <sbmc/solve_times.hpp>
 
 namespace sbmc {
 
@@ -55,6 +56,7 @@ struct SaResult {
   std::vector<Spin> best_spins;              // replica-major, R * n
   std::vector<Spin> final_spins;             // replica-major, R * n
   int threads = 1;                           // threads of the sweep loop (1 for the reference)
+  SolveTimes times;  // preparation, run and final check of the call (sbmc/solve_times.hpp)
 };
 
 // beta of sweep k (0 <= k < sweeps): beta0 * pow(beta1 / beta0, k / (sweeps - 1)), beta0 when

@@ -13,10 +13,13 @@
 //       s_i = -s_i, E += dE, accepted += 1, and if E < best_E: best_E = E,
 //       best_sweep = k + 1, best spins = s (ties keep the earlier state);
 //   final_cut = (W - E) / 2, best_cut = (W - best_E) / 2.
-// Final check of every replica with the public cut_direct: of the best spins against best_cut and
-// of the final spins against final_cut (sbmc::Error with "internal" on mismatch). No OpenMP, and
-// no public function of the instance inside the sweep loop (B5). No floating-point sum: the
-// results are the same in every preset.
+// Final check of every replica (decision L3 of phase 07): the cuts of the best spins and of the
+// final spins, recomputed directly without a second validation of the instance (on the edges of a
+// Graph or on the internal INT8 rows of a DenseSpinGlass), must equal best_cut and final_cut
+// (sbmc::Error with "internal" on mismatch). No OpenMP, and no public function of the instance
+// after the preparation (B5). No floating-point sum: the results are the same in every preset.
+// Times (result.times, sbmc/solve_times.hpp): preparation (the checks, the internal J, the outputs,
+// the initial spins of every replica), run (the replica loop), check (the final check).
 #pragma once
 
 #include <sbmc/instance.hpp>

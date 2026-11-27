@@ -58,6 +58,11 @@ endif()
 find_package(OpenMP REQUIRED COMPONENTS CXX)
 
 include(cmake/SbmcFlags.cmake)
+if(WIN32)
+  # Phase 07, part 4b: the runtime DLLs of the toolchain next to the executables started outside
+  # ctest (sbmc_copy_runtime_dlls()).
+  include(cmake/SbmcWindowsRuntime.cmake)
+endif()
 
 add_subdirectory(src/core)
 add_subdirectory(src/cpu)

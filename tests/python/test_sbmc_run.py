@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""sbmc_run (apps/sbmc_run.cpp): command line, exit statuses and the CSV of results schema 1.
+"""sbmc_run (apps/sbmc_run.cpp): command line, exit statuses and the CSV of results schema 2.
 
 Run by CTest from the repository root (the defaults of sbmc_run are relative to it) as:
   <python> -I -B test_sbmc_run.py --sbmc-run <sbmc_run> --trace-tool <sbmc_trace>
                                   --workdir <build>/tests/apps --strict-fp 0|1
-Checks, as in F04-C2, section 5.9, F05-C2, section 5.9, F06-C1, section 5.11, and F06-C2,
-section 5.10:
+Checks, as in F04-C2, section 5.9, F05-C2, section 5.9, F06-C1, section 5.11, F06-C2,
+section 5.10, F07-C1, section 5.12, and F07-C2, section 5.8:
 1. exit status 2 for the errors of the command line (--variant, --threads, the options of --algo sa
    and --replica-out included; the messages of phase 06 are compared: --variant c2 with dsb and
    bsb, --threads with c0, --replica-out on the same file as --out, written in four ways);
 2. exit status 1 for the errors of the library, of reading and of writing (a CSV or a replica file
-   with another header is left unchanged), and for paths of --out and --replica-out that cannot be
-   compared (a loop of symbolic links);
-3. tests/data/four_nodes.rudy, two recorded repetitions: the 44 columns and their values;
+   with another header is left unchanged), and for a --replica-out in a loop of symbolic links:
+   since F07-R4e the paths that cannot be resolved are compared in their lexically normal form,
+   so the error is the folder of --replica-out, not the comparison, and the same file in that
+   loop written in two ways is an error of the command line (exit status 2);
+3. tests/data/four_nodes.rudy, two recorded repetitions: the 56 columns and their values;
 4. repetition 1 against sbmc_trace with --first-replica 8 (same instance and parameters);
 5. a third run on the same CSV: three rows, one header;
 6. data/gset/G1 with --target best-known; --name G1 on another instance (another n and m: exit
    status 1); a table of the test with a row of the right n and m and one with another m;
 7. a dense instance with a warm-up run: one row, no target;
-8. one line "rep <k>: ..." on stdout per recorded repetition, consistent with the CSV;
+8. one line "rep <k>: ..." on stdout per recorded repetition, consistent with the CSV (t_solve_ms,
+   t_run_ms and t_check_ms included);
 9. the variant c1: two repetitions with two threads; G1 with one and with three threads, equal
    rows but the times; --threads 0; with --strict-fp 1 (strict presets) the same results as c0
    row by row, in dSB and in bSB;
@@ -28,7 +31,26 @@ section 5.10:
     appends without a second header;
 12. the variant c2 of --algo sa: the run of check 10 with --variant c2 --threads 2 (one block,
     threads 1, the results and the replica file of c0), and data/gset/G1 with R 133 (several
-    blocks, the last one partial, for every RB) and --threads 3 against c0.
+    blocks, the last one partial, for every RB) and --threads 3 against c0;
+13. the columns of schema 2 (F07-C1, section 5.12): in every row of every run t_prep_ms, t_run_ms
+    and t_check_ms >= 0 with a sum <= t_solve_ms + 0.002, t_step_us from t_run_ms, dt_rule and
+    c0_rule ("value" or "auto" and "sigma", "lambda" or "value" for SB, empty for sa), lambda_min
+    and lambda_max finite numbers in the rows with dt_rule auto or c0_rule lambda and empty in the
+    others (since F07-R2), cpu_classes empty, cpu_affinity equal to the Cpus_allowed_list of
+    this process, omp_places and omp_proc_bind equal to its OMP_PLACES and OMP_PROC_BIND; a run
+    under "taskset -c 0" (skipped, and said so, without taskset or without CPU 0); OMP_PLACES=cores
+    and OMP_PROC_BIND=close in the environment, then neither; OMP_PLACES with a line break (exit
+    status 1, no row, a message that names it); --tag with a comma, read back with the csv module,
+    and with a line break (exit status 2); an --out with the header of schema 1 (exit status 1,
+    "results schema 2" in the message, the file unchanged);
+14. the automatic dt and c0 (F07-C2, section 5.8): G1 with --dt auto --c0 lambda (dt 0.8175546,
+    c0 0.07533438 within 1e-6 relative, dt_rule auto, c0_rule lambda, lambda_min and lambda_max
+    of the table of F07-C2 within 1e-9 max(|lambda|)); the same run with --dt 0.8175546
+    --c0 0.07533438 (the same best_cut, mean_cut, n_success, dt and c0, dt_rule and c0_rule value,
+    no lambda); --dt auto --dt-factor 0.75 --c0 auto (dt 0.6131659, c0_rule sigma, the lambdas);
+    four_nodes.rudy with bsb and --dt auto (dt 1.0879054); exit status 2 for --dt-factor without
+    --dt auto, --dt-factor 0 and x, --dt foo, --c0 lambdax, --dt auto and --dt-factor with sa;
+    exit status 1, with no row, for --dt auto and for --c0 lambda on a graph without edges.
 The files of the test (CSV files and a trace) are written only in --workdir, a folder of the
 build tree; their previous versions are removed at the start.
 
@@ -41,9 +63,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import platform
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -53,7 +77,8 @@ EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_SKIP = 77
 
-COLUMNS = [
+# Results schema 1 (until phase 06): an --out with its header is refused.
+COLUMNS_1 = [
     "schema_version", "timestamp", "git_hash", "dirty", "host", "os", "gpu", "driver", "cuda",
     "cublas", "compiler", "algo", "variant", "instance", "n", "nnz", "replicas", "steps", "dt",
     "c0", "beta0", "beta1", "seed", "rep", "t_setup_ms", "t_solve_ms", "t_step_us", "best_cut",
@@ -61,14 +86,20 @@ COLUMNS = [
     "sm_clock_avg_mhz", "temp_max_c", "power_avg_w", "a0", "eval_every", "first_replica",
     "threads", "target_source", "notes",
 ]
+# Results schema 2: the first 43 columns of schema 1, the 12 columns of phase 07, notes.
+COLUMNS = COLUMNS_1[:-1] + [
+    "t_prep_ms", "t_run_ms", "t_check_ms", "dt_rule", "c0_rule", "lambda_min", "lambda_max",
+    "cpu_affinity", "cpu_classes", "omp_places", "omp_proc_bind", "run_tag", "notes",
+]
 ALWAYS_EMPTY = ["gpu", "driver", "cuda", "cublas", "tts99_ms", "t_comm_ms", "sm_clock_avg_mhz",
-                "temp_max_c", "power_avg_w"]
+                "temp_max_c", "power_avg_w", "cpu_classes"]
 SB_ONLY = ["dt", "c0", "a0", "eval_every"]  # empty in the rows of SA
 SA_ONLY = ["beta0", "beta1"]  # empty in the rows of SB
 REPLICA_COLUMNS = ["schema_version", "timestamp", "instance", "algo", "variant", "replicas",
                    "steps", "seed", "rep", "replica", "best_cut", "best_step", "final_cut"]
 REP_LINE = re.compile(r"^rep (\d+): best_cut (-?\d+) mean_cut (-?\d+\.\d{3})"
-                      r"(?: n_success (\d+)/(\d+))? t_solve_ms (\d+\.\d{3})$")
+                      r"(?: n_success (\d+)/(\d+))? t_solve_ms (\d+\.\d{3})"
+                      r" t_run_ms (\d+\.\d{3}) t_check_ms (\d+\.\d{3})$")
 TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 GIT_HASH = re.compile(r"^(?:[0-9a-f]{40}|unknown)$")
 THREE_DECIMALS = re.compile(r"^\d+\.\d{3}$")
@@ -82,12 +113,21 @@ OUTPUTS = ["runs.csv", "g1.csv", "name.csv", "dense.csv", "bad_header.csv", "unu
            "compare_c0_bsb.csv", "compare_c1_bsb.csv", "sa.csv", "sa_replicas.csv",
            "dsb_replicas_runs.csv", "dsb_replicas.csv", "bad_replicas.csv", "toy_runs.csv",
            "toy_best_known.csv", "c2.csv", "c2_replicas.csv", "c2_g1.csv", "c0_g1.csv",
-           "loop", "q4.csv"]
+           "loop", "q4.csv", "taskset.csv", "omp_env.csv", "omp_none.csv", "omp_newline.csv",
+           "tag.csv", "schema1.csv", "auto_lambda.csv", "auto_values.csv", "auto_factor.csv",
+           "auto_four.csv", "auto_unused.csv", "empty_5.rudy"]
+# F07-C2, section 5.7: the extremes of the spectrum of J of G1 with 100 iterations, the dt and c0
+# derived from them, and dt with --dt-factor 0.75.
+G1_LAMBDA = (-48.78749417418736, 13.27415171569161)
+G1_DT, G1_C0, G1_DT_075 = 0.8175546, 0.07533438, 0.6131659
+FOUR_DT = 1.0879054
 # F06-C1, section 5.8: sbmc_run on four_nodes.rudy, --algo sa --replicas 8 --sweeps 10
 # --beta0 0.1 --beta1 3 --seed 2 --target 4 --reps 2 (rep 0: SA-1; rep 1: global replicas 8-15).
 SA_BEST_SWEEP = [6, 0, 2, 1, 0, 3, 0, 1, 1, 3, 5, 7, 6, 1, 1, 1]
 # Columns that may differ between two runs of the same configuration.
-TIMES = ["timestamp", "t_setup_ms", "t_solve_ms", "t_step_us"]
+TIMES = ["timestamp", "t_setup_ms", "t_solve_ms", "t_step_us", "t_prep_ms", "t_run_ms",
+         "t_check_ms"]
+TIME_COLUMNS = ["t_setup_ms", "t_solve_ms", "t_step_us", "t_prep_ms", "t_run_ms", "t_check_ms"]
 
 
 class Report:
@@ -120,9 +160,10 @@ class Runner:
         self.executable = executable
         self.root = root
 
-    def __call__(self, arguments: list[str]) -> subprocess.CompletedProcess:
-        return subprocess.run([self.executable, *arguments], cwd=self.root, capture_output=True,
-                              text=True, timeout=600, check=False)
+    def __call__(self, arguments: list[str], env: dict[str, str] | None = None,
+                 prefix: list[str] | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run([*(prefix or []), self.executable, *arguments], cwd=self.root,
+                              capture_output=True, text=True, timeout=600, check=False, env=env)
 
 
 def read_rows(path: Path) -> tuple[list[str], list[dict[str, str]], list[list[str]]]:
@@ -145,6 +186,7 @@ def check_stdout(report: Report, name: str, result: subprocess.CompletedProcess,
     for k, (line, row) in enumerate(zip(lines, rows)):
         ok = ok and int(line.group(1)) == k and line.group(2) == row["best_cut"]
         ok = ok and line.group(3) == row["mean_cut"] and line.group(6) == row["t_solve_ms"]
+        ok = ok and line.group(7) == row["t_run_ms"] and line.group(8) == row["t_check_ms"]
         if with_target:
             ok = ok and line.group(4) == row["n_success"] and line.group(5) == row["replicas"]
         else:
@@ -155,7 +197,7 @@ def check_stdout(report: Report, name: str, result: subprocess.CompletedProcess,
 def check_row_common(row: dict[str, str]) -> list[str]:
     """Columns whose form is the same in every row; returns the names that are wrong."""
     wrong = []
-    if row.get("schema_version") != "1":
+    if row.get("schema_version") != "2":
         wrong.append("schema_version")
     if not TIMESTAMP.match(row.get("timestamp", "")):
         wrong.append("timestamp")
@@ -163,7 +205,7 @@ def check_row_common(row: dict[str, str]) -> list[str]:
         wrong.append("git_hash")
     if row.get("dirty") not in ("0", "1", ""):
         wrong.append("dirty")
-    for column in ("t_setup_ms", "t_solve_ms", "t_step_us"):
+    for column in TIME_COLUMNS:
         value = row.get(column, "")
         if not THREE_DECIMALS.match(value) or float(value) < 0:
             wrong.append(column)
@@ -356,8 +398,8 @@ def check_sa(report: Report, run: Runner, workdir: Path) -> None:
                     "mean_cut": "4.000", "n_success": "8", "p_s": "1", "target": "4",
                     "target_source": "user", "notes": NOTES}
         wrong += [f"rep {k}: {c}" for c, v in expected.items() if row.get(c) != v]
-        # t_step_us = t_solve_ms * 1000 / S from the unrounded time: t_solve_ms has 3 decimals.
-        if abs(float(row["t_step_us"]) - float(row["t_solve_ms"]) * 100.0) > 0.0506:
+        # t_step_us = t_run_ms * 1000 / S from the unrounded time: t_run_ms has 3 decimals.
+        if abs(float(row["t_step_us"]) - float(row["t_run_ms"]) * 100.0) > 0.0005 + 0.05:
             wrong.append(f"rep {k}: t_step_us")
     report.check("sa four_nodes.rudy, rows", not wrong,
                  "wrong: " + ", ".join(wrong) if wrong else "2 rows with the values of 5.8")
@@ -455,6 +497,284 @@ def check_c2(report: Report, run: Runner, workdir: Path) -> None:
                  f"{[r.get('threads') for r in c2_rows]}")
 
 
+def allowed_cpus() -> str:
+    """The text after "Cpus_allowed_list:" in /proc/self/status, without leading and trailing
+    spaces and tabs, as sbmc_run reads it; empty when the file or the line is missing."""
+    try:
+        with open("/proc/self/status", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("Cpus_allowed_list:"):
+                    return line.rstrip("\n")[len("Cpus_allowed_list:"):].strip(" \t")
+    except OSError:
+        return ""
+    return ""
+
+
+def cpulist_has(cpulist: str, cpu: int) -> bool:
+    """Whether a cpulist such as "0-3,8" contains cpu."""
+    for part in filter(None, cpulist.split(",")):
+        first, _, last = part.partition("-")
+        try:
+            if int(first) <= cpu <= int(last or first):
+                return True
+        except ValueError:
+            return False
+    return False
+
+
+def without_omp(environment: dict[str, str]) -> dict[str, str]:
+    return {k: v for k, v in environment.items() if k not in ("OMP_PLACES", "OMP_PROC_BIND")}
+
+
+def check_schema2(report: Report, run: Runner, workdir: Path) -> None:
+    """Check 13, the runs: taskset, OMP_PLACES and OMP_PROC_BIND, --tag, an --out of schema 1."""
+    small = ["--instance", FOUR, "--algo", "sa", "--replicas", "4", "--sweeps", "10",
+             "--beta0", "0.1", "--beta1", "3", "--warmup", "0"]
+
+    # cpu_affinity under "taskset -c 0".
+    taskset = shutil.which("taskset")
+    if taskset is None or not cpulist_has(allowed_cpus(), 0):
+        print("RUN taskset -c 0: skipped (" + ("taskset not found" if taskset is None else
+              f"CPU 0 not allowed to this process: {allowed_cpus()!r}") + ")")
+    else:
+        path = workdir / "taskset.csv"
+        result = run(small + ["--out", str(path)], prefix=[taskset, "-c", "0"])
+        _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+        got = [r.get("cpu_affinity") for r in rows]
+        report.check("taskset -c 0: cpu_affinity 0", result.returncode == 0 and got == ["0"],
+                     f"exit {result.returncode}, cpu_affinity {got}")
+
+    # OMP_PLACES and OMP_PROC_BIND in the environment, then neither of them.
+    for name, extra, expected in (
+            ("OMP_PLACES=cores OMP_PROC_BIND=close", {"OMP_PLACES": "cores",
+                                                      "OMP_PROC_BIND": "close"},
+             ("cores", "close")),
+            ("neither OMP_PLACES nor OMP_PROC_BIND", {}, ("", ""))):
+        path = workdir / ("omp_env.csv" if extra else "omp_none.csv")
+        result = run(small + ["--out", str(path)], env={**without_omp(dict(os.environ)), **extra})
+        _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+        got = [(r.get("omp_places"), r.get("omp_proc_bind")) for r in rows]
+        report.check(f"{name}: omp_places and omp_proc_bind",
+                     result.returncode == 0 and got == [expected],
+                     f"exit {result.returncode}, {got}")
+    path = workdir / "omp_newline.csv"
+    result = run(small + ["--out", str(path)],
+                 env={**without_omp(dict(os.environ)), "OMP_PLACES": "cores\nthreads"})
+    ours = [line for line in result.stderr.splitlines() if line.startswith("sbmc_run: ")]
+    report.check("OMP_PLACES with a line break: exit 1, no row, a message that names it",
+                 result.returncode == 1 and not path.exists() and not rep_lines(result.stdout)
+                 and bool(ours) and "OMP_PLACES" in ours[0],
+                 f"exit {result.returncode}, file {path.exists()}: {ours[0:1]}")
+
+    # --tag with a comma and a space, read back with the csv module.
+    path = workdir / "tag.csv"
+    result = run(small + ["--tag", "E2 cfg,1", "--out", str(path)])
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    got = [r.get("run_tag") for r in rows]
+    report.check("--tag 'E2 cfg,1': run_tag", result.returncode == 0 and got == ["E2 cfg,1"],
+                 f"exit {result.returncode}, run_tag {got}")
+
+    # An --out with the header of schema 1: exit status 1, the file unchanged.
+    path = workdir / "schema1.csv"
+    old = ",".join(COLUMNS_1) + "\n" + ",".join(["x"] * len(COLUMNS_1)) + "\n"
+    path.write_text(old, encoding="utf-8")
+    result = run(small + ["--out", str(path)])
+    first = result.stderr.strip().splitlines()[0:1]
+    report.check("--out with the header of schema 1: exit 1, file unchanged",
+                 result.returncode == 1 and bool(first) and "results schema 2" in first[0]
+                 and not rep_lines(result.stdout) and path.read_text(encoding="utf-8") == old,
+                 f"exit {result.returncode}: {first}")
+
+
+def finite_number(text: str) -> bool:
+    try:
+        return math.isfinite(float(text))
+    except ValueError:
+        return False
+
+
+def relative_close(text: str | None, reference: float, tolerance: float) -> bool:
+    try:
+        return abs(float(text or "") - reference) <= tolerance * abs(reference)
+    except ValueError:
+        return False
+
+
+def close_lambdas(row: dict[str, str], reference: tuple[float, float]) -> bool:
+    try:
+        got = (float(row["lambda_min"]), float(row["lambda_max"]))
+    except (KeyError, ValueError):
+        return False
+    tolerance = 1e-9 * max(abs(reference[0]), abs(reference[1]))
+    return all(abs(g - r) <= tolerance for g, r in zip(got, reference))
+
+
+def check_spectrum(report: Report, run: Runner, workdir: Path) -> None:
+    """Check 14: --dt auto, --dt-factor and --c0 lambda (F07-C2, section 5.8)."""
+    g1 = ["--instance", "data/gset/G1", "--algo", "dsb", "--replicas", "40", "--steps", "30",
+          "--seed", "3", "--reps", "2", "--warmup", "0", "--target", "best-known"]
+
+    def rows_of(name: str, more: list[str]) -> tuple[subprocess.CompletedProcess,
+                                                     list[dict[str, str]]]:
+        path = workdir / name
+        result = run(g1 + more + ["--out", str(path)])
+        _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+        return result, rows if result.returncode == 0 else []
+
+    # 1. --dt auto --c0 lambda.
+    result, auto_rows = rows_of("auto_lambda.csv", ["--dt", "auto", "--c0", "lambda"])
+    wrong = [] if len(auto_rows) == 2 else [f"exit {result.returncode}, {len(auto_rows)} rows"]
+    for k, row in enumerate(auto_rows):
+        if not relative_close(row.get("dt"), G1_DT, 1e-6):
+            wrong.append(f"rep {k}: dt {row.get('dt')!r}")
+        if not relative_close(row.get("c0"), G1_C0, 1e-6):
+            wrong.append(f"rep {k}: c0 {row.get('c0')!r}")
+        if (row.get("dt_rule"), row.get("c0_rule")) != ("auto", "lambda"):
+            wrong.append(f"rep {k}: dt_rule {row.get('dt_rule')!r} c0_rule {row.get('c0_rule')!r}")
+        if not close_lambdas(row, G1_LAMBDA):
+            wrong.append(f"rep {k}: lambdas {row.get('lambda_min')!r} {row.get('lambda_max')!r}")
+        wrong += [f"rep {k}: {c}" for c in check_row_common(row)]
+    report.check("G1 --dt auto --c0 lambda: dt, c0, rules and lambdas", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else
+                 f"dt {auto_rows[0]['dt']}, c0 {auto_rows[0]['c0']}, lambda_min "
+                 f"{auto_rows[0]['lambda_min']}, lambda_max {auto_rows[0]['lambda_max']}")
+    check_stdout(report, "G1 --dt auto --c0 lambda", result, auto_rows, True)
+
+    # 2. The same values given as numbers: the same results, rules value, no estimate.
+    result, value_rows = rows_of("auto_values.csv", ["--dt", "0.8175546", "--c0", "0.07533438"])
+    wrong = [] if len(value_rows) == 2 and len(auto_rows) == 2 else [
+        f"exit {result.returncode}, {len(value_rows)} rows"]
+    for k, (row, auto) in enumerate(zip(value_rows, auto_rows)):
+        wrong += [f"rep {k}: {c}" for c in ("best_cut", "mean_cut", "n_success", "dt", "c0")
+                  if row.get(c) != auto.get(c)]
+        got = tuple(row.get(c) for c in ("dt_rule", "c0_rule", "lambda_min", "lambda_max"))
+        if got != ("value", "value", "", ""):
+            wrong.append(f"rep {k}: rules and lambdas {got!r}")
+    report.check("G1 --dt 0.8175546 --c0 0.07533438: the results of --dt auto --c0 lambda",
+                 not wrong, "wrong: " + ", ".join(wrong) if wrong else
+                 "best_cut, mean_cut, n_success, dt and c0 equal; dt_rule and c0_rule value")
+
+    # 3. --dt auto --dt-factor 0.75 --c0 auto.
+    result, factor_rows = rows_of("auto_factor.csv",
+                                  ["--dt", "auto", "--dt-factor", "0.75", "--c0", "auto"])
+    wrong = [] if len(factor_rows) == 2 else [f"exit {result.returncode}, {len(factor_rows)} rows"]
+    for k, row in enumerate(factor_rows):
+        if not relative_close(row.get("dt"), G1_DT_075, 1e-6):
+            wrong.append(f"rep {k}: dt {row.get('dt')!r}")
+        if (row.get("dt_rule"), row.get("c0_rule")) != ("auto", "sigma"):
+            wrong.append(f"rep {k}: dt_rule {row.get('dt_rule')!r} c0_rule {row.get('c0_rule')!r}")
+        if not close_lambdas(row, G1_LAMBDA):
+            wrong.append(f"rep {k}: lambdas {row.get('lambda_min')!r} {row.get('lambda_max')!r}")
+    report.check("G1 --dt auto --dt-factor 0.75 --c0 auto: dt, rules and lambdas", not wrong,
+                 "wrong: " + ", ".join(wrong) if wrong else f"dt {factor_rows[0]['dt']}")
+
+    # 4. four_nodes.rudy with bsb.
+    path = workdir / "auto_four.csv"
+    result = run(["--instance", FOUR, "--algo", "bsb", "--replicas", "4", "--steps", "20",
+                  "--dt", "auto", "--out", str(path)])
+    _, rows, _ = read_rows(path) if path.exists() else ([], [], [])
+    row = rows[0] if result.returncode == 0 and len(rows) == 1 else {}
+    report.check("four_nodes.rudy bsb --dt auto: dt 1.0879054",
+                 relative_close(row.get("dt"), FOUR_DT, 1e-6)
+                 and (row.get("dt_rule"), row.get("c0_rule")) == ("auto", "sigma"),
+                 f"exit {result.returncode}, dt {row.get('dt')!r}, dt_rule "
+                 f"{row.get('dt_rule')!r}, c0_rule {row.get('c0_rule')!r}")
+
+    # 5. Errors: exit status 2 for the command line, 1 for J = 0, with no row.
+    unused = workdir / "auto_unused.csv"
+    four = ["--instance", FOUR, "--algo", "dsb", "--replicas", "4", "--steps", "10"]
+    sa = ["--instance", FOUR, "--algo", "sa", "--replicas", "4", "--sweeps", "10", "--beta0",
+          "0.1", "--beta1", "3"]
+    usage = [
+        ("--dt-factor without --dt auto", four + ["--dt", "1.25", "--dt-factor", "2"],
+         "--dt-factor requires --dt auto"),
+        ("--dt-factor 0", four + ["--dt", "auto", "--dt-factor", "0"],
+         "--dt-factor: expected a finite number > 0, got '0'"),
+        ("--dt-factor x", four + ["--dt", "auto", "--dt-factor", "x"],
+         "--dt-factor: expected a finite number > 0, got 'x'"),
+        ("--dt foo", four + ["--dt", "foo"],
+         "--dt: expected auto or a finite number > 0, got 'foo'"),
+        ("--c0 lambdax", four + ["--dt", "1.25", "--c0", "lambdax"], "--c0: expected auto, lambda "
+         "or a finite number > 0, got 'lambdax' (0 is not accepted: in the library c0 = 0 means "
+         "automatic)"),
+        ("--dt auto with sa", sa + ["--dt", "auto"], "--dt is not used with --algo sa"),
+        ("--dt-factor with sa", sa + ["--dt-factor", "2"],
+         "--dt-factor is not used with --algo sa"),
+    ]
+    for name, arguments, message in usage:
+        result = run(arguments + ["--out", str(unused)])
+        first = result.stderr.strip().splitlines()[0:1]
+        report.check(f"exit 2: {name}",
+                     result.returncode == 2 and first == [f"sbmc_run: {message}"]
+                     and not rep_lines(result.stdout) and not unused.exists(),
+                     f"exit {result.returncode}: {first}")
+    empty = workdir / "empty_5.rudy"
+    empty.write_text("5 0\n", encoding="ascii")
+    for name, more, function in (("--dt auto", ["--dt", "auto"], "spectral_dt"),
+                                 ("--c0 lambda", ["--dt", "1.25", "--c0", "lambda"],
+                                  "spectral_c0")):
+        result = run(["--instance", str(empty), "--algo", "dsb", "--replicas", "4", "--steps",
+                      "10"] + more + ["--out", str(unused)])
+        first = result.stderr.strip().splitlines()[0:1]
+        report.check(f"exit 1: {name} on a graph without edges, no row",
+                     result.returncode == 1 and bool(first)
+                     and first[0].startswith(f"sbmc_run: {function}: lambda_max = 0")
+                     and not rep_lines(result.stdout) and not unused.exists(),
+                     f"exit {result.returncode}: {first}")
+
+
+def check_every_row(report: Report, workdir: Path) -> None:
+    """Check 13, every row of every CSV of results schema 2 written by the test."""
+    affinity = allowed_cpus()
+    environment = (os.environ.get("OMP_PLACES", ""), os.environ.get("OMP_PROC_BIND", ""))
+    special = {"taskset.csv", "omp_env.csv", "omp_none.csv"}  # checked by check_schema2
+    wrong: list[str] = []
+    files = rows_total = 0
+    for path in sorted(workdir.glob("*.csv")):
+        header, rows, _ = read_rows(path)
+        if header != COLUMNS:
+            continue
+        files += 1
+        for k, row in enumerate(rows, start=2):
+            rows_total += 1
+            where = f"{path.name}:{k}"
+            try:
+                prep, run_ms, check, solve, step = (float(row[c]) for c in (
+                    "t_prep_ms", "t_run_ms", "t_check_ms", "t_solve_ms", "t_step_us"))
+                steps = int(row["steps"])
+            except (KeyError, ValueError):
+                wrong.append(f"{where}: times")
+                continue
+            if min(prep, run_ms, check) < 0 or prep + run_ms + check > solve + 0.002:
+                wrong.append(f"{where}: t_prep_ms + t_run_ms + t_check_ms > t_solve_ms + 0.002")
+            if abs(step - run_ms * 1000 / steps) > 0.0005 + 0.0005 * 1000 / steps:
+                wrong.append(f"{where}: t_step_us is not t_run_ms * 1000 / steps")
+            if row["algo"] == "sa":
+                if row["dt_rule"] != "" or row["c0_rule"] != "":
+                    wrong.append(f"{where}: dt_rule or c0_rule not empty for sa")
+            elif (row["dt_rule"] not in ("value", "auto")
+                  or row["c0_rule"] not in ("sigma", "lambda", "value")):
+                wrong.append(f"{where}: dt_rule {row['dt_rule']!r}, c0_rule {row['c0_rule']!r}")
+            lambdas = (row["lambda_min"], row["lambda_max"])
+            if row["dt_rule"] == "auto" or row["c0_rule"] == "lambda":
+                if not all(finite_number(v) for v in lambdas):
+                    wrong.append(f"{where}: lambdas {lambdas!r}, expected numbers")
+            elif lambdas != ("", ""):
+                wrong.append(f"{where}: lambda_min and lambda_max {lambdas!r} without an estimate")
+            if row["cpu_classes"] != "":
+                wrong.append(f"{where}: cpu_classes not empty")
+            if path.name not in special:
+                if row["cpu_affinity"] != affinity:
+                    wrong.append(f"{where}: cpu_affinity {row['cpu_affinity']!r}, "
+                                 f"expected {affinity!r}")
+                if (row["omp_places"], row["omp_proc_bind"]) != environment:
+                    wrong.append(f"{where}: omp_places and omp_proc_bind")
+    report.check("every row of schema 2: times, rules, lambdas, empty columns, affinity, OpenMP "
+                 "variables",
+                 files > 0 and not wrong,
+                 "; ".join(wrong[:10]) if wrong else f"{rows_total} rows in {files} files")
+
+
 def main() -> int:
     args = parse_arguments()
     print(f"python: {platform.python_version()} ({sys.executable})")
@@ -501,6 +821,7 @@ def main() -> int:
         ("--c0 0", four + base + ["--c0", "0"]),
         ("--target foo", four + base + ["--target", "foo"]),
         ("--notes with a line break", four + base + ["--notes", "a\nb"]),
+        ("--tag with a line break", four + base + ["--tag", "a\nb"]),
         ("--instance-seed without --dense", four + base + ["--instance-seed", "3"]),
     ]
     for name, arguments in usage_cases:
@@ -599,10 +920,19 @@ def main() -> int:
     os.symlink("loop", loop)  # a symbolic link to itself: the path cannot be resolved
     result = run(four + sa + out + ["--replica-out", str(loop / "replicas.csv")])
     first = result.stderr.strip().splitlines()[0:1]
-    report.check("exit 1: --replica-out in a loop of symbolic links",
-                 result.returncode == 1 and bool(first) and "--out" in first[0]
-                 and "--replica-out" in first[0] and "cannot compare" in first[0]
+    report.check("exit 1: --replica-out in a loop of symbolic links (its folder, not the "
+                 "comparison)", result.returncode == 1 and bool(first)
+                 and first[0].startswith("sbmc_run: --replica-out ") and "folder" in first[0]
+                 and "cannot compare" not in result.stderr
                  and not rep_lines(result.stdout) and not (workdir / "unused.csv").exists(),
+                 f"exit {result.returncode}: {first}")
+    # The same file in that loop written in two ways: weakly_canonical fails, the lexically
+    # normal forms are equal (F07-R4e).
+    result = run(four + sa + ["--out", f"{loop}/x.csv", "--replica-out", f"{loop}/./x.csv"])
+    first = result.stderr.strip().splitlines()[0:1]
+    report.check("exit 2: the same file in a loop of symbolic links, written in two ways",
+                 result.returncode == 2
+                 and first == ["sbmc_run: --replica-out must differ from --out"],
                  f"exit {result.returncode}: {first}")
     report.check("--out with another header: file unchanged",
                  bad_header.read_text(encoding="ascii") == "a,b,c\n1,2,3\n")
@@ -620,20 +950,21 @@ def main() -> int:
     report.check("four_nodes run", result.returncode == 0,
                  f"exit {result.returncode}" + (f": {stderr}" if stderr else ""))
     header, rows, raw = read_rows(runs) if runs.exists() else ([], [], [])
-    report.check("header of schema 1", header == COLUMNS, f"{len(header)} columns")
-    report.check("two rows of 44 fields", len(raw) == 2 and all(len(r) == 44 for r in raw),
+    report.check("header of schema 2", header == COLUMNS, f"{len(header)} columns")
+    report.check("two rows of 56 fields", len(raw) == 2 and all(len(r) == 56 for r in raw),
                  f"{len(raw)} rows")
     fixed = {"algo": "dsb", "variant": "c0", "instance": "four_nodes", "n": "4", "nnz": "5",
              "replicas": "8", "steps": "100", "dt": "1.25", "c0": "0.3", "a0": "1", "seed": "2",
              "eval_every": "0", "ranks": "1", "threads": "1", "target": "4",
-             "target_source": "user", "notes": NOTES}
+             "target_source": "user", "notes": NOTES, "dt_rule": "value", "c0_rule": "value",
+             "run_tag": ""}
     for k, row in enumerate(rows):
         wrong = check_row_common(row)
         wrong += [c for c, v in fixed.items() if row.get(c) != v]
         if row.get("rep") != str(k) or row.get("first_replica") != str(8 * k):
             wrong.append("rep/first_replica")
         report.check(f"four_nodes rep {k} columns", not wrong,
-                     "wrong: " + ", ".join(wrong) if wrong else "44 columns as expected")
+                     "wrong: " + ", ".join(wrong) if wrong else "56 columns as expected")
     if rows:
         rep0 = rows[0]
         report.check("four_nodes rep 0 results",
@@ -677,11 +1008,13 @@ def main() -> int:
                   "10", "--dt", "0.5", "--target", "best-known", "--out", str(g1)])
     _, rows, _ = read_rows(g1) if g1.exists() else ([], [], [])
     row = rows[0] if len(rows) == 1 else {}
-    got = {c: row.get(c) for c in ("instance", "n", "nnz", "target", "target_source")}
-    report.check("G1 with --target best-known",
+    got = {c: row.get(c) for c in ("instance", "n", "nnz", "target", "target_source", "dt_rule",
+                                   "c0_rule")}
+    report.check("G1 with --target best-known (--c0 auto: c0_rule sigma)",
                  result.returncode == 0 and len(rows) == 1 and not check_row_common(row)
                  and got == {"instance": "G1", "n": "800", "nnz": "19176", "target": "11624",
-                             "target_source": "best_known"}, str(got))
+                             "target_source": "best_known", "dt_rule": "value",
+                             "c0_rule": "sigma"}, str(got))
     check_stdout(report, "G1", result, rows, True)
     named = workdir / "name.csv"
     result = run(["--instance", FOUR, "--name", "G1", "--algo", "dsb", "--replicas", "2",
@@ -713,6 +1046,9 @@ def main() -> int:
     check_sa(report, run, workdir)
     check_replica_out(report, run, workdir)
     check_c2(report, run, workdir)
+    check_schema2(report, run, workdir)
+    check_spectrum(report, run, workdir)
+    check_every_row(report, workdir)
 
     verdict = "PASS" if report.failures == 0 else "FAIL"
     print(f"RUN_VERDICT: {verdict}")

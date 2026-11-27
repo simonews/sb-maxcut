@@ -1,5 +1,6 @@
 // Ising model of Max-Cut on explicit graphs and on implicit dense spin glasses: validation, int64
-// sums and dense INT8 rows of J (sbmc/instance.hpp).
+// sums, dense INT8 rows of J and the unchecked cut of the final check of the solvers
+// (sbmc/instance.hpp).
 #include <sbmc/instance.hpp>
 
 #include <algorithm>
@@ -328,5 +329,72 @@ void dense_rows_int8(const Instance& inst, std::int64_t row_begin, std::int64_t 
                      std::int64_t ld, std::span<std::int8_t> out) {
   std::visit([&](const auto& g) { dense_rows_int8(g, row_begin, row_end, ld, out); }, inst);
 }
+
+// --- Internal cut of the final check of the solvers ------------------------------------------
+
+namespace detail {
+namespace {
+
+// Largest n for which the sum of one row, at most 127 (n - 1) in absolute value, fits in int32:
+// 127 * 2^24 = 2130706432 < 2^31 - 1.
+constexpr std::int64_t kMaxSpinsInt32Row = std::int64_t{1} << 24;
+
+// The cut in product form (decision M1 of phase 07):
+//   -sum_{i<j} J_ij [s_i != s_j] = sum_{i<j} J_ij (s_i s_j - 1) / 2 = (S - R) / 2,
+// with g_i = sum_{j>i} J_ij s_j and r_i = sum_{j>i} J_ij in Acc (|g_i|, |r_i| <= 127 (n - 1): int32
+// up to n = 2^24, int64 beyond), S = sum_i s_i g_i and R = sum_i r_i in int64. Exact: every term
+// J_ij (s_i s_j - 1) is 0 or -2 J_ij, so S - R is even. Only the columns j < n are read; the inner
+// loop has no branch and j increases. Why: the select of F07-R1 (s_j != s_i ? J_ij : 0) vectorizes
+// with AVX-512 but not with AVX2, the products and sums do with both. Measured by cldArchitect (64
+// spin vectors, dense n = 2000): the select 22 ms with -march=native in the sandbox (AVX-512), 170
+// ms with -march=x86-64-v3 and 165 ms with -march=raptorlake (AVX2, as the laptop); the product
+// form 25-26 ms in all three. Measured in the sandbox in F07-R2 (medians of t_check_ms of C2 over 3
+// repetitions on --dense 2000 --instance-seed 1, R 64, S 100, one thread: 128 cuts), F07-R1
+// against F07-R2: 43 -> 56 ms with -march=native (AVX-512: 1.3 times slower), 956 -> 56 ms with
+// -march=raptorlake (AVX2: 17 times faster).
+template <typename Acc>
+std::int64_t dense_rows_cut(const std::int8_t* rows, std::int64_t n, std::int64_t ld,
+                            const Spin* s) noexcept {
+  std::int64_t products = 0;   // S
+  std::int64_t couplings = 0;  // R
+  for (std::int64_t i = 0; i + 1 < n; ++i) {
+    const std::int8_t* const row = rows + i * ld;
+    Acc g = 0;
+    Acc r = 0;
+    for (std::int64_t j = i + 1; j < n; ++j) {
+      const auto coupling = static_cast<Acc>(row[j]);
+      g += coupling * static_cast<Acc>(s[j]);
+      r += coupling;
+    }
+    products += static_cast<std::int64_t>(s[i]) * static_cast<std::int64_t>(g);
+    couplings += static_cast<std::int64_t>(r);
+  }
+  return (products - couplings) / 2;
+}
+
+}  // namespace
+
+std::int64_t cut_edges_unchecked(const Graph& g, std::span<const Spin> s) noexcept {
+  const Spin* spins = s.data();
+  std::int64_t total = 0;
+  for (const Edge& e : g.edges) {
+    // w AND a mask of all ones when s_u != s_v, all zeros otherwise: no branch, whose outcome
+    // would be unpredictable (with a conditional expression GCC -O3 emits a branch, about 9 times
+    // slower on G1).
+    const auto cut = static_cast<std::int64_t>(spins[e.u] != spins[e.v]);
+    total += static_cast<std::int64_t>(e.w) & -cut;
+  }
+  return total;
+}
+
+std::int64_t cut_dense_rows_unchecked(std::span<const std::int8_t> rows, std::int64_t n,
+                                      std::int64_t ld, std::span<const Spin> s) noexcept {
+  if (n <= kMaxSpinsInt32Row) {
+    return dense_rows_cut<std::int32_t>(rows.data(), n, ld, s.data());
+  }
+  return dense_rows_cut<std::int64_t>(rows.data(), n, ld, s.data());
+}
+
+}  // namespace detail
 
 }  // namespace sbmc

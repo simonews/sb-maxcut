@@ -1,35 +1,72 @@
 // sbmc_run: runs a solver of the project on one instance and writes one CSV row per repetition,
-// with the results schema 1 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
+// with the results schema 2 (sbmc/results.hpp). Simulated bifurcation, dSB or bSB: phase 04, the
 // sequential reference C0 (variant c0); phase 05, C1 with OpenMP over blocks of replicas
 // (variant c1, --threads). Simulated annealing (--algo sa), phase 06: the sequential reference
-// (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads).
+// (variant c0) and C2 with OpenMP over blocks of replicas (variant c2, --threads). Phase 07: the
+// automatic dt and c0 from the estimate of the spectrum of J (sbmc/spectrum.hpp); part 4, the
+// build for Windows (E9): --affinity and --print-topology, Windows only (apps/win_platform.cpp,
+// the only file with Windows API), and --version on every platform.
 //
 //   sbmc_run (--instance FILE | --dense N --instance-seed S) --algo dsb|bsb|sa --replicas R
-//            [--steps M --dt X | --sweeps S --beta0 X --beta1 X] [--name NAME]
-//            [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|X] [--eval-every K]
+//            [--steps M --dt auto|X [--dt-factor F] | --sweeps S --beta0 X --beta1 X]
+//            [--name NAME] [--variant c0|c1|c2] [--threads T] [--a0 X] [--c0 auto|lambda|X]
+//            [--eval-every K]
 //            [--seed S] [--reps K] [--warmup K] [--target best-known|none|INTEGER]
-//            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT]
+//            [--best-known FILE] [--out FILE] [--replica-out FILE] [--notes TEXT] [--tag TEXT]
+//            [--affinity p1|p|e|all]
+//   sbmc_run --print-topology [--affinity p1|p|e|all]
+//   sbmc_run --version
 //
 // --steps and --dt are required with dsb and bsb, which take the variants c0 and c1; --sweeps,
 // --beta0 and --beta1 with sa, which takes the variants c0 and c2 and where --steps, --dt, --c0,
 // --a0 and --eval-every are not used. --threads only with c1 or c2. --replica-out needs --out and
-// another file (compared with std::filesystem::weakly_canonical).
+// another file (compared with std::filesystem::weakly_canonical). dt of SB: --dt auto, dt =
+// F * 1.25 * sqrt(2 / (1 - lambda_min / lambda_max)) with F = --dt-factor (default 1, allowed only
+// with --dt auto), or a finite number > 0. c0 of SB: --c0 auto, 1 / (2 sigma sqrt(n)) (auto_c0);
+// --c0 lambda, 1 / lambda_max; or a finite number > 0. lambda_min and lambda_max come from
+// estimate_spectrum with kSpectrumIterations steps, run once per invocation and only for --dt auto
+// or --c0 lambda.
 //
-// Run: the instance is read (t_setup_ms); the target is resolved (with --target best-known the
-// row of the table must have the n and m of the instance); --warmup runs with first replica 0 are
-// not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica = k*R and the
-// same seed, so different global replicas and different initial conditions (decision B7), appends
-// one row to --out and, with --replica-out, R rows to the replica file, and prints one line
-// "rep <k>: ..." on stdout. The solver is run_sb_sequential (dsb or bsb, c0), run_sb_openmp with T
-// threads (dsb or bsb, c1; T = 0, the default, is the default number of OpenMP threads),
-// run_sa_sequential (sa, c0) or run_sa_openmp with T threads (sa, c2). t_solve_ms is the duration
-// of the call of the solver, its internal preparation and final check included; the column threads
-// is the team of the solver (1 for c0).
+// Windows (phase 07, part 4): --affinity applies the process mask of the class rules of
+// apps/cpu_topology.hpp (p1: one logical processor per P core; p: the P cores; e: the E cores;
+// all) with SetProcessAffinityMask, right after the command line is read and before any call of
+// OpenMP, so that the threads of the solver run free inside the mask; e on a processor with one
+// efficiency class is an error of the command line. --print-topology writes the logical
+// processors (index, core, class), the classes, the masks of the four rules, the effective mask
+// and omp_get_num_procs, omp_get_max_threads and omp_get_proc_bind, after --affinity when given,
+// and exits with 0. On the other platforms both options are errors of the command line (exit
+// status 2). --version writes "sbmc_run git_hash=<hash> dirty=<0|1|-1> compiler=<compiler>
+// build_type=<type>" and exits with 0.
+//
+// Run: at startup, before any run, the environment of the process is read once: the logical
+// processors allowed to it (the Cpus_allowed_list line of /proc/self/status, column cpu_affinity;
+// on Windows the cpulist of the process mask, and the column cpu_classes, the efficiency classes
+// of its processors) and the variables OMP_PLACES and OMP_PROC_BIND (columns omp_places and
+// omp_proc_bind; empty when missing); host and os (on Windows the computer name and "Windows
+// <major>.<minor>.<build>"). Then the instance is read and, with --dt auto or --c0 lambda, the
+// spectrum of J is
+// estimated (t_setup_ms: both); the target is resolved (with --target
+// best-known the row of the table must have the n and m of the instance); --warmup runs with first
+// replica 0 are not recorded; then repetition k = 0 .. reps - 1 runs the solver with first_replica
+// = k*R and the same seed, so different global replicas and different initial conditions
+// (decision B7), appends one row to --out and, with --replica-out, R rows to the replica file, and
+// prints one line "rep <k>: ..." on stdout. The solver is run_sb_sequential (dsb or bsb, c0),
+// run_sb_openmp with T threads (dsb or bsb, c1; T = 0, the default, is the default number of
+// OpenMP threads), run_sa_sequential (sa, c0) or run_sa_openmp with T threads (sa, c2).
+// t_solve_ms is the duration of the call of the solver measured by sbmc_run; t_prep_ms, t_run_ms
+// and t_check_ms are the three phases measured inside it (sbmc/solve_times.hpp: preparation, run,
+// final check), whose sum is at most t_solve_ms; t_step_us is t_run_ms per step or sweep. The
+// column threads is the team of the solver (1 for c0); dt_rule (auto or value) and c0_rule (sigma,
+// lambda or value) say how dt and c0 of SB were chosen; lambda_min and lambda_max are the extremes
+// of the estimate, empty without it; run_tag is the text of --tag.
 //
 // Exit status: 0 on success; 1 for errors of the library (preconditions such as --replicas 0),
-// of reading or writing, for an instance that is not in the best-known table or that has
-// another n or m than its row, and when the paths of --out and --replica-out cannot be compared;
-// 2 for errors of the command line, with a message on stderr.
+// of reading or writing (an --out with another header than that of results schema 2 included),
+// for an instance that is not in the best-known table or that has another n or m than its row,
+// when the paths of --out and --replica-out cannot be compared, when OMP_PLACES or OMP_PROC_BIND
+// contains a line break, and when dt or c0 cannot be derived from the spectrum (J = 0: before any
+// run, no row written), and on Windows when the processors or the mask cannot be read or set; 2
+// for errors of the command line, with a message on stderr.
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -37,7 +74,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
+#include <cwctype>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -45,6 +84,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -65,6 +105,12 @@
 #include <sbmc/sb.hpp>
 #include <sbmc/sb_openmp.hpp>
 #include <sbmc/sb_sequential.hpp>
+#include <sbmc/solve_times.hpp>
+#include <sbmc/spectrum.hpp>
+
+#ifdef _WIN32
+#include "win_platform.hpp"
+#endif
 
 namespace {
 
@@ -80,8 +126,9 @@ struct Options {
   std::string name;
   std::string algo;
   int replicas = 0;
-  int steps = 0;  // dsb and bsb
-  std::string dt;
+  int steps = 0;   // dsb and bsb
+  std::string dt;  // auto or a number
+  std::string dt_factor = "1";
   int sweeps = 0;     // sa
   std::string beta0;  // sa
   std::string beta1;  // sa
@@ -98,6 +145,9 @@ struct Options {
   std::string out;
   std::string replica_out;
   std::string notes;
+  std::string tag;
+  std::string affinity;         // Windows only
+  bool print_topology = false;  // Windows only
 };
 
 // Float over the whole text, as std::from_chars reads it (shortest round trip, no locale).
@@ -206,6 +256,7 @@ std::string utc_timestamp(std::chrono::system_clock::time_point when) {
   return text.data();
 }
 
+#ifndef _WIN32
 std::string trim(std::string text) {
   const std::size_t first = text.find_first_not_of(" \t\r\n");
   if (first == std::string::npos) {
@@ -252,8 +303,9 @@ std::string os_pretty_name() {
   }
   return "unknown";
 }
+#endif  // !_WIN32
 
-// One row of results schema 1, filled by column name.
+// One row of results schema 2, filled by column name.
 class ResultsRow {
  public:
   ResultsRow() : values_(sbmc::results_columns().size()) {}
@@ -267,7 +319,7 @@ class ResultsRow {
       }
     }
     throw sbmc::Error("sbmc_run: internal error: no column '" + std::string(column) +
-                      "' in results schema 1");
+                      "' in results schema 2");
   }
 
   [[nodiscard]] const std::vector<std::string>& values() const noexcept { return values_; }
@@ -315,13 +367,69 @@ void check_output_file(const std::filesystem::path& file, std::string_view optio
   }
 }
 
+#ifndef _WIN32
+// The text after "Cpus_allowed_list:" in its line of /proc/self/status, without leading and
+// trailing spaces and tabs: the logical processors allowed to the process, in the cpulist format
+// (for example 0-15 or 0-3,8). Empty when the file or the line is missing.
+std::string cpu_affinity() {
+  std::ifstream in("/proc/self/status");
+  std::string line;
+  constexpr std::string_view kKey = "Cpus_allowed_list:";
+  while (in && std::getline(in, line)) {
+    if (line.compare(0, kKey.size(), kKey) != 0) {
+      continue;
+    }
+    const std::string value = line.substr(kKey.size());
+    const std::size_t first = value.find_first_not_of(" \t");
+    if (first == std::string::npos) {
+      return {};
+    }
+    const std::size_t last = value.find_last_not_of(" \t");
+    return value.substr(first, last - first + 1);
+  }
+  return {};
+}
+
+// The columns of the process environment on Linux: cpu_affinity, cpu_classes (empty), host and
+// os.
+struct ProcessEnvironment {
+  std::string cpu_affinity;
+  std::string cpu_classes;
+  std::string host;
+  std::string os;
+};
+
+ProcessEnvironment process_environment() {
+  return {cpu_affinity(), std::string(), first_line_of("/proc/sys/kernel/hostname"),
+          os_pretty_name() + " / " + first_line_of("/proc/sys/kernel/osrelease")};
+}
+#else
+using sbmc_win::process_environment;
+#endif  // !_WIN32
+
+// The value of an environment variable, empty when it does not exist; a line break in the value
+// is an error (one CSV row per line).
+std::string environment_variable(const char* variable) {
+  const char* const value = std::getenv(variable);
+  if (value == nullptr) {
+    return {};
+  }
+  std::string text(value);
+  if (has_line_break(text)) {
+    throw sbmc::Error("the environment variable " + std::string(variable) +
+                      " contains a line break, which a CSV row cannot hold");
+  }
+  return text;
+}
+
 struct Target {
   std::optional<std::int64_t> value;
   std::string source = "none";  // best_known | user | none
 };
 
 // What a call of the solver gives to the rows: per replica best_cut, best_step (best_sweep of SA)
-// and final_cut; the team of the solver; the c0 actually used (SB only); t_solve_ms.
+// and final_cut; the team of the solver; the c0 actually used (SB only); t_solve_ms; the times
+// measured inside the solver.
 struct ReplicaOutcome {
   std::int64_t best_cut = 0;
   std::int64_t best_step = 0;
@@ -333,10 +441,16 @@ struct SolveOutcome {
   int threads = 1;
   std::string c0;
   double t_solve_ms = 0.0;
+  sbmc::SolveTimes times;
 };
 
 int run(const Options& options, bool dense) {
   const bool sa = options.algo == "sa";
+
+  // 0. The environment of the process, read once at startup, before any run.
+  const auto environment = process_environment();
+  const std::string omp_places = environment_variable("OMP_PLACES");
+  const std::string omp_proc_bind = environment_variable("OMP_PROC_BIND");
 
   // 1. Instance; t_setup_ms is the time of this phase.
   const auto setup_start = std::chrono::steady_clock::now();
@@ -352,6 +466,20 @@ int run(const Options& options, bool dense) {
   const std::int64_t n = sbmc::num_spins(instance);  // checks n of a DenseSpinGlass
   if (dense) {
     nnz = n * (n - 1) / 2;
+  }
+  // The spectrum of J, once, only when dt or c0 is derived from it; with J = 0 spectral_dt and
+  // spectral_c0 throw InvalidArgument here, before any run.
+  std::optional<sbmc::SpectrumEstimate> spectrum;
+  std::optional<float> spectral_dt;
+  std::optional<float> spectral_c0;
+  if (!sa && (options.dt == "auto" || options.c0 == "lambda")) {
+    spectrum = sbmc::estimate_spectrum(instance, sbmc::kSpectrumIterations);
+    if (options.dt == "auto") {
+      spectral_dt = sbmc::spectral_dt(*spectrum, *to_double(options.dt_factor));
+    }
+    if (options.c0 == "lambda") {
+      spectral_c0 = sbmc::spectral_c0(*spectrum);
+    }
   }
   const double t_setup_ms =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - setup_start)
@@ -386,7 +514,7 @@ int run(const Options& options, bool dense) {
 
   // The checks that need no run.
   if (!options.out.empty()) {
-    check_output_file(options.out, "--out", sbmc::results_columns(), "results schema 1");
+    check_output_file(options.out, "--out", sbmc::results_columns(), "results schema 2");
   }
   if (!options.replica_out.empty()) {
     check_output_file(options.replica_out, "--replica-out", sbmc::replica_columns(),
@@ -412,9 +540,13 @@ int run(const Options& options, bool dense) {
         options.algo == "dsb" ? sbmc::SbAlgorithm::discrete : sbmc::SbAlgorithm::ballistic;
     sb_params.replicas = options.replicas;
     sb_params.steps = options.steps;
-    sb_params.dt = *to_float(options.dt);
+    sb_params.dt = spectral_dt ? *spectral_dt : *to_float(options.dt);
     sb_params.a0 = *to_float(options.a0);
-    sb_params.c0 = options.c0 == "auto" ? 0.0f : *to_float(options.c0);
+    if (options.c0 == "auto") {
+      sb_params.c0 = 0.0f;  // automatic in the library: auto_c0, the rule sigma
+    } else {
+      sb_params.c0 = spectral_c0 ? *spectral_c0 : *to_float(options.c0);
+    }
     sb_params.eval_every = options.eval_every;
     sb_params.seed = options.seed;
   }
@@ -433,6 +565,7 @@ int run(const Options& options, bool dense) {
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count();
       outcome.threads = result.threads;  // 1 for C0
+      outcome.times = result.times;
       for (const sbmc::SaReplicaResult& r : result.per_replica) {
         outcome.replicas.push_back({r.best_cut, r.best_sweep, r.final_cut});
       }
@@ -446,6 +579,7 @@ int run(const Options& options, bool dense) {
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
               .count();
       outcome.threads = result.threads;  // 1 for C0
+      outcome.times = result.times;
       outcome.c0 = shortest(result.c0);
       for (const sbmc::SbReplicaResult& r : result.per_replica) {
         outcome.replicas.push_back({r.best_cut, r.best_step, r.final_cut});
@@ -460,8 +594,6 @@ int run(const Options& options, bool dense) {
   }
 
   // Columns that do not change between repetitions.
-  const std::string host = first_line_of("/proc/sys/kernel/hostname");
-  const std::string os = os_pretty_name() + " / " + first_line_of("/proc/sys/kernel/osrelease");
   const std::string dirty =
       sbmc::build_info::dirty < 0 ? std::string() : std::to_string(sbmc::build_info::dirty);
 
@@ -471,6 +603,8 @@ int run(const Options& options, bool dense) {
     const std::string timestamp = utc_timestamp(std::chrono::system_clock::now());
     const SolveOutcome outcome = solve(first_replica);
     const double t_solve_ms = outcome.t_solve_ms;
+    const std::string t_run_ms = fixed3(outcome.times.run_ms);
+    const std::string t_check_ms = fixed3(outcome.times.check_ms);
 
     std::int64_t best_cut = std::numeric_limits<std::int64_t>::min();
     std::int64_t sum = 0;
@@ -496,8 +630,8 @@ int run(const Options& options, bool dense) {
     row.set("timestamp", timestamp);
     row.set("git_hash", std::string(sbmc::build_info::git_hash));
     row.set("dirty", dirty);
-    row.set("host", host);
-    row.set("os", os);
+    row.set("host", environment.host);
+    row.set("os", environment.os);
     row.set("compiler", std::string(sbmc::build_info::compiler));
     row.set("algo", options.algo);
     row.set("variant", options.variant);
@@ -517,7 +651,7 @@ int run(const Options& options, bool dense) {
     row.set("rep", std::to_string(k));
     row.set("t_setup_ms", fixed3(t_setup_ms));
     row.set("t_solve_ms", fixed3(t_solve_ms));
-    row.set("t_step_us", fixed3(t_solve_ms * 1000.0 / static_cast<double>(steps)));
+    row.set("t_step_us", fixed3(outcome.times.run_ms * 1000.0 / static_cast<double>(steps)));
     row.set("best_cut", std::to_string(best_cut));
     row.set("mean_cut", mean_cut);
     if (target.value) {
@@ -534,6 +668,24 @@ int run(const Options& options, bool dense) {
     row.set("first_replica", std::to_string(first_replica));
     row.set("threads", std::to_string(outcome.threads));  // 1 for c0
     row.set("target_source", target.source);
+    row.set("t_prep_ms", fixed3(outcome.times.prep_ms));
+    row.set("t_run_ms", t_run_ms);
+    row.set("t_check_ms", t_check_ms);
+    if (!sa) {
+      row.set("dt_rule", options.dt == "auto" ? "auto" : "value");
+      row.set("c0_rule", options.c0 == "auto"     ? "sigma"
+                         : options.c0 == "lambda" ? "lambda"
+                                                  : "value");
+    }
+    if (spectrum) {
+      row.set("lambda_min", shortest(spectrum->lambda_min));
+      row.set("lambda_max", shortest(spectrum->lambda_max));
+    }
+    row.set("cpu_affinity", environment.cpu_affinity);
+    row.set("cpu_classes", environment.cpu_classes);
+    row.set("omp_places", omp_places);
+    row.set("omp_proc_bind", omp_proc_bind);
+    row.set("run_tag", options.tag);
     row.set("notes", options.notes);
     if (!options.out.empty()) {
       sbmc::append_results_row(options.out, row.values());
@@ -558,9 +710,48 @@ int run(const Options& options, bool dense) {
     if (target.value) {
       std::cout << " n_success " << successes << "/" << options.replicas;
     }
-    std::cout << " t_solve_ms " << fixed3(t_solve_ms) << '\n' << std::flush;
+    std::cout << " t_solve_ms " << fixed3(t_solve_ms) << " t_run_ms " << t_run_ms << " t_check_ms "
+              << t_check_ms << '\n'
+              << std::flush;
   }
   return kExitOk;
+}
+
+// Whether --out and --replica-out name the same file ("x.csv", "./x.csv", an absolute path):
+// the paths made absolute, then weakly_canonical (which leaves a relative path whose first element
+// does not exist relative, hence absolute first). When either step fails (F07-R4e: with the
+// libstdc++ of MinGW a UNC path such as \\wsl.localhost\<distro>\... does not resolve), the
+// lexically normal forms of the absolute paths, or of the given ones when absolute fails too. On
+// Windows the comparison ignores case. A failure to resolve is never an error by itself.
+bool same_output_file(const std::string& first, const std::string& second) {
+  namespace fs = std::filesystem;
+  const auto canonical = [](const std::string& file, std::error_code& error) {
+    fs::path path = fs::absolute(file, error);
+    return error ? path : fs::weakly_canonical(path, error);
+  };
+  const auto normal = [](const std::string& file) {
+    std::error_code error;
+    const fs::path path = fs::absolute(file, error);
+    return (error ? fs::path(file) : path).lexically_normal();
+  };
+  const auto key = [](const fs::path& path) {
+#ifdef _WIN32
+    std::wstring text = path.wstring();
+    std::transform(text.begin(), text.end(), text.begin(),
+                   [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+    return text;
+#else
+    return path.native();
+#endif
+  };
+  std::error_code first_error;
+  std::error_code second_error;
+  const fs::path a = canonical(first, first_error);
+  const fs::path b = canonical(second, second_error);
+  if (!first_error && !second_error) {
+    return key(a) == key(b);
+  }
+  return key(normal(first)) == key(normal(second));
 }
 
 int usage_error(std::string_view message) {
@@ -568,15 +759,64 @@ int usage_error(std::string_view message) {
   return kExitUsage;
 }
 
+std::string version_text() {
+  return "sbmc_run git_hash=" + std::string(sbmc::build_info::git_hash) +
+         " dirty=" + std::to_string(sbmc::build_info::dirty) +
+         " compiler=" + std::string(sbmc::build_info::compiler) +
+         " build_type=" + std::string(sbmc::build_info::build_type);
+}
+
+// --affinity: the process mask, before any call of OpenMP (Windows only).
+int apply_affinity(const std::string& affinity) {
+#ifdef _WIN32
+  try {
+    sbmc_win::apply_affinity(affinity);
+    return kExitOk;
+  } catch (const std::invalid_argument& e) {
+    return usage_error(e.what());
+  } catch (const std::exception& e) {
+    std::cerr << "sbmc_run: --affinity " << affinity << ": " << e.what() << '\n';
+    return kExitError;
+  }
+#else
+  static_cast<void>(affinity);
+  return usage_error("--affinity is available only on Windows");
+#endif
+}
+
+// --print-topology, after --affinity when given (Windows only).
+int print_topology(const std::string& affinity) {
+#ifdef _WIN32
+  if (!affinity.empty()) {
+    if (const int status = apply_affinity(affinity); status != kExitOk) {
+      return status;
+    }
+  }
+  try {
+    sbmc_win::print_topology(std::cout);
+    return kExitOk;
+  } catch (const std::exception& e) {
+    std::cerr << "sbmc_run: --print-topology: " << e.what() << '\n';
+    return kExitError;
+  }
+#else
+  static_cast<void>(affinity);
+  return usage_error("--print-topology is available only on Windows");
+#endif
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+  sbmc_win::init_stdout();
+#endif
   Options options;
   CLI::App app{
       "Runs simulated bifurcation (dsb or bsb: the sequential reference C0, or C1 with OpenMP over "
       "blocks of replicas) or simulated annealing (sa: the sequential reference C0, or C2 with "
       "OpenMP over blocks of replicas) on one instance, and writes one CSV row per repetition "
-      "(results schema 1) and, with --replica-out, one row per replica (replica file, schema 1).",
+      "(results schema 2) and, with --replica-out, one row per replica (replica file, schema 1).",
       "sbmc_run"};
   app.failure_message([](const CLI::App* parser, const CLI::Error& e) {
     const std::string message = CLI::FailureMessage::simple(parser, e);
@@ -589,10 +829,19 @@ int main(int argc, char** argv) {
       "--seed: different global replicas, hence different initial conditions. --threads only with "
       "--variant c1 or c2; the column threads is the team of the solver (1 for c0). --replica-out "
       "(with --out, on another file) appends one row per replica of every repetition. --target "
-      "best-known needs a row of the table with the n and m of the instance. Exit status: 0 "
-      "success; 1 error of the library, of reading or writing, instance not in the best-known "
-      "table or with another n or m, paths of --out and --replica-out that cannot be compared; 2 "
-      "error of the command line.");
+      "best-known needs a row of the table with the n and m of the instance. Times: t_solve_ms is "
+      "the duration of the call of the solver; t_prep_ms, t_run_ms and t_check_ms are its "
+      "preparation, run and final check, measured inside it; t_step_us is t_run_ms per step or "
+      "sweep. --tag fills the column run_tag; cpu_affinity, omp_places and omp_proc_bind record "
+      "the allowed processors and OMP_PLACES and OMP_PROC_BIND at startup. --dt auto (dt = F * "
+      "1.25 sqrt(2 / (1 - lambda_min / lambda_max)), F = --dt-factor) and --c0 lambda (c0 = 1 / "
+      "lambda_max) estimate the spectrum of J once, with 100 Lanczos steps, after reading the "
+      "instance (inside t_setup_ms), and fill lambda_min and lambda_max. Exit status: 0 success; "
+      "1 error of the library, of reading or writing (an --out with another header than that of "
+      "results schema 2 included), instance not in the best-known table or with another n or m, "
+      "paths of --out and --replica-out that cannot be compared, OMP_PLACES or OMP_PROC_BIND with "
+      "a line break, dt or c0 not defined by the spectrum (J = 0); 2 error of the command "
+      "line.");
 
   const CLI::Validator decimal = decimal_integer();
   const CLI::Validator number = float_value();
@@ -637,10 +886,27 @@ int main(int argc, char** argv) {
       app.add_option("--steps", options.steps, "dsb and bsb: steps M")->transform(decimal);
   CLI::Option* dt =
       app.add_option("--dt", options.dt,
-                     "dsb and bsb: time step (no default: 1.25 suits random +-1 matrices and "
-                     "fails on graphs with positive weights; automatic choice in phase 07)")
-          ->type_name("X")
-          ->check(number);
+                     "dsb and bsb: time step, auto (--dt-factor * 1.25 sqrt(2 / (1 - lambda_min / "
+                     "lambda_max)), from the estimate of the spectrum of J) or a finite number > 0 "
+                     "(no default: 1.25 suits random +-1 matrices and fails on graphs with "
+                     "positive weights)")
+          ->type_name("auto|X")
+          ->check([](const std::string& value) -> std::string {
+            if (value == "auto") {
+              return {};
+            }
+            const std::optional<float> number = to_float(value);
+            return number && std::isfinite(*number) && *number > 0.0f
+                       ? std::string{}
+                       : "expected auto or a finite number > 0, got '" + value + "'";
+          });
+  CLI::Option* dt_factor =
+      app.add_option(
+             "--dt-factor", options.dt_factor,
+             "dsb and bsb with --dt auto: factor F of the automatic dt, a finite number > 0")
+          ->capture_default_str()
+          ->type_name("F")
+          ->check(positive);
   CLI::Option* sweeps = app.add_option("--sweeps", options.sweeps, "sa: sweeps S")
                             ->type_name("S")
                             ->transform(decimal)
@@ -673,16 +939,17 @@ int main(int argc, char** argv) {
                         ->check(number);
   CLI::Option* c0 =
       app.add_option("--c0", options.c0,
-                     "dsb and bsb: c0, auto (1/(2 sigma sqrt(n))) or a finite number > 0")
+                     "dsb and bsb: c0, auto (1/(2 sigma sqrt(n))), lambda (1/lambda_max, from the "
+                     "estimate of the spectrum of J) or a finite number > 0")
           ->capture_default_str()
-          ->type_name("auto|X")
+          ->type_name("auto|lambda|X")
           ->check([](const std::string& value) -> std::string {
-            if (value == "auto") {
+            if (value == "auto" || value == "lambda") {
               return {};
             }
             const std::optional<float> c0 = to_float(value);
             if (!c0 || !std::isfinite(*c0) || !(*c0 > 0.0f)) {
-              return "expected auto or a finite number > 0, got '" + value +
+              return "expected auto, lambda or a finite number > 0, got '" + value +
                      "' (0 is not accepted: in the library c0 = 0 means automatic)";
             }
             return {};
@@ -733,11 +1000,45 @@ int main(int argc, char** argv) {
   app.add_option("--notes", options.notes, "Free text of the notes column")
       ->type_name("TEXT")
       ->check(no_line_break);
+  app.add_option("--tag", options.tag,
+                 "Free text of the run_tag column: the identifier of the campaign or of the "
+                 "configuration")
+      ->type_name("TEXT")
+      ->check(no_line_break);
+  // Phase 07, part 4. --print-topology stops the parsing (CLI::Success) in its callback, run
+  // with the priority First of CLI11, before the required options are checked; --affinity has
+  // the same priority and is defined first, so its value is stored by then.
+  CLI::Option* affinity =
+      app.add_option("--affinity", options.affinity,
+                     "Windows only: process mask set before any OpenMP call: p1 (one logical "
+                     "processor per P core), p (P cores), e (E cores) or all")
+          ->type_name("p1|p|e|all")
+          ->check(CLI::IsMember({"p1", "p", "e", "all"}))
+          ->callback_priority(CLI::CallbackPriority::First);
+  app.add_flag_callback(
+         "--print-topology",
+         [&options]() {
+           options.print_topology = true;
+           throw CLI::Success();
+         },
+         "Windows only: write the logical processors, their classes and masks, the effective mask "
+         "and the OpenMP view, after --affinity when given, and exit")
+      ->callback_priority(CLI::CallbackPriority::First);
+  app.set_version_flag("--version", version_text(), "Write the build information and exit");
 
   try {
     app.parse(argc, argv);
   } catch (const CLI::ParseError& e) {
+    if (options.print_topology) {
+      return print_topology(options.affinity);
+    }
     return app.exit(e) == kExitOk ? kExitOk : kExitUsage;
+  }
+  // The process mask first, before any other work and any call of OpenMP.
+  if (affinity->count() > 0) {
+    if (const int status = apply_affinity(options.affinity); status != kExitOk) {
+      return status;
+    }
   }
   // The rules of the algorithms, after the parsing and before the other checks of the command line
   // (until phase 05 --steps and --dt were required options of CLI11, checked at this point of the
@@ -750,8 +1051,8 @@ int main(int argc, char** argv) {
       }
     }
     for (const auto& [option, name] :
-         {std::pair{steps, "--steps"}, std::pair{dt, "--dt"}, std::pair{c0, "--c0"},
-          std::pair{a0, "--a0"}, std::pair{eval_every, "--eval-every"}}) {
+         {std::pair{steps, "--steps"}, std::pair{dt, "--dt"}, std::pair{dt_factor, "--dt-factor"},
+          std::pair{c0, "--c0"}, std::pair{a0, "--a0"}, std::pair{eval_every, "--eval-every"}}) {
       if (option->count() > 0) {
         return usage_error(std::string(name) + " is not used with --algo sa");
       }
@@ -777,6 +1078,9 @@ int main(int argc, char** argv) {
     if (options.variant == "c2") {
       return usage_error("--variant c2 requires --algo sa");
     }
+    if (dt_factor->count() > 0 && options.dt != "auto") {
+      return usage_error("--dt-factor requires --dt auto");
+    }
   }
   const bool use_dense = dense->count() > 0;
   if (instance->count() == 0 && !use_dense) {
@@ -788,25 +1092,8 @@ int main(int argc, char** argv) {
   if (replica_out->count() > 0 && options.out.empty()) {
     return usage_error("--replica-out requires --out");
   }
-  if (replica_out->count() > 0) {
-    // The same file written in two ways ("x.csv", "./x.csv", an absolute path) is the same file.
-    // The paths are made absolute first: weakly_canonical leaves a relative path whose first
-    // element does not exist (a new file in the current folder) relative.
-    std::error_code error;
-    const auto canonical = [&error](const std::string& file) {
-      std::filesystem::path path = std::filesystem::absolute(file, error);
-      return error ? path : std::filesystem::weakly_canonical(path, error);
-    };
-    const std::filesystem::path out = canonical(options.out);
-    const std::filesystem::path replicas = error ? out : canonical(options.replica_out);
-    if (error) {
-      std::cerr << "sbmc_run: --out " << options.out << " and --replica-out " << options.replica_out
-                << ": cannot compare the two paths: " << error.message() << '\n';
-      return kExitError;
-    }
-    if (out == replicas) {
-      return usage_error("--replica-out must differ from --out");
-    }
+  if (replica_out->count() > 0 && same_output_file(options.out, options.replica_out)) {
+    return usage_error("--replica-out must differ from --out");
   }
 
   try {

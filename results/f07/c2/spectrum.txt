@@ -1,0 +1,9 @@
+SPECTRUM instance=G1 n=800 m=19176 lambda_min=-48.78749417418756 lambda_max=13.27415171569188 iterations=100 restarts=0 dt_auto=0.8175546 c0_lambda=0.07533438 c0_sigma=0.07443642 t_ms=25.035
+SPECTRUM instance=G2 n=800 m=19176 lambda_min=-48.84861841704233 lambda_max=13.395787316459348 iterations=100 restarts=0 dt_auto=0.82008517 c0_lambda=0.07465033 c0_sigma=0.07443642 t_ms=21.132
+SPECTRUM instance=G11 n=800 m=1600 lambda_min=-3.4464609249401006 lambda_max=3.446460924940099 iterations=100 restarts=0 dt_auto=1.25 c0_lambda=0.29015273 c0_sigma=0.24984398 t_ms=78.097
+SPECTRUM instance=G12 n=800 m=1600 lambda_min=-3.5561128776424438 lambda_max=3.556112877642445 iterations=100 restarts=0 dt_auto=1.25 c0_lambda=0.28120592 c0_sigma=0.2498437 t_ms=93.671
+SPECTRUM instance=G14 n=800 m=4694 lambda_min=-22.427689180607885 lambda_max=10.202365310683174 iterations=100 restarts=0 dt_auto=0.98847693 c0_lambda=0.098016486 c0_sigma=0.14695007 t_ms=97.596
+SPECTRUM instance=G15 n=800 m=4661 lambda_min=-23.151370066393568 lambda_max=10.854062893296877 iterations=100 restarts=0 dt_auto=0.99872756 c0_lambda=0.0921314 c0_sigma=0.14746162 t_ms=109.258
+SPECTRUM instance=G22 n=2000 m=19990 lambda_min=-21.07607902435198 lambda_max=9.115217772252205 iterations=100 restarts=0 dt_auto=0.9713319 c0_lambda=0.10970665 c0_sigma=0.11236665 t_ms=19.406
+SPECTRUM instance=K2000 n=2000 m=1999000 lambda_min=-88.90579083431975 lambda_max=88.81346428999917 iterations=100 restarts=0 dt_auto=1.2496753 c0_lambda=0.011259554 c0_sigma=0.011180341 t_ms=181.930
+SPECTRUM instance=dense_n2000_s1 n=2000 m=1999000 lambda_min=-88.79873732506002 lambda_max=89.4582015007083 iterations=100 restarts=0 dt_auto=1.25231 c0_lambda=0.011178405 c0_sigma=0.011180341 t_ms=87.911

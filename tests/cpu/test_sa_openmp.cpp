@@ -1,6 +1,8 @@
 // C2, simulated annealing with OpenMP over blocks of replicas (sbmc/sa_openmp.hpp): the constants
 // SA-1 to SA-9, C2 against C0 field by field, independence from the number of threads and from
-// the split of the replicas, high global indices, other properties, preconditions.
+// the split of the replicas, high global indices, other properties, preconditions; since F07-R2
+// also the dense path (lane-major fields, update of the accepting lanes only) against C0, with
+// the table of the paths of C2 above that case.
 //
 // SA-1 to SA-7 are the constants of test_sa_sequential.cpp; SA-8 and SA-9 come from F06-C2,
 // section 5.7 (an emulator of cldArchitect independent of the code of the project) and are
@@ -495,6 +497,62 @@ TEST_CASE("C2: int16 accumulator with direct thresholds, equal to C0") {
                                                  sbmc::run_sa_openmp(mid_torus, p, 2));
     INFO("fields that differ: " << shown(differ));
     CHECK(differ.empty());
+  }
+}
+
+// Added in F07-R2: the dense path, where the local fields of a block are in lane-major order
+// (lane l, spin c at l * ld + c) and only the lanes that accept a proposal update their row of
+// fields. The paths of C2 (format of J, L, accumulator and thresholds, layout of the fields) and
+// the cases of this file that reach them:
+//   Graph, not dense: compressed rows, fields in spin-major order (n x RB)
+//     L <= 4096, int16 with the table: G1, torus_4x6_pm1, dense_graph_40_heavy, sparse_24_unit
+//     L <= 32767, int16 with direct calls: mid_torus (L = 8000)
+//     L < 2^31, int32 with direct calls: heavy_torus (L = 40000), huge_torus (L = 2000000)
+//     L >= 2^31, int64 with direct calls: weighted_isolated_13
+//   Graph, dense (n <= 32768, |w| <= 127, 8m >= n(n - 1)): INT8 rows, fields in lane-major order
+//     L <= 4096, int16 with the table: dense_graph_40 (L <= 117)
+//     L > 32767, int32 with direct calls: the complete Graph n = 300 below (L = 37973)
+//   DenseSpinGlass (L = n - 1): INT8 rows, fields in lane-major order
+//     L <= 4096, int16 with the table: DenseSpinGlass{20, 20}, {200, 7}, {300, 9}
+//     L <= 32767, int16 with direct calls: DenseSpinGlass{4200, 5} below (L = 4199)
+TEST_CASE("C2: dense J, equal to C0") {
+  const OmpSettingsGuard guard;
+  omp_set_dynamic(0);
+  struct Case {
+    std::string name;
+    Instance instance;
+    SaParams p;
+    int threads;
+  };
+  std::vector<Case> cases;
+  for (const auto& [beta0, beta1] : {std::pair{0.001, 0.01}, std::pair{1.0, 3.0}}) {
+    for (const int replicas : {1, kLanes - 1, kLanes + 1, 2 * kLanes + 1}) {
+      for (const int threads : {1, 3}) {
+        cases.push_back({"DenseSpinGlass{300, 9}", DenseSpinGlass{300, 9},
+                         params(replicas, 30, beta0, beta1, 13, 0), threads});
+      }
+    }
+  }
+  cases.push_back({"DenseSpinGlass{4200, 5}", DenseSpinGlass{4200, 5},
+                   params(kLanes + 1, 2, 0.01, 3.0, 14, 0), 2});
+  Graph complete{300, {}};
+  for (std::int32_t u = 0; u < 300; ++u) {
+    for (std::int32_t v = u + 1; v < 300; ++v) {
+      complete.edges.push_back({u, v, (u + v) % 2 == 0 ? 127 : -127});
+    }
+  }
+  cases.push_back({"complete Graph n = 300, w = +127 or -127", std::move(complete),
+                   params(kLanes + 1, 3, 0.0001, 0.01, 15, 0), 2});
+  REQUIRE(cases.size() == 18);
+  for (const Case& c : cases) {
+    INFO(c.name << ", R = " << c.p.replicas << ", S = " << c.p.sweeps << ", beta " << c.p.beta0
+                << " -> " << c.p.beta1 << ", threads = " << c.threads);
+    const SaResult c0 = sbmc::run_sa_sequential(c.instance, c.p);
+    const SaResult c2 = sbmc::run_sa_openmp(c.instance, c.p, c.threads);
+    const std::string differ = field_differences(c0, c2);
+    INFO("fields that differ: " << shown(differ));
+    CHECK(differ.empty());
+    CHECK(c2.threads == expected_team(c.threads, c.p.replicas));
   }
 }
 

@@ -1,0 +1,139 @@
+# sbmc environment report
+
+[report]
+date: 2026-11-21T22:50:29+01:00
+host: LAPTOP-T8S71KGC
+preset: cuda
+
+[git]
+commit: f85dd5ee14d776b5204d19b7f4e0f2790e3c5cfe
+branch: fase-07
+tag: none
+dirty: no
+
+[system]
+pretty_name: Ubuntu 24.04.5 LTS
+kernel: 6.6.87.2-microsoft-standard-WSL2
+wsl_distro: Ubuntu-24.04
+wsl_version:
+  Versione WSL: 2.6.3.0
+  Versione kernel: 6.6.87.2-1
+  Versione WSLg: 1.0.71
+  Versione MSRDC: 1.2.6353
+  Versione Direct3D: 1.611.1-81528511
+  Versione DXCore: 10.0.26100.1-240331-1435.ge-release
+  Versione di Windows: 10.0.26300.9974
+
+[platform]
+kaggle_docker_image: n/a
+kaggle_kernel_run_type: n/a
+
+[cpu]
+model: 13th Gen Intel(R) Core(TM) i7-13620H
+nproc: 16
+lscpu_topology:
+  CPU(s):                               16
+  On-line CPU(s) list:                  0-15
+  Thread(s) per core:                   2
+  Core(s) per socket:                   8
+  Socket(s):                            1
+  NUMA node(s):                         1
+flag_avx2: yes
+flag_avx_vnni: yes
+flag_avx512f: no
+sys_devices_cpu_core: absent
+sys_devices_cpu_atom: absent
+
+[memory]
+mem_total: 7936188 kB
+swap_total: 2097152 kB
+
+[tools]
+gcc: gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+g++: g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+cmake: cmake version 3.28.3
+ninja: 1.11.1
+python3: Python 3.12.3
+git: git version 2.43.0
+
+[cuda_toolkit]
+presets_file: /home/simone/projects/sb-maxcut/CMakeUserPresets.json
+toolkit_root: /home/simone/.local/share/sbmc/cuda-13.4.3/venv/lib/python3.12/site-packages/nvidia/cu13
+nvcc: Cuda compilation tools, release 13.4, V13.4.92
+tileiras: Cuda compilation tools, release 13.4, V13.4.92
+compute-sanitizer: Version 2026.3.0.0 (build 38855100) (public-release)
+cuobjdump: Cuda compilation tools, release 13.4, V13.4.92
+nvdisasm: Cuda compilation tools, release 13.4, V13.4.92
+python_packages:
+  cuda-toolkit==13.4.3
+  nvidia-cublas==13.8.0.4
+  nvidia-cuda-cccl==13.3.4.3.1
+  nvidia-cuda-crt==13.4.92
+  nvidia-cuda-cuobjdump==13.4.92
+  nvidia-cuda-nvcc==13.4.92
+  nvidia-cuda-nvdisasm==13.4.92
+  nvidia-cuda-nvrtc==13.4.92
+  nvidia-cuda-runtime==13.4.92
+  nvidia-cuda-sanitizer-api==13.4.92
+  nvidia-cuda-tileiras==13.4.92
+  nvidia-curand==10.4.4.72
+  nvidia-cusparse==12.8.6.72
+  nvidia-nvjitlink==13.4.92
+  nvidia-nvvm==13.4.92
+
+[gpu]
+nvidia_smi_query:
+  name, driver_version, memory.total [MiB], pcie.link.gen.current, pcie.link.gen.max, pcie.link.width.current, pcie.link.width.max, clocks.max.sm [MHz], clocks.max.memory [MHz], power.limit [W]
+  NVIDIA GeForce RTX 4050 Laptop GPU, 621.14, 6141 MiB, 4, 4, 8, 8, 3105 MHz, 8001 MHz, [N/A]
+nvidia_smi_topo:
+  n/a (exit status 3)
+gpu_count: 1
+nvidia_smi_topo_p2p_r:
+  n/a (exit status 3)
+nvidia_smi_topo_p2p_w:
+  n/a (exit status 3)
+
+[communication]
+mpirun: n/a
+mpirun_version: n/a
+nccl_header: n/a
+nccl_library: n/a
+
+[smoke_simt]
+binary: /home/simone/projects/sb-maxcut/build/cuda/tests/smoke/smoke_simt
+exit_status: 0
+output:
+  cuda_runtime_version: 13040 (13.4)
+  cuda_driver_version: 13050 (13.5)
+  cublas_version: 13.8.0
+  cublaslt_version: 130800
+  cuda_runtime_compiled: 13040 (13.4)
+  cuda_runtime_loaded: 13040 (13.4)
+  CUDA_RUNTIME_MATCH: PASS
+  cublas_compiled: 13.8.0
+  cublas_loaded: 13.8.0
+  CUBLAS_MATCH: PASS
+  device_count: 1
+  device0_name: NVIDIA GeForce RTX 4050 Laptop GPU
+  device0_compute_capability: 8.9
+  device0_sm_count: 20
+  device0_l2_cache_bytes: 25165824
+  device0_global_memory_bytes: 6438780928
+  device0_memory_bus_width_bits: 96
+  device0_sm_clock_khz: 2055000
+  device0_memory_clock_khz: 8001000
+  device0_pci_bus_id: 0000:01:00.0
+  simt_vector_add_n: 1048576
+  cublas_sgemm_shape: 256x256x256, values in [-8, 8]
+  device0_simt_vector_add_mismatches: 0
+  device0_simt_vector_add: PASS
+  device0_cublas_sgemm_mismatches: 0
+  device0_cublas_sgemm: PASS
+  device0_cublaslt_handle: PASS
+  device0_verdict: PASS
+  simt_vector_add_mismatches: 0
+  SIMT_VECTOR_ADD: PASS
+  cublas_sgemm_mismatches: 0
+  CUBLAS_SGEMM: PASS
+  CUBLASLT_HANDLE: PASS
+  SIMT_VERDICT: PASS

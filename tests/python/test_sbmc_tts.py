@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""python/sbmc_tts.py: the time to solution on a fixture (F06-C1, section 5.10).
+"""python/sbmc_tts.py: the time to solution on a fixture (F06-C1, section 5.10; F07-C1, 5.13).
 
 Run by CTest as:
   <python> -I -B test_sbmc_tts.py --pyroot <root>/python --workdir <build>/tests/tts
@@ -29,7 +29,18 @@ tolerance of 1e-9, integers exactly. Checks:
    symmetric, where the median and the mean coincide);
 7. (added in F06-R1) the bootstrap intervals of fx at the three fractions are equal to those of
    the procedure of section 5.9 of F06-C1, written again in this file (the other checks of the
-   bootstrap only bound the interval).
+   bootstrap only bound the interval);
+8. (added in F07-R1) the fixture converted to results schema 2 (the 12 columns of phase 07 before
+   notes: t_run_ms = 0.9 t_solve_ms, t_prep_ms = 0.04 t_solve_ms, t_check_ms = 0.05 t_solve_ms,
+   dt_rule "value" and c0_rule "sigma" for SB, empty for SA, cpu_affinity "0-15", run_tag "t1",
+   the other new columns empty), with the same replica file, --bootstrap 1000 and --seed 1: exit
+   status 0; P_s, its interval, the cuts and the gaps equal to those of schema 1; the times of the
+   batch, TTS99 and its intervals 0.9 times those of schema 1 (relative tolerance 1e-9);
+   t_batch_column "t_run_ms"; the header of the summary: the 31 columns of the group,
+   t_batch_column, the 22 columns of the values;
+9. (added in F07-R1) two copies of the group fx with another run_tag (and other timestamps, so
+   that the join with the replicas stays unique): two groups; the same with another os;
+10. (added in F07-R1) the header of schema 2 without a column, or with one more: exit status 1.
 
 Exit status: 0 passed, 1 failed, 77 when NumPy cannot be imported (run scripts/setup_python.sh,
 then configure again). The last line is "TTS_VERDICT: PASS", "TTS_VERDICT: FAIL" or
@@ -56,15 +67,43 @@ RESULTS_COLUMNS = [
     "sm_clock_avg_mhz", "temp_max_c", "power_avg_w", "a0", "eval_every", "first_replica",
     "threads", "target_source", "notes",
 ]
+# Results schema 2 (F07-C1, section 5.6): the first 43 columns of schema 1, 12 new ones, notes.
+NEW_COLUMNS = ["t_prep_ms", "t_run_ms", "t_check_ms", "dt_rule", "c0_rule", "lambda_min",
+               "lambda_max", "cpu_affinity", "cpu_classes", "omp_places", "omp_proc_bind",
+               "run_tag"]
+RESULTS_COLUMNS_2 = RESULTS_COLUMNS[:-1] + NEW_COLUMNS + ["notes"]
 REPLICA_COLUMNS = [
     "schema_version", "timestamp", "instance", "algo", "variant", "replicas", "steps", "seed",
     "rep", "replica", "best_cut", "best_step", "final_cut",
 ]
+# The summary of schema 2 (F07-C1, section 5.8): the 31 columns of the group, t_batch_column, the
+# 22 columns of the values.
+GROUP_KEY_2 = [
+    "git_hash", "dirty", "host", "compiler", "algo", "variant", "instance", "n", "nnz", "replicas",
+    "steps", "dt", "c0", "beta0", "beta1", "a0", "eval_every", "threads", "target",
+    "target_source", "notes", "os", "dt_rule", "c0_rule", "lambda_min", "lambda_max",
+    "cpu_affinity", "cpu_classes", "omp_places", "omp_proc_bind", "run_tag",
+]
+VALUE_COLUMNS = [
+    "target_permille", "target_value", "rows", "replicas_total", "successes", "p_s", "p_s_lo",
+    "p_s_hi", "t_batch_ms", "t_batch_q1_ms", "t_batch_q3_ms", "tts99_ms", "tts99_lo_ms",
+    "tts99_hi_ms", "bootstrap", "bootstrap_seed", "tts99_boot_lo_ms", "tts99_boot_hi_ms",
+    "best_cut", "mean_cut", "gap_best_pct", "gap_mean_pct",
+]
+SUMMARY_COLUMNS_2 = GROUP_KEY_2 + ["t_batch_column"] + VALUE_COLUMNS
+# Columns of the summary equal in schemas 1 and 2, and columns 0.9 times those of schema 1.
+SAME_VALUES = ["target_value", "rows", "replicas_total", "successes", "p_s", "p_s_lo", "p_s_hi",
+               "bootstrap", "bootstrap_seed", "best_cut", "mean_cut", "gap_best_pct",
+               "gap_mean_pct"]
+SCALED_VALUES = ["t_batch_ms", "t_batch_q1_ms", "t_batch_q3_ms", "tts99_ms", "tts99_lo_ms",
+                 "tts99_hi_ms", "tts99_boot_lo_ms", "tts99_boot_hi_ms"]
 BOOTSTRAP_COLUMNS = ["bootstrap", "bootstrap_seed", "tts99_boot_lo_ms", "tts99_boot_hi_ms"]
 OUTPUTS = ["results.csv", "replicas.csv", "summary.csv", "summary_again.csv",
            "summary_no_boot.csv", "summary_no_replicas.csv", "summary_default_no_replicas.csv",
            "bad.csv", "bad_replicas.csv",
-           "skewed.csv", "summary_skewed.csv"]
+           "skewed.csv", "summary_skewed.csv", "results2.csv", "summary2.csv",
+           "results2_tags.csv", "replicas2_tags.csv", "summary2_tags.csv", "results2_os.csv",
+           "replicas2_os.csv", "summary2_os.csv", "bad2.csv"]
 
 
 class Report:
@@ -226,6 +265,34 @@ def bootstrap_by_hand(np, successes: list[int], times: list[float], replicas: in
             values.append(t_b * max(1.0, math.log(0.01) / (replicas * math.log1p(-p))))
     values.sort()
     return values[math.ceil(0.025 * resamples) - 1], values[math.ceil(0.975 * resamples) - 1]
+
+
+def to_schema2(row: dict[str, str]) -> dict[str, str]:
+    """A row of results schema 1 of the fixture as a row of schema 2 (check 8)."""
+    t_solve = float(row["t_solve_ms"])
+    sb = row["algo"] != "sa"
+    new = dict(row, schema_version="2")
+    new.update({"t_prep_ms": f"{0.04 * t_solve:.3f}", "t_run_ms": f"{0.9 * t_solve:.3f}",
+                "t_check_ms": f"{0.05 * t_solve:.3f}", "dt_rule": "value" if sb else "",
+                "c0_rule": "sigma" if sb else "", "lambda_min": "", "lambda_max": "",
+                "cpu_affinity": "0-15", "cpu_classes": "", "omp_places": "",
+                "omp_proc_bind": "", "run_tag": "t1"})
+    return new
+
+
+def same_number(a: str | None, b: str | None, scale: float) -> bool:
+    """a == scale * b for the numbers of a summary: both empty, both "inf", or close (1e-9)."""
+    if a is None or b is None:
+        return False
+    if a == "" or b == "":
+        return a == b
+    try:
+        x, y = float(a), float(b)
+    except ValueError:
+        return False
+    if math.isinf(x) or math.isinf(y):
+        return x == y
+    return math.isclose(x, scale * y, rel_tol=1e-9, abs_tol=0.0 if y else 1e-300)
 
 
 def read_summary(path: Path) -> list[dict[str, str]]:
@@ -456,6 +523,77 @@ def main() -> int:
     report.check("skewed times: t_batch is the median",
                  result.returncode == 0 and bool(row) and not wrong,
                  f"exit {result.returncode}: {detail}")
+
+    # 8. The fixture in results schema 2, with the same replica file.
+    results2 = [to_schema2(r) for r in results]
+    results2_csv, summary2_csv = workdir / "results2.csv", workdir / "summary2.csv"
+    write_csv(results2_csv, RESULTS_COLUMNS_2, results2)
+    result = run(["--results", str(results2_csv), "--replicas", str(replicas_csv), "--bootstrap",
+                  "1000", "--seed", "1", "--out", str(summary2_csv)])
+    rows1 = {(r.get("instance"), r.get("target_permille")): r for r in read_summary(summary_csv)}
+    rows2 = read_summary(summary2_csv)
+    header2 = summary2_csv.read_text(encoding="utf-8").splitlines()[0].split(",") \
+        if summary2_csv.exists() else []
+    report.check("schema 2: exit 0, nine lines, the header of the summary",
+                 result.returncode == 0 and len(rows2) == 9 and header2 == SUMMARY_COLUMNS_2,
+                 f"exit {result.returncode}, {len(rows2)} lines, {len(header2)} columns"
+                 + (f": {result.stderr.strip()}" if result.stderr.strip() else ""))
+    wrong = []
+    for row in rows2:
+        key = (row.get("instance"), row.get("target_permille"))
+        old = rows1.get(key)
+        if old is None:
+            wrong.append(f"{key}: no line in the summary of schema 1")
+            continue
+        wrong += [f"{key}: {c}" for c in SAME_VALUES if not same_number(row.get(c), old.get(c), 1)]
+        wrong += [f"{key}: {c}" for c in SCALED_VALUES
+                  if not same_number(row.get(c), old.get(c), 0.9)]
+        if row.get("t_batch_column") != "t_run_ms":
+            wrong.append(f"{key}: t_batch_column {row.get('t_batch_column')!r}")
+        if row.get("run_tag") != "t1" or row.get("cpu_affinity") != "0-15":
+            wrong.append(f"{key}: run_tag or cpu_affinity")
+    report.check("schema 2: P_s and the cuts as schema 1, the times 0.9 times, t_batch_column",
+                 bool(rows2) and not wrong,
+                 "; ".join(wrong[:8]) if wrong else f"{len(rows2)} lines compared")
+
+    # 9. Two copies of fx with another run_tag, then with another os: two groups each time.
+    fx2 = [r for r in results2 if r["instance"] == "fx"]
+    fx_replicas = [r for r in replicas if r["instance"] == "fx"]
+    for name, column, value in (("run_tag", "run_tag", "t2"), ("os", "os", "another os")):
+        copies = [dict(r, timestamp=r["timestamp"].replace("T10:00:", "T10:30:"),
+                       **{column: value}) for r in fx2]
+        copy_replicas = [dict(r, timestamp=r["timestamp"].replace("T10:00:", "T10:30:"))
+                         for r in fx_replicas]
+        tag = "tags" if column == "run_tag" else "os"
+        results_path = workdir / f"results2_{tag}.csv"
+        replicas_path = workdir / f"replicas2_{tag}.csv"
+        summary_path = workdir / f"summary2_{tag}.csv"
+        write_csv(results_path, RESULTS_COLUMNS_2, results2 + copies)
+        write_csv(replicas_path, REPLICA_COLUMNS, replicas + copy_replicas)
+        result = run(["--results", str(results_path), "--replicas", str(replicas_path),
+                      "--bootstrap", "0", "--out", str(summary_path)])
+        fx_lines = [r for r in read_summary(summary_path) if r.get("instance") == "fx"]
+        values = sorted({r.get(column, "") for r in fx_lines})
+        done = [line for line in result.stdout.splitlines() if line.startswith("TTS_DONE ")]
+        report.check(f"schema 2: fx copied with another {name}: two groups",
+                     result.returncode == 0 and len(fx_lines) == 6
+                     and values == sorted({fx2[0][column], value})
+                     and done == ["TTS_DONE groups=4 lines=12 skipped=1"],
+                     f"exit {result.returncode}, {len(fx_lines)} lines of fx, {values}, {done}")
+
+    # 10. The header of schema 2 without a column, or with one more: exit status 1.
+    bad2 = workdir / "bad2.csv"
+    for name, columns in (("without run_tag", [c for c in RESULTS_COLUMNS_2 if c != "run_tag"]),
+                          ("with one more column", RESULTS_COLUMNS_2 + ["extra"])):
+        with open(bad2, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle, lineterminator="\n")
+            writer.writerow(columns)
+            writer.writerows([[r.get(c, "") for c in columns] for r in results2])
+        result = run(["--results", str(bad2), "--targets", "1000", "--bootstrap", "0"])
+        first = result.stderr.strip().splitlines()[0:1]
+        report.check(f"exit 1: the header of schema 2 {name}",
+                     result.returncode == 1 and bool(first) and first[0].startswith("sbmc_tts: ")
+                     and "results schema 1 or 2" in first[0], f"exit {result.returncode}: {first}")
 
     verdict = "PASS" if report.failures == 0 else "FAIL"
     print(f"TTS_VERDICT: {verdict}")

@@ -1,16 +1,23 @@
 # Tests: doctest unit tests (cpu), Python tests (python), tests of the applications (apps), tool
 # tests (tools), CUDA tests and smoke tests (gpu, tile, probe). Folders: core/ (unit tests of
-# sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/ and K2000 on
-# data/raw/k2000/), cpu/ (unit tests of sbmc::cpu, executables in <build>/tests/cpu/: C0, C1 with
-# T7, the reference of simulated annealing, C2, the exact enumeration C3 and T2), data/ (input files
-# of the tests), python/ (Python tests, run with the interpreter chosen by the root CMakeLists.txt:
-# the reference P0, T8 with traces in <build>/tests/python/, the data of data/, the tool of the time
-# to solution with its files in <build>/tests/tts/; and, label apps, sbmc_run with its files in
-# <build>/tests/apps/ and sbmc_bruteforce with its files in <build>/tests/bruteforce/), tools/ (test
-# tools, executables in <build>/tests/tools/: sbmc_trace), gpu/ (CUDA tests, executables in
-# <build>/tests/gpu/), smoke/ (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/
-# (tool tests and checks: sync_from_zip.sh, the build information, RPATH). Tests that cannot run on
-# the current machine exit with 77, registered as SKIP_RETURN_CODE.
+# sbmc::core, executables in <build>/tests/core/, among them T6 on data/gset/, K2000 on
+# data/raw/k2000/ and the estimate of the spectrum of J), cpu/ (unit tests of sbmc::cpu, executables
+# in <build>/tests/cpu/: C0, C1 with T7, the reference of simulated annealing, C2, the exact
+# enumeration C3, T2, the times of the solvers and the masks of sbmc_run --affinity), data/ (input
+# files of the tests), python/
+# (Python tests, run with the interpreter chosen by the root CMakeLists.txt: the reference P0, T8
+# with traces in <build>/tests/python/, the data of data/, the tool of the time to solution with its
+# files in <build>/tests/tts/, the analysis tools of the campaigns of phase 07 (E2, E3, the external
+# check with dwave-samplers, E9) with their files in <build>/tests/e2/, e3/, dwave/ and e9/; and,
+# label apps, sbmc_run with its files in <build>/tests/apps/, sbmc_bruteforce with its files in
+# <build>/tests/bruteforce/, sbmc_spectrum with its files in <build>/tests/spectrum/ and the runner
+# of the campaigns with its files in <build>/tests/campaign/ and, with series, <build>/tests/
+# series/), tools/ (test tools, executables in <build>/tests/tools/: sbmc_trace and
+# sbmc_sa_thresholds), gpu/ (CUDA tests, executables in <build>/tests/gpu/), smoke/
+# (CUDA smoke tests, executables in <build>/tests/smoke/), scripts/ (tool tests and checks:
+# sync_from_zip.sh, the build information, RPATH). Tests that cannot run on the current machine exit
+# with 77, registered as SKIP_RETURN_CODE. On Windows (presets win-cpu and win-cpu-strict, phase 07,
+# part 4) only the C++ tests of label cpu are registered, and the tool sbmc_sa_thresholds is built.
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
@@ -24,7 +31,7 @@ set_tests_properties(test_sanity PROPERTIES LABELS "cpu")
 
 # Unit tests of the core library: one doctest executable per file of core/.
 foreach(_sbmc_test IN ITEMS test_philox test_instance test_rudy test_initial_state test_sb
-                            test_gset test_k2000 test_results)
+                            test_gset test_k2000 test_results test_spectrum)
   add_executable(${_sbmc_test} core/${_sbmc_test}.cpp)
   set_target_properties(${_sbmc_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                                  "${CMAKE_CURRENT_BINARY_DIR}/core")
@@ -38,7 +45,9 @@ target_compile_definitions(test_sb PRIVATE
                            "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
                            "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 # T6 (data/gset/) and K2000 (data/raw/k2000/, skipped with 77 until scripts/fetch_data.sh --k2000
-# has downloaded it); test_results reads data/best_known.csv.
+# has downloaded it); test_results reads data/best_known.csv; test_instance (since phase 07) reads
+# files of tests/data/ and data/gset/ for the cut of the final check of the solvers; test_spectrum
+# (phase 07) reads files of tests/data/ and data/gset/ for the estimate of the spectrum of J.
 foreach(_sbmc_test IN ITEMS test_gset test_k2000)
   target_compile_definitions(${_sbmc_test} PRIVATE
                              "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\""
@@ -46,6 +55,11 @@ foreach(_sbmc_test IN ITEMS test_gset test_k2000)
 endforeach()
 set_tests_properties(test_k2000 PROPERTIES SKIP_RETURN_CODE 77)
 target_compile_definitions(test_results PRIVATE "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+foreach(_sbmc_test IN ITEMS test_instance test_spectrum)
+  target_compile_definitions(${_sbmc_test} PRIVATE
+                             "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                             "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+endforeach()
 
 # Unit tests of the CPU solvers (sbmc::cpu): the sequential reference C0.
 add_executable(test_sb_sequential cpu/test_sb_sequential.cpp)
@@ -110,7 +124,46 @@ foreach(_sbmc_test IN ITEMS test_bruteforce test_t2)
 endforeach()
 target_compile_definitions(test_t2 PRIVATE "SBMC_STRICT_FP_BUILD=$<BOOL:${SBMC_STRICT_FP}>")
 
+# The times of the four solvers (phase 07): three finite, non-negative phases whose sum is at most
+# the duration of the call measured outside it.
+add_executable(test_solve_times cpu/test_solve_times.cpp)
+set_target_properties(test_solve_times PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                  "${CMAKE_CURRENT_BINARY_DIR}/cpu")
+target_link_libraries(test_solve_times PRIVATE sbmc::flags sbmc::cpu doctest OpenMP::OpenMP_CXX)
+target_compile_definitions(test_solve_times PRIVATE
+                           "SBMC_TEST_DATA_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/data\""
+                           "SBMC_DATA_DIR=\"${PROJECT_SOURCE_DIR}/data\"")
+add_test(NAME test_solve_times COMMAND test_solve_times)
+set_tests_properties(test_solve_times PROPERTIES LABELS "cpu")
+
+# The masks of sbmc_run --affinity (apps/cpu_topology.hpp, phase 07, part 4): the same rules on
+# every platform.
+add_executable(test_cpu_topology cpu/test_cpu_topology.cpp)
+set_target_properties(test_cpu_topology PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                   "${CMAKE_CURRENT_BINARY_DIR}/cpu")
+target_include_directories(test_cpu_topology PRIVATE "${PROJECT_SOURCE_DIR}/apps")
+target_link_libraries(test_cpu_topology PRIVATE sbmc::flags doctest)
+add_test(NAME test_cpu_topology COMMAND test_cpu_topology)
+set_tests_properties(test_cpu_topology PROPERTIES LABELS "cpu")
+
 # --- Test tools -----------------------------------------------------------------------------
+# sbmc_sa_thresholds (phase 07, part 4): the schedule and the acceptance thresholds of simulated
+# annealing, compared between Windows and WSL by python/sbmc_e9.py bitwise. Not a test; built on
+# every platform. On Windows it is started from WSL, so it gets the runtime DLLs of the
+# toolchain next to it (part 4b, cmake/SbmcWindowsRuntime.cmake).
+add_executable(sbmc_sa_thresholds tools/sbmc_sa_thresholds.cpp)
+set_target_properties(sbmc_sa_thresholds PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                                                    "${CMAKE_CURRENT_BINARY_DIR}/tools")
+target_link_libraries(sbmc_sa_thresholds PRIVATE sbmc::flags sbmc::core)
+if(WIN32)
+  sbmc_copy_runtime_dlls(sbmc_sa_thresholds)
+endif()
+
+# Windows: nothing else (the Python tests, the applications and the tools need Linux and bash).
+if(WIN32)
+  return()
+endif()
+
 # sbmc_trace: runs C0 and writes the trace file read by T8 (python/test_t8.py). Not a test.
 add_executable(sbmc_trace tools/sbmc_trace.cpp)
 set_target_properties(sbmc_trace PROPERTIES RUNTIME_OUTPUT_DIRECTORY
@@ -154,6 +207,33 @@ sbmc_add_python_test(test_data python
 sbmc_add_python_test(test_sbmc_tts python
                      ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
                           "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/tts")
+# The analysis tools of the campaigns of phase 07, on fake campaigns written to their folders:
+# python/sbmc_e2.py (<build>/tests/e2/), python/sbmc_e3.py (<build>/tests/e3/) and
+# python/sbmc_dwave.py (<build>/tests/dwave/; the check itself only with dwave-samplers installed,
+# scripts/setup_python.sh --dwave, with sbmc_run on one thread).
+sbmc_add_python_test(test_sbmc_e2 python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/e2")
+sbmc_add_python_test(test_sbmc_e3 python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/e3")
+sbmc_add_python_test(test_sbmc_dwave python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/dwave")
+# python/sbmc_e9.py (phase 07, part 4): the analysis of E9 on a fake campaign and the bitwise
+# comparison with sbmc_run and sbmc_sa_thresholds of this build on both sides (the Windows side
+# through a wrapper and a fake wslpath), in <build>/tests/e9/.
+sbmc_add_python_test(test_sbmc_e9 python
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--thresholds" "$<TARGET_FILE:sbmc_sa_thresholds>"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/e9")
 
 # --- Applications ---------------------------------------------------------------------------
 # sbmc_run (apps/), run from the repository root (its defaults are relative to it); its CSV files
@@ -169,6 +249,31 @@ sbmc_add_python_test(test_sbmc_bruteforce apps
                      ARGS "--tool" "$<TARGET_FILE:sbmc_bruteforce>"
                           "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
                           "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/bruteforce")
+# sbmc_spectrum (apps/, phase 07), with absolute paths; its files go to <build>/tests/spectrum/.
+sbmc_add_python_test(test_sbmc_spectrum apps
+                     ARGS "--tool" "$<TARGET_FILE:sbmc_spectrum>"
+                          "--data" "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                          "--gset" "${PROJECT_SOURCE_DIR}/data/gset"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/spectrum")
+# python/sbmc_campaign.py (phase 07), the runner of the campaigns, with sbmc_run and sbmc_spectrum
+# of this build, from the repository root (data/best_known.csv); its campaigns go to
+# <build>/tests/campaign/.
+sbmc_add_python_test(test_sbmc_campaign apps
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--sbmc-spectrum" "$<TARGET_FILE:sbmc_spectrum>"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/campaign")
+# The runner with [[series]] (phase 07, part 4): validation, ids, order, --affinity and the paths
+# of a Windows series through a fake wslpath, a run with a wrapper of sbmc_run as the Windows
+# executable, resuming; and --affinity, --print-topology and --version of sbmc_run on Linux. Files
+# in <build>/tests/series/.
+sbmc_add_python_test(test_sbmc_campaign_series apps
+                     ARGS "--pyroot" "${PROJECT_SOURCE_DIR}/python"
+                          "--root" "${PROJECT_SOURCE_DIR}"
+                          "--sbmc-run" "$<TARGET_FILE:sbmc_run>"
+                          "--sbmc-spectrum" "$<TARGET_FILE:sbmc_spectrum>"
+                          "--workdir" "${CMAKE_CURRENT_BINARY_DIR}/series")
 
 # --- Tools ----------------------------------------------------------------------------------
 add_test(NAME test_sync_from_zip
