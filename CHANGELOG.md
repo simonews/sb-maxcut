@@ -3,6 +3,32 @@
 All notable changes to this project, one section per delivery. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [F08-R1] - 2026-11-28
+
+Phase 08, part 1 of 3: the results of phase 07 in the README and the probes of the GPU
+environment on the laptop. No change to the code, to CMake, to the presets, to the tests, to the
+results schema or to the campaigns.
+
+### Added
+
+- `scripts/laptop/f08r1.sh`: `run "$NOTES"` checks the repository and the toolkit (nvcc
+  V13.4.92), builds from scratch and tests `cpu-strict`, `cpu`, `cuda-strict` and `cuda` (33, 33,
+  39 and 39 tests, none skipped, no warning), records the device from `smoke_simt`, probes every
+  field of nvidia-smi of WSL and of Windows (`VALUE`, `NA`, `INVALID`, `NOT_FOUND`), samples both
+  sources every 100 ms at rest and under `ctest -L gpu`, reads the registry value
+  `EnableInterface` of the debugger interface (read only) and runs compute-sanitizer memcheck on
+  `smoke_simt` and `test_curand_philox`; `sanitizer` repeats the last part. Outputs in
+  `results/f08/env/`, logs in `~/sbmc_logs/f08r1/`, a summary of about 20 lines with
+  `F08R1_VERDICT`.
+
+### Changed
+
+- `README.md`: Status (phase 07 complete, phase 08 part 1); "Results" subsections for E2 (the
+  choices at level 1000 and the new edge b = 2 of SA on G2), E3 (the most severe common level,
+  SA/SB) and E9 (the last point of every series); the external check opens with its result (SA
+  2.3-2.7 times faster per proposal than dwave-samplers, z and KS PASS) and its values; the new
+  subsection "GPU environment probes (phase 08)"; the script in "Tools".
+
 ## [F07-R4e] - 2026-11-27
 
 Correction before E9: on the laptop `scripts/laptop/f07r4.sh run` stopped at the bitwise

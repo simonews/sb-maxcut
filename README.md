@@ -62,6 +62,14 @@ WSL2 as the control; `sbmc_run --affinity` and `--print-topology` on Windows
 (`apps/win_platform.cpp`, the only file with Windows API) and `--version`; series of executables,
 masks and threads in the runner; `python/sbmc_e9.py`, with the bitwise comparison of the two
 builds; `scripts/laptop/f07r4.sh` (see "E9 on Windows native").
+Phase 07 complete, with the campaigns on the laptop: the results of E2, of the external check, of
+E3 and of E9 are in the "Results" subsections of "Campaigns". In short, at equal sweeps and beta
+schedule, on one thread, our SA is 2.3-2.7 times faster per proposal than dwave-samplers, with
+equivalent distributions of the final cuts (see "External check with dwave-samplers").
+Phase 08, part 1 of 3: GPU environment probes, `scripts/laptop/f08r1.sh` (the CUDA presets rebuilt
+from scratch on the laptop, the fields of nvidia-smi readable from WSL and from Windows, the
+registry value of the debugger interface and compute-sanitizer; see "GPU environment probes
+(phase 08)").
 
 ## Requirements
 
@@ -187,6 +195,99 @@ For example, to count the FFMA, FMUL and FADD instructions of each kernel of an 
        fn != "" && /[[:space:]]FADD[[:space:].]/ { fadd[fn]++ }
        END { for (f in seen) printf "%s FFMA=%d FMUL=%d FADD=%d\n", f, ffma[f], fmul[f], fadd[f] }'
 ```
+
+### GPU environment probes (phase 08)
+
+`scripts/laptop/f08r1.sh` (phase 08, part 1 of 3) rebuilds the CUDA presets from scratch on the
+laptop and probes what the telemetry of the GPU measurements can rely on: the fields of
+nvidia-smi readable from WSL and from Windows (the telemetry will run nvidia-smi as a child
+process of the applications, from the source chosen with these probes), the registry value of the
+debugger interface of the driver and compute-sanitizer. From WSL, in the root of the repository,
+branch `fase-08`:
+
+```bash
+bash scripts/laptop/f08r1.sh run "$NOTES"   # parts 1-6
+bash scripts/laptop/f08r1.sh sanitizer      # part 5 only, after a run (for example after a reboot)
+```
+
+The parts of `run`:
+
+1. checks: the root of the repository, the branch, no change outside `results/`,
+   `CMakeUserPresets.json` with `cuda` and `cuda-strict`, nvcc V13.4.92 (otherwise `STOP`: run
+   `scripts/setup_cuda_pypi.sh`), what the tests need to run (`.venv` with NumPy and matplotlib,
+   K2000, rsync, unzip and zip);
+2. `cpu-strict`, `cpu`, `cuda-strict` and `cuda` built from scratch (`rm -rf build/<preset>`) and
+   tested: 33, 33, 39 and 39 tests, none failed or skipped, no warning in configure and build;
+3. `smoke_simt` of `cuda` (`device.txt`);
+4. nvidia-smi of WSL (`nvidia-smi` in PATH) and of Windows (`nvidia-smi.exe` in PATH, otherwise
+   `/mnt/c/Windows/System32/nvidia-smi.exe`): `--version` and `--help-query-gpu`, then at rest
+   every field in a call of its own (`--query-gpu=<field> --format=csv,noheader,nounits -i 0`),
+   classified `VALUE`, `NA` (`[N/A]`, `N/A`, `[Not Supported]` or another value in brackets) or
+   `INVALID` (exit status other than 0, or a field not valid); then the two sources together with
+   `-lms 100` on the fields among `timestamp`, `pstate`, `clocks.sm`, `clocks.mem`,
+   `temperature.gpu`, `power.draw`, `utilization.gpu` and `clocks_event_reasons.active` that are
+   `VALUE` for the source: 5 s at rest, `ctest --preset cuda -L gpu` 5 times, 5 s at rest;
+5. the registry value, read only, with `reg.exe query "HKLM\SOFTWARE\NVIDIA
+   Corporation\GPUDebugger" /v EnableInterface`; then the compute-sanitizer of the toolkit,
+   `--tool memcheck --error-exitcode 1`, on `smoke_simt` and `test_curand_philox` of `cuda`, at
+   most 600 s each;
+6. the summary.
+
+The fields probed are those of F08-C1 (`name`, `driver_version`, `pstate`, the clocks, the
+temperatures, `power.draw` and its variants, the power limits, the utilization, the PCIe link, the
+reasons of the clock events, also under their old name `clocks_throttle_reasons.active`) and
+`timestamp`, `clocks.max.gr`, `power.default_limit`, `power.max_limit`, `temperature.gpu.tlimit`,
+`clocks_event_reasons.gpu_idle`, `clocks_event_reasons.hw_thermal_slowdown`,
+`clocks_event_reasons.hw_power_brake_slowdown`, `memory.used` and `memory.total`. Outputs in
+`results/f08/env/`:
+
+| File | Content |
+|------|---------|
+| `notes.txt` | the notes |
+| `build_summary.txt` | the toolchain; per preset the exit statuses, warnings, tests, seconds and verdict |
+| `device.txt` | the output of `smoke_simt` (`key: value` lines) |
+| `smi_help_wsl.txt`, `smi_help_win.txt` | `--version` and `--help-query-gpu` of the source, or `NOT_FOUND` |
+| `smi_fields.csv` | `source, path, field, status, value`: one row per source and field (`NOT_FOUND` for a missing source) |
+| `smi_samples_wsl.csv`, `smi_samples_win.csv` | `t_wsl_s, phase, <fields>`: the time of arrival in WSL (`EPOCHREALTIME`, seconds), the phase (`rest_before`, `load`, `rest_after`) and the sampled fields |
+| `registry.txt` | the command of reg.exe, its output and exit status |
+| `sanitizer_smoke_simt.txt`, `sanitizer_test_curand_philox.txt` | the command of compute-sanitizer, its output and exit status |
+| `summary.txt` | the summary, as on the terminal |
+
+The full logs (configure, build, ctest, the load, the stderr of the samplers) go to
+`~/sbmc_logs/f08r1/`. The summary, about 20 lines:
+
+| Line | Content |
+|------|---------|
+| `F08R1`, `NOTES` | date (UTC), mode, branch, commit, CPU, nproc, `OMP_*`; the notes |
+| `BUILD_<preset>` | `PASS` or `FAIL` (passed/total, skipped, warnings, seconds; on a failure the skipped tests, the log and its first errors) |
+| `DEVICE` | name, compute capability, SMs, L2, memory, SM clock of the CUDA attribute |
+| `SMI_WSL`, `SMI_WIN` | the path and the driver, or `NOT_FOUND`; the number of `VALUE`, `NA` and `INVALID` fields, with the names of the last two |
+| `LOAD` | the exit statuses of the 5 runs of ctest, the tests per run, the skipped ones |
+| `SAMPLES_WSL`, `SAMPLES_WIN` | samples per phase, mean period, maxima of `clocks.sm` and `temperature.gpu`, `power.draw` min/mean/max or N/A |
+| `REGISTRY_ENABLEINTERFACE` | `ENABLED (0x1)`, `VALUE <v>`, `ABSENT` or `UNKNOWN` |
+| `SANITIZER_smoke_simt`, `SANITIZER_test_curand_philox` | `ATTACHED_CLEAN` (exit status 0 and `ERROR SUMMARY: 0 errors`), `NOT_ATTACHED` ("Failed to initialize WDDM debugger interface" or "Device not supported") or `ERRORS` (any other case) |
+| `GIT_STATUS` | `PASS` when the changes are only in `results/f08/env/` |
+| `F08R1_VERDICT` | `PASS` when the four `BUILD` lines and `GIT_STATUS` pass: the probes inform, they do not decide |
+
+A failed build does not stop the script. Exit status: 0 with `F08R1_VERDICT: PASS`, 1 otherwise
+(also after a `STOP`), 2 for a wrong command line, 130 when interrupted.
+
+`sanitizer` makes the checks of part 1 (not the prerequisites of the tests), needs the
+`summary.txt` of a run, replaces its lines `REGISTRY_ENABLEINTERFACE` and `SANITIZER_*` with the
+new ones followed by `SANITIZER_RERUN` (date and commit), and prints them with `GIT_STATUS` and
+the verdict of the run. On WDDM, compute-sanitizer needs the debugger interface of the driver: the
+registry value `EnableInterface`, DWORD 1, under the key above (from NVIDIA support); the decision
+of 2026-11-15 is to use it on the laptop if possible, otherwise on Kaggle, always with
+`--error-exitcode 1` and the check of "ERROR SUMMARY: 0 errors".
+
+Read only: the script writes nothing to the registry and uses no option of nvidia-smi that changes
+the state of the GPU (persistence, clocks, limits). The samplers end at the end of the sampling,
+also after an error or an interruption (SIGTERM, then SIGKILL after 3 s); since a Windows process
+may survive the end of its WSL process, `tasklist.exe` counts the `nvidia-smi.exe` before and
+after the sampling, and those left are ended with `taskkill.exe /F /IM nvidia-smi.exe` only when
+none was running before (otherwise `SAMPLES_WIN` reports them). Limits: the times are those of
+arrival in WSL, so the samples of Windows carry the delay of the interop; a source whose sampled
+fields are all `NA` or `INVALID` is not sampled; a single GPU (`-i 0`).
 
 ## Core library
 
@@ -1752,9 +1853,48 @@ per (a, b) or (f, c0), Wilson error bars, undefined values and infinite bounds n
 legend, the chosen configuration marked; and the mean cut against the steps) and `plots/tts_e2`
 (the TTS99 of the two chosen configurations of every instance). Lines on stdout:
 `E2 <instance> <method> level=<f> config=<id> tts99_ms=<x>`, then `E2_DONE`. The results of the
-laptop are added by the closing package of the phase.
+laptop follow.
+
+#### Results
+
+From `results/f07/e2/selected.csv`: level 1000, R 1024 x 5 repetitions = 5120 replicas; targets
+G2 11620, G12 556, G15 3050 and 33462 on the dense instance (best found). T_batch is the median of
+`t_run_ms`; T_batch and TTS99 in ms.
+
+| Tuning -> evaluation | Method | Choice | P_s | T_batch | TTS99 |
+|---|---|---|---|---|---|
+| G2 -> G1 | SA | a 1, b 2, S 250 | 0.72% | 128.611 | 128.611 |
+| G2 -> G1 | dSB | f 0.5, lambda, M 4000 | 0.39% | 946.877 | 1088.002 |
+| G12 -> G11 | SA | a 2, b 3, S 250 | 0.625% | 103.736 | 103.736 |
+| G12 -> G11 | dSB | f 1, sigma, M 1000 | 0.39% | 125.574 | 144.290 |
+| G15 -> G14 | SA | a 2, b 3, S 2000 | 0.49% | 809.518 | 809.518 |
+| G15 -> G14 | dSB | f 1, sigma, M 8000 | 0.37% | 1120.75 | 1355.70 |
+| dense -> K2000 | SA | a 1, b 2, S 1000 | 0.49% | 1960.127 | 1960.127 |
+| dense -> K2000 | dSB | f 1, lambda, M 2000 | 0.66% | 25459.478 | 25459.478 |
+
+A new edge, not extended: SA on G2 chose b = 2, the lower edge of b on the G-set. a 1, b 3, S 250
+gives 140.877 ms (P_s 0.39%, Wilson interval 122.604-217.645 ms, which contains 128.611): the
+difference is within the uncertainty. With b < 2 more moves are accepted, so a sweep is expected
+to cost at least as much as with b = 2; to beat 128.611 ms at S 125, where T_batch is 69.533 ms
+with b = 2, P_s >= 0.243% would be needed, 2.5 times the 0.098% measured there (5 of 5120).
 
 ### External check with dwave-samplers
+
+**At equal sweeps and beta schedule, on one thread, with equivalent distributions of the final cuts
+(z and KS PASS), our SA is 2.3-2.7 times faster per proposal than dwave-samplers.**
+
+The values (`results/f07/dwave/dwave_check.csv`, F07-R3b, 1024 reads; ns per proposal, ours
+against dwave-samplers):
+
+| Instance | z | D | ns ours | ns dwave | Ratio |
+|---|---|---|---|---|---|
+| G2 | 0.463 | 0.0293 | 4.44 | 11.83 | 2.66x |
+| G12 | 0.392 | 0.0225 | 3.59 | 8.84 | 2.46x |
+| G15 | 1.313 | 0.0371 | 3.80 | 9.22 | 2.43x |
+
+D_crit 0.0862. The first run (F07-R3) gave 3.20/8.62, 3.33/8.48 and 3.80/8.87 ns on G2, G12 and
+G15. Limits: the times are measured in different ways (`t_run_ms` against `sampling_ns`), on one
+thread only; the aim of rule 5 is to show that the baseline is not weak.
 
 Section 7, rule 5 of the reference document asks to check our SA against an external
 implementation (decision L7): `python/sbmc_dwave.py check` runs our SA (C2 on one thread) and the
@@ -1825,6 +1965,27 @@ current campaign.
 Lines on stdout: `E3 <instance> level=<f> tts_sb_ms=... tts_sa_ms=... ratio_sa_sb=...`, then
 `E3_DONE`. The final check stays outside T_batch: on K2000 it weighs 15% of run and check with SA
 and S 500, and 1-2% in the longest runs.
+
+#### Results
+
+From `results/f07/e3/e3_tts.csv`: the most severe common level (thousandths of the target), the
+parameters and the steps transferred from E2; each cell has the steps, P_s and TTS99 in ms.
+
+| Instance | Level | dSB | SA | SA/SB |
+|---|---|---|---|---|
+| G1 | 1000 | M 4000, P_s 4.79%, 912.131 | S 250, P_s 9.47%, 125.203 | 0.137 |
+| G11 | 1000 | M 1000, P_s 1.23%, 121.442 | S 250, P_s 0.76%, 100.291 | 0.826 |
+| G14 | 995 | M 8000, P_s 84.1%, 1101.205 | S 2000, P_s 88.1%, 805.761 | 0.732 |
+| K2000 | 995 | M 2000, P_s 62.0%, 25627.186 | S 1000, P_s 28.0%, 1923.794 | 0.075 |
+
+With R 1024 one batch is enough at these levels: TTS99 = T_batch, and the Wilson intervals and the
+interval of the ratio reduce to the value. G14 at 1000: no success for either method; K2000 at
+1000: dSB only, 294986 ms (Wilson 80920-1075752); the target of K2000 is preliminary (one
+source). SA beats dSB on the CPU in all four families. The transferred steps are not the best
+ones, and are reported without tuning on the evaluation instance: G1, SA 71.325 ms at S 125
+against 125.203 at S 250; G11, dSB 113.448 ms at M 500 against 121.442 at M 1000. At the relaxed
+levels the minima lie on the shortest steps of the grid (G14 and K2000 at 995): the final campaign
+(phase 20) will use grids with shorter steps.
 
 ### E9 on Windows native
 
@@ -1999,6 +2160,29 @@ Limits:
   cross toolchain (the same four);
 - the runtime check of `build.ps1` starts `sbmc_run.exe` only when no imported DLL is missing: a
   DLL needed only at run time (loaded with `LoadLibrary`, not imported) would escape it.
+
+#### Results
+
+From `results/f07/e9/e9_summary.csv` (commit e00ebab, 136 configurations in 44 min): the last
+point of every series (series and threads in the header), the median of `t_run_ms` in ms and in
+brackets the speedup against one thread of the series (`win-p` against `win-p1` at one thread).
+
+| Load | win-p1, 6 | win-p, 12 | win-e, 4 | win-all, 16 | wsl, 16 |
+|---|---|---|---|---|---|
+| G1 SA S 1000 | 661.9 (4.74) | 529.3 (5.93) | 1922.8 (3.91) | 445.6 (6.92) | 450.5 (7.06) |
+| G1 dSB M 2000 | 583.5 (4.67) | 535.5 (5.09) | 1942.9 (3.71) | 505.1 (5.26) | 507.2 (5.55) |
+| K2000 SA S 200 | 627.5 (4.60) | 528.3 (5.47) | 2667.5 (2.76) | 479.0 (5.73) | 461.4 (5.48) |
+| K2000 dSB M 200 | 3079.6 (4.34) | 3002.9 (4.45) | 11562.8 (4.00) | 2633.9 (4.99) | 2578.0 (5.18) |
+
+The cuts are identical over the threads, the series and the platforms (dSB too, in the presets
+`win-cpu` and `cpu` of the campaign); `BITWISE_SA` and `BITWISE_DSB_STRICT` PASS. An E core is
+2.4-3.5 times slower than a P core at one thread (G1 SA 7510.9 against 3136.9 ms; K2000 dSB
+46259.8 against 13363.1 ms). The second thread on the 6 P cores adds 25% (G1 SA), 19% (K2000 SA),
+9% (G1 dSB) and 2.6% (K2000 dSB); the efficiency on the 6 P cores is 0.72-0.79; from 12 to 16
+threads the E cores add 6% to 19%; Windows and WSL at 16 threads are within 4% (Windows against
+WSL, from -1.1% to +3.8%). Limits: the frequency and the temperature of the CPU were not
+measured; K2000 SA at one thread is 14% slower on Windows (`win-p1` 2889.2 against `wsl` 2527.8
+ms), not explained, with no effect on the conclusions (D12).
 
 ## Tests
 
@@ -2361,6 +2545,7 @@ Notes:
 - `scripts/kaggle_run.sh [--ref LABEL] [--out DIR]`: see "Running on Kaggle (2 x T4)".
 - `scripts/windows/stage.sh [DEST]`, `scripts/windows/build.ps1 [-ClionDir DIR] [-Dest DIR]` and
   `scripts/laptop/f07r4.sh stage|run "$NOTES"`: see "E9 on Windows native".
+- `scripts/laptop/f08r1.sh run "$NOTES"|sanitizer`: see "GPU environment probes (phase 08)".
 
 Files larger than 5 MB never go into git. `.gitignore` cannot express this rule:
 `scripts/sync_from_zip.sh` enforces it on every delivery.
