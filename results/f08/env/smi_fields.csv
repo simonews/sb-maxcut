@@ -1,0 +1,69 @@
+source,path,field,status,value
+wsl,/usr/lib/wsl/lib/nvidia-smi,name,VALUE,NVIDIA GeForce RTX 4050 Laptop GPU
+wsl,/usr/lib/wsl/lib/nvidia-smi,driver_version,VALUE,621.14
+wsl,/usr/lib/wsl/lib/nvidia-smi,pstate,VALUE,P0
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks.sm,VALUE,2055
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks.gr,VALUE,2055
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks.mem,VALUE,8001
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks.max.sm,VALUE,3105
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks.max.mem,VALUE,8001
+wsl,/usr/lib/wsl/lib/nvidia-smi,temperature.gpu,VALUE,54.60
+wsl,/usr/lib/wsl/lib/nvidia-smi,temperature.memory,NA,N/A
+wsl,/usr/lib/wsl/lib/nvidia-smi,power.draw,VALUE,15.67
+wsl,/usr/lib/wsl/lib/nvidia-smi,power.draw.average,VALUE,14.86
+wsl,/usr/lib/wsl/lib/nvidia-smi,power.draw.instant,VALUE,8.09
+wsl,/usr/lib/wsl/lib/nvidia-smi,power.limit,NA,[N/A]
+wsl,/usr/lib/wsl/lib/nvidia-smi,enforced.power.limit,VALUE,95.00
+wsl,/usr/lib/wsl/lib/nvidia-smi,utilization.gpu,VALUE,1
+wsl,/usr/lib/wsl/lib/nvidia-smi,utilization.memory,VALUE,2
+wsl,/usr/lib/wsl/lib/nvidia-smi,pcie.link.gen.current,VALUE,4
+wsl,/usr/lib/wsl/lib/nvidia-smi,pcie.link.width.current,VALUE,8
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.active,VALUE,0x0000000000000001
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_throttle_reasons.active,VALUE,0x0000000000000001
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.sw_power_cap,VALUE,Not Active
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.hw_slowdown,VALUE,Not Active
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.sw_thermal_slowdown,VALUE,Not Active
+wsl,/usr/lib/wsl/lib/nvidia-smi,timestamp,VALUE,2026/11/28 12:34:29.765
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks.max.gr,VALUE,3105
+wsl,/usr/lib/wsl/lib/nvidia-smi,power.default_limit,VALUE,55.00
+wsl,/usr/lib/wsl/lib/nvidia-smi,power.max_limit,VALUE,140.00
+wsl,/usr/lib/wsl/lib/nvidia-smi,temperature.gpu.tlimit,VALUE,34
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.gpu_idle,VALUE,Active
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.hw_thermal_slowdown,VALUE,Not Active
+wsl,/usr/lib/wsl/lib/nvidia-smi,clocks_event_reasons.hw_power_brake_slowdown,VALUE,Not Active
+wsl,/usr/lib/wsl/lib/nvidia-smi,memory.used,VALUE,762
+wsl,/usr/lib/wsl/lib/nvidia-smi,memory.total,VALUE,6141
+win,/mnt/c/Windows/system32/nvidia-smi.exe,name,VALUE,NVIDIA GeForce RTX 4050 Laptop GPU
+win,/mnt/c/Windows/system32/nvidia-smi.exe,driver_version,VALUE,621.14
+win,/mnt/c/Windows/system32/nvidia-smi.exe,pstate,VALUE,P8
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks.sm,VALUE,210
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks.gr,VALUE,210
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks.mem,VALUE,405
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks.max.sm,VALUE,3105
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks.max.mem,VALUE,8001
+win,/mnt/c/Windows/system32/nvidia-smi.exe,temperature.gpu,VALUE,53.04
+win,/mnt/c/Windows/system32/nvidia-smi.exe,temperature.memory,NA,N/A
+win,/mnt/c/Windows/system32/nvidia-smi.exe,power.draw,VALUE,3.26
+win,/mnt/c/Windows/system32/nvidia-smi.exe,power.draw.average,VALUE,1.00
+win,/mnt/c/Windows/system32/nvidia-smi.exe,power.draw.instant,VALUE,3.20
+win,/mnt/c/Windows/system32/nvidia-smi.exe,power.limit,NA,[N/A]
+win,/mnt/c/Windows/system32/nvidia-smi.exe,enforced.power.limit,VALUE,87.15
+win,/mnt/c/Windows/system32/nvidia-smi.exe,utilization.gpu,VALUE,4
+win,/mnt/c/Windows/system32/nvidia-smi.exe,utilization.memory,VALUE,6
+win,/mnt/c/Windows/system32/nvidia-smi.exe,pcie.link.gen.current,VALUE,1
+win,/mnt/c/Windows/system32/nvidia-smi.exe,pcie.link.width.current,VALUE,8
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.active,VALUE,0x0000000000000001
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_throttle_reasons.active,VALUE,0x0000000000000001
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.sw_power_cap,VALUE,Not Active
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.hw_slowdown,VALUE,Not Active
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.sw_thermal_slowdown,VALUE,Not Active
+win,/mnt/c/Windows/system32/nvidia-smi.exe,timestamp,VALUE,2026/11/28 12:34:32.408
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks.max.gr,VALUE,3105
+win,/mnt/c/Windows/system32/nvidia-smi.exe,power.default_limit,VALUE,55.00
+win,/mnt/c/Windows/system32/nvidia-smi.exe,power.max_limit,VALUE,140.00
+win,/mnt/c/Windows/system32/nvidia-smi.exe,temperature.gpu.tlimit,VALUE,34
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.gpu_idle,VALUE,Active
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.hw_thermal_slowdown,VALUE,Not Active
+win,/mnt/c/Windows/system32/nvidia-smi.exe,clocks_event_reasons.hw_power_brake_slowdown,VALUE,Not Active
+win,/mnt/c/Windows/system32/nvidia-smi.exe,memory.used,VALUE,762
+win,/mnt/c/Windows/system32/nvidia-smi.exe,memory.total,VALUE,6141

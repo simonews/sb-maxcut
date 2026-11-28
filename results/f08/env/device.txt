@@ -1,0 +1,34 @@
+cuda_runtime_version: 13040 (13.4)
+cuda_driver_version: 13050 (13.5)
+cublas_version: 13.8.0
+cublaslt_version: 130800
+cuda_runtime_compiled: 13040 (13.4)
+cuda_runtime_loaded: 13040 (13.4)
+CUDA_RUNTIME_MATCH: PASS
+cublas_compiled: 13.8.0
+cublas_loaded: 13.8.0
+CUBLAS_MATCH: PASS
+device_count: 1
+device0_name: NVIDIA GeForce RTX 4050 Laptop GPU
+device0_compute_capability: 8.9
+device0_sm_count: 20
+device0_l2_cache_bytes: 25165824
+device0_global_memory_bytes: 6438780928
+device0_memory_bus_width_bits: 96
+device0_sm_clock_khz: 2055000
+device0_memory_clock_khz: 8001000
+device0_pci_bus_id: 0000:01:00.0
+simt_vector_add_n: 1048576
+cublas_sgemm_shape: 256x256x256, values in [-8, 8]
+device0_simt_vector_add_mismatches: 0
+device0_simt_vector_add: PASS
+device0_cublas_sgemm_mismatches: 0
+device0_cublas_sgemm: PASS
+device0_cublaslt_handle: PASS
+device0_verdict: PASS
+simt_vector_add_mismatches: 0
+SIMT_VECTOR_ADD: PASS
+cublas_sgemm_mismatches: 0
+CUBLAS_SGEMM: PASS
+CUBLASLT_HANDLE: PASS
+SIMT_VERDICT: PASS

@@ -1,0 +1,11 @@
+$ /home/simone/.local/share/sbmc/cuda-13.4.3/venv/lib/python3.12/site-packages/nvidia/cu13/bin/compute-sanitizer --tool memcheck --error-exitcode 1 build/cuda/tests/gpu/test_curand_philox
+========= COMPUTE-SANITIZER
+device: NVIDIA GeForce RTX 4050 Laptop GPU (sm_89)
+T11_CURAND_WORD: PASS (0/217)
+T11_CURAND_SEQUENCE: PASS (0/96)
+T11_CURAND4: PASS (0/4)
+T11_OWN_PHILOX_DEVICE: PASS (0/220)
+T11_X0_DEVICE: PASS (0/1009)
+T11_GPU_VERDICT: PASS
+========= ERROR SUMMARY: 0 errors
+exit 0

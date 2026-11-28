@@ -1,0 +1,5 @@
+toolchain cmake=3.28.3 ninja=1.11.1 gcc=13.3.0 nvcc=V13.4.92 toolkit_root=/home/simone/.local/share/sbmc/cuda-13.4.3/venv/lib/python3.12/site-packages/nvidia/cu13
+preset=cpu-strict configure=0 build=0 ctest=0 warnings=0 total=33 failed=0 skipped=0 passed=33 expected=33 seconds=51 verdict=PASS
+preset=cpu configure=0 build=0 ctest=0 warnings=0 total=33 failed=0 skipped=0 passed=33 expected=33 seconds=51 verdict=PASS
+preset=cuda-strict configure=0 build=0 ctest=0 warnings=0 total=39 failed=0 skipped=0 passed=39 expected=39 seconds=79 verdict=PASS
+preset=cuda configure=0 build=0 ctest=0 warnings=0 total=39 failed=0 skipped=0 passed=39 expected=39 seconds=78 verdict=PASS

@@ -1,0 +1,17 @@
+F08R1 2026-11-28T11:30:06Z mode=run branch=fase-08 commit=6d27c7d cpu="13th Gen Intel(R) Core(TM) i7-13620H" nproc=16 OMP=none
+NOTES: AC power; Windows power mode: Best performance; Armoury Crate: Performance; GPU mode: Ultimate
+BUILD_cpu-strict: PASS (33/33, skipped 0, warnings 0, 51 s)
+BUILD_cpu: PASS (33/33, skipped 0, warnings 0, 51 s)
+BUILD_cuda-strict: PASS (39/39, skipped 0, warnings 0, 79 s)
+BUILD_cuda: PASS (39/39, skipped 0, warnings 0, 78 s)
+DEVICE: NVIDIA GeForce RTX 4050 Laptop GPU, CC 8.9, SM 20, L2 24.0 MiB, memory 6140 MiB, SM clock 2055 MHz (attribute)
+SMI_WSL: /usr/lib/wsl/lib/nvidia-smi (driver 621.14); VALUE 32, NA 2, INVALID 0; NA: temperature.memory power.limit
+SMI_WIN: /mnt/c/Windows/system32/nvidia-smi.exe (driver 621.14); VALUE 32, NA 2, INVALID 0; NA: temperature.memory power.limit
+LOAD: ctest -L gpu of cuda x5, exit 0,0,0,0,0, tests 5 per run, skipped 0 in the last, 6 s, 5 s at rest before and after
+SAMPLES_WSL: 129 samples (rest 38, load 50, rest 40, 1 after the stop), period 126 ms; clocks.sm max 2055 MHz; temperature.gpu max 53.4 C; power.draw min/mean/max 2.62/10.24/16.66 W
+SAMPLES_WIN: 147 samples (rest 45, load 56, rest 45, 1 after the stop), period 110 ms; clocks.sm max 2055 MHz; temperature.gpu max 53.49 C; power.draw min/mean/max 2.65/10.04/16.15 W; children stopped
+REGISTRY_ENABLEINTERFACE: ENABLED (0x1)
+SANITIZER_smoke_simt: ATTACHED_CLEAN (ERROR SUMMARY: 0 errors; SIMT_VERDICT: PASS)
+SANITIZER_test_curand_philox: ATTACHED_CLEAN (ERROR SUMMARY: 0 errors; T11_GPU_VERDICT: PASS)
+GIT_STATUS: PASS (11 entries, all in results/f08/env/)
+F08R1_VERDICT: PASS (total 284 s; full logs: /home/simone/sbmc_logs/f08r1/)

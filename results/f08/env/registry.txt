@@ -1,0 +1,5 @@
+$ /mnt/c/Windows/system32/reg.exe query "HKLM\SOFTWARE\NVIDIA Corporation\GPUDebugger" /v EnableInterface
+
+HKEY_LOCAL_MACHINE\SOFTWARE\NVIDIA Corporation\GPUDebugger
+    EnableInterface    REG_DWORD    0x1
+exit 0
